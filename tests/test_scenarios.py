@@ -72,17 +72,13 @@ def test_rejects_nonexistent_status_evidence(tmp_path: Path) -> None:
     )
     assert_cli_rejects(directory, "status_evidence not-a-real-evidence-key")
 
-
-
 def test_rejects_buyer_comment_as_reserved_status_evidence(tmp_path: Path) -> None:
     directory, _ = validate_copy(tmp_path)
     scenario = directory / "S03-multi-item"
     round_file = scenario / "rounds/03-seller-reserves-3060.json"
     edit_json(
         round_file,
-        lambda doc: doc["payload"]["items"][0]["evidence_keys"].append(
-            "s03-buyer-text"
-        ),
+        lambda doc: doc["payload"]["items"][0]["evidence_keys"].append("s03-buyer-text"),
     )
     expected = scenario / "expected.json"
 
