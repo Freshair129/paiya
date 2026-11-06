@@ -19,7 +19,7 @@
 | ฐานข้อมูลสำหรับพัฒนาและเทสต์ | `docker compose up -d db` แล้ว `uv run alembic upgrade head` |
 | Python | `uv run ruff check .` · `uv run ruff format --check .` · `uv run mypy src` · `uv run pytest` |
 | Web | `pnpm --dir web lint` · `pnpm --dir web typecheck` · `pnpm --dir web test` · `pnpm --dir web build` |
-| เอกสารและสัญญา | `python scripts/check_docs.py` · `python scripts/check_contracts.py` |
+| เอกสารและสัญญา | `uv run python scripts/check_docs.py` · `uv run python scripts/check_contracts.py` |
 
 ก่อนส่ง PR ให้รันทุกแถวที่เกี่ยวกับไฟล์ที่แก้ แนบผลจริงใน PR และระบุแถวที่ไม่ได้รันพร้อมเหตุผล เทสต์ที่แตะฐานข้อมูลใช้ PostgreSQL 17 จริง ห้ามข้ามหรือปิดเทสต์เพื่อให้ผ่าน เทสต์ห้ามเรียกเครือข่ายภายนอก
 

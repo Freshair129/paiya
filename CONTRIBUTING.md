@@ -15,7 +15,7 @@
 
 ใช้ [สารบัญและตารางเจ้าของเอกสาร](docs/README.md) เพื่อเลือกไฟล์ที่ต้องแก้ กำหนดรหัส PR/FR/AT และแนบผลตรวจที่ทำซ้ำได้ใน PR นั้น หากเลิกใช้ข้อกำหนด ให้เก็บรหัสเดิมพร้อมอ้างถึงข้อที่ใช้แทน เพื่อให้ Issue และผลทดสอบเก่ายังย้อนตรวจได้
 
-รัน `python scripts/check_docs.py` จากรากรีโปด้วย Python 3.12 ก่อนส่ง PR ที่แก้เอกสาร หากแก้ JSON Schema หรือ fixture ของสัญญาข้อมูล ให้ติดตั้ง `pip install -r requirements-dev.txt` แล้วรัน `python scripts/check_contracts.py`
+รัน `uv sync` แล้วใช้ `uv run python scripts/check_docs.py` จากรากรีโปด้วย Python 3.12 ก่อนส่ง PR ที่แก้เอกสาร หากแก้ JSON Schema หรือ fixture ของสัญญาข้อมูล ให้รัน `uv run python scripts/check_contracts.py` ด้วย คำสั่งฐานข้อมูลใน `AGENTS.md` ต้องตั้ง `PAIYA_DATABASE_URL` และเทสต์ฐานข้อมูลต้องตั้ง `PAIYA_TEST_DATABASE_URL` ให้ชี้ PostgreSQL 17 จริง
 
 ## สาขาและ worktree
 

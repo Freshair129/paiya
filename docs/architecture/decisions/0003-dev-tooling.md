@@ -25,7 +25,7 @@ SPEC กำหนด stack ระดับเทคโนโลยีไว้�
 - โค้ดต้องรันได้ทั้ง Windows และ Linux ใช้ `pathlib` และ config จาก environment variable ห้ามเขียน shell script ที่ใช้ได้ระบบเดียวเป็นทางหลัก CI ตรวจบน Linux ส่วนการรันบน Windows ผู้ดูแลตรวจตอนรับมอบระยะ
 - เทสต์ห้ามเรียกเครือข่ายภายนอก ใช้ fixture สังเคราะห์ใน `fixtures/` เท่านั้น
 - ค่าที่ใช้เชื่อมฐานข้อมูลอ่านจาก `PAIYA_DATABASE_URL` และสำหรับเทสต์จาก `PAIYA_TEST_DATABASE_URL` ห้ามใส่รหัสผ่านจริงในไฟล์ที่ commit
-- `requirements-dev.txt` และ `scripts/check_*.py` เดิมย้ายไปอยู่ใน dependency group ของ uv ในงาน A0 โดยคำสั่งตรวจเอกสารยังใช้ได้
+- ย้าย dependency ใน `requirements-dev.txt` ไป dependency group `dev` ของ uv และลบไฟล์เดิม เก็บสคริปต์ `scripts/check_*.py` ไว้ตามเดิม แต่เปลี่ยนคำสั่งตรวจเอกสารให้ใช้ `uv run python scripts/check_docs.py` และ `uv run python scripts/check_contracts.py` เพื่อใช้ dependency ที่ติดตั้งโดย uv
 
 ## ทางเลือกที่ไม่เลือก
 

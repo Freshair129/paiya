@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: paiya
+      POSTGRES_PASSWORD: paiya_dev_only
+      POSTGRES_DB: paiya_dev
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - paiya_pgdata:/var/lib/postgresql/data
+      - ./migrations/dev-init.sql:/docker-entrypoint-initdb.d/01-test.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paiya -d paiya_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  paiya_pgdata:
