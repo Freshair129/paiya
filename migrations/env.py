@@ -3,9 +3,10 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import MetaData, create_engine, pool
+from sqlalchemy import create_engine, pool
 
 from paiya.settings import get_database_url
+from paiya.store.tables import metadata
 
 config = context.config
 
@@ -13,7 +14,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # A0 contains no business tables. Later migrations will register their metadata.
-target_metadata = MetaData()
+target_metadata = metadata
 
 
 def run_migrations_offline() -> None:
