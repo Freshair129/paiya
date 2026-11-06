@@ -72,6 +72,7 @@ def test_rejects_nonexistent_status_evidence(tmp_path: Path) -> None:
     )
     assert_cli_rejects(directory, "status_evidence not-a-real-evidence-key")
 
+
 def test_rejects_buyer_comment_as_reserved_status_evidence(tmp_path: Path) -> None:
     directory, _ = validate_copy(tmp_path)
     scenario = directory / "S03-multi-item"
