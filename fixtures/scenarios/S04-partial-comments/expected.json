@@ -1,0 +1,34 @@
+{
+  "scenario_id": "S04",
+  "at": [
+    "AT-04"
+  ],
+  "runs": [
+    {
+      "name": "partial-two-visible-from-five",
+      "arrival_order": [
+        "01-partial.json"
+      ],
+      "expect": {
+        "observations": 1,
+        "items": {
+          "sku3070": {
+            "current_status": "unknown",
+            "status_history": [],
+            "ask": {
+              "amount": "7200",
+              "currency": "THB"
+            },
+            "status_evidence": null
+          }
+        },
+        "activity": {
+          "source_reported_comment_count": 5,
+          "distinct_comments_seen": 2,
+          "distinct_known_commenters_seen": 1,
+          "coverage": "partial"
+        }
+      }
+    }
+  ]
+}

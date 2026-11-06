@@ -1,0 +1,65 @@
+{
+  "run_id": "a1020000-0000-4000-8000-000000000001",
+  "capture_id": "s02/post-02/capture-1",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {
+    "session": "ok",
+    "sort": "verified_latest"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-s02",
+    "source_post_key": "post-02",
+    "permalink": "https://example.invalid/paiya/s02/post-02",
+    "observed_at": "2026-11-07T09:00:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T08:00:00Z",
+      "value": "2026-11-07T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-s02",
+      "external_actor_key": "seller-S02",
+      "display_name": "ผู้ขายสมมติ"
+    },
+    "items": [
+      {
+        "source_item_key": "sku3060",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "5800",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "s02-open1"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "s02-open1",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "3060 12GB 5,800 บาท เปิดขาย"
+        },
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}

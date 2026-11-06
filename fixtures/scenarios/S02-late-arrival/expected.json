@@ -1,0 +1,58 @@
+{
+  "scenario_id": "S02",
+  "at": [
+    "AT-08"
+  ],
+  "runs": [
+    {
+      "name": "late-reservation-arrives-last",
+      "arrival_order": [
+        "01-open.json",
+        "03-open.json",
+        "02-reserved.json"
+      ],
+      "expect": {
+        "observations": 3,
+        "items": {
+          "sku3060": {
+            "current_status": "open",
+            "status_history": [
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T09:00:00Z",
+                "evidence": {
+                  "round": "01-open.json",
+                  "local_key": "s02-open1"
+                }
+              },
+              {
+                "status": "reserved",
+                "observed_at": "2026-11-07T09:30:00Z",
+                "evidence": {
+                  "round": "02-reserved.json",
+                  "local_key": "s02-reserved"
+                }
+              },
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T10:00:00Z",
+                "evidence": {
+                  "round": "03-open.json",
+                  "local_key": "s02-open3"
+                }
+              }
+            ],
+            "ask": {
+              "amount": "5800",
+              "currency": "THB"
+            },
+            "status_evidence": {
+              "round": "03-open.json",
+              "local_key": "s02-open3"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
