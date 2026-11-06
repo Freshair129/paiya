@@ -37,7 +37,7 @@ def validate_observation(document: dict[str, Any]) -> None:
     if activity is not None:
         if activity["distinct_known_commenters_seen"] > activity["distinct_comments_seen"]:
             raise ValueError("Known commenter count exceeds seen comments")
-        if comments and len(comments) != activity["distinct_comments_seen"]:
+        if "comments" in payload and len(comments) != activity["distinct_comments_seen"]:
             raise ValueError("Visible comment count differs from comments array")
 
     for entry in payload.get("items", []):
@@ -70,11 +70,3 @@ def validate_observation(document: dict[str, Any]) -> None:
                 raise ValueError(f"Evidence {key} comment offsets do not match quote")
         elif span["quote"] not in text:
             raise ValueError(f"Evidence {key} quote not found in comment")
-        comment = next(row for row in comments if row["source_comment_key"] == span["comment_key"])
-        if entry["role"] != comment["role"]:
-            raise ValueError(f"Evidence {key} role differs from comment role")
-        if entry["role"] == "seller":
-            seller = payload.get("seller")
-            seller_key = seller.get("external_actor_key") if isinstance(seller, dict) else None
-            if not seller_key or comment["actor_key"] != seller_key:
-                raise ValueError(f"Evidence {key} seller actor_key mismatch")

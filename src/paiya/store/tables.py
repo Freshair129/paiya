@@ -5,6 +5,7 @@ Future domains can extend this metadata through separate, reviewed migrations.
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -12,10 +13,12 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Integer,
     MetaData,
+    SmallInteger,
     String,
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
@@ -25,8 +28,13 @@ groups = Table(
     "groups",
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True),
-    Column("source_key", Text, nullable=False, unique=True),
-    Column("source_kind", Text, nullable=False),
+    Column("source", Text, nullable=False),
+    Column("group_key", Text, nullable=False),
+    Column("canonical_url", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False, server_default=text("true")),
+    Column("poll_minutes", SmallInteger, nullable=True),
+    Column("discovery_checkpoint", JSONB, nullable=True),
+    UniqueConstraint("source", "group_key", name="uq_groups_source_group_key"),
 )
 
 source_grants = Table(
@@ -36,8 +44,12 @@ source_grants = Table(
     Column("group_id", UUID(as_uuid=True), ForeignKey("groups.id"), nullable=False),
     Column("source_kind", Text, nullable=False),
     Column("scopes", ARRAY(Text), nullable=False),
+    Column("authority_ref", Text, nullable=False),
     Column("valid_from", DateTime(timezone=True), nullable=False),
+    Column("valid_until", DateTime(timezone=True), nullable=True),
     Column("revoked_at", DateTime(timezone=True), nullable=True),
+    Column("retention_days", Integer, nullable=False),
+    CheckConstraint("retention_days > 0", name="ck_source_grants_retention_days"),
     UniqueConstraint("id", "group_id", name="uq_grants_id_group"),
 )
 
@@ -64,7 +76,8 @@ capture_runs = Table(
     Column("group_id", UUID(as_uuid=True), nullable=False),
     Column("grant_id", UUID(as_uuid=True), nullable=False),
     Column("source_kind", Text, nullable=False),
-    Column("job_kind", Text, nullable=False),
+    Column("session_result", Text, nullable=True),
+    Column("sort_result", Text, nullable=True),
     ForeignKeyConstraint(
         ["grant_id", "group_id"],
         ["source_grants.id", "source_grants.group_id"],
@@ -77,12 +90,11 @@ sellers = Table(
     "sellers",
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True),
-    Column("source_kind", Text, nullable=False),
+    Column("source", Text, nullable=False),
     Column("identity_scope", Text, nullable=False),
     Column("external_actor_key", Text, nullable=False),
-    Column("display_name", Text, nullable=True),
     UniqueConstraint(
-        "source_kind",
+        "source",
         "identity_scope",
         "external_actor_key",
         name="uq_seller_stable_identity",
@@ -97,6 +109,7 @@ posts = Table(
     Column("source_post_key", Text, nullable=False),
     Column("permalink", Text, nullable=False),
     Column("seller_id", UUID(as_uuid=True), ForeignKey("sellers.id"), nullable=True),
+    Column("posted_at", DateTime(timezone=True), nullable=True),
     UniqueConstraint("group_id", "source_post_key", name="uq_posts_source"),
     UniqueConstraint("id", "group_id", name="uq_posts_group"),
 )
@@ -106,9 +119,14 @@ listing_items = Table(
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True),
     Column("post_id", UUID(as_uuid=True), ForeignKey("posts.id"), nullable=False),
-    Column("source_item_key", Text, nullable=False),
-    Column("model", Text, nullable=True),
-    Column("condition_text", Text, nullable=True),
+    Column("source_item_key", Text, nullable=True),
+    Column("model_key", Text, nullable=True),
+    Column("variant", Text, nullable=True),
+    Column("vram_gb", SmallInteger, nullable=True),
+    Column("condition", Text, nullable=True),
+    Column("unit", Text, nullable=False),
+    Column("resolution", Text, nullable=False),
+    CheckConstraint("resolution IN ('keyed', 'unresolved', 'bundle')", name="ck_items_resolution"),
     UniqueConstraint("post_id", "source_item_key", name="uq_items_source"),
     UniqueConstraint("id", "post_id", name="uq_items_post"),
 )
@@ -123,8 +141,14 @@ observations = Table(
     Column("grant_id", UUID(as_uuid=True), nullable=False),
     Column("capture_id", Text, nullable=False, unique=True),
     Column("observed_at", DateTime(timezone=True), nullable=False),
+    Column("source_time", DateTime(timezone=True), nullable=True),
+    Column("source_time_precision", Text, nullable=False),
     Column("access", Text, nullable=False),
-    Column("activity", JSONB, nullable=True),
+    Column("coverage", Text, nullable=True),
+    Column("parser_version", Text, nullable=False),
+    Column("source_reported_comment_count", Integer, nullable=True),
+    Column("distinct_comments_seen", Integer, nullable=True),
+    Column("distinct_known_commenters_seen", Integer, nullable=True),
     Column("payload_hash", String(64), nullable=False),
     Column("normalized_json", JSONB, nullable=False),
     ForeignKeyConstraint(
@@ -143,6 +167,7 @@ observations = Table(
         name="fk_observations_grant_scope",
     ),
     UniqueConstraint("run_id", "post_id", name="uq_observations_run_post"),
+    UniqueConstraint("id", "post_id", name="uq_observations_id_post"),
     UniqueConstraint("id", "post_id", "grant_id", name="uq_observations_evidence_scope"),
 )
 
@@ -151,21 +176,41 @@ comments = Table(
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True),
     Column("post_id", UUID(as_uuid=True), ForeignKey("posts.id"), nullable=False),
-    Column("source_comment_key", Text, nullable=False),
+    Column("source_comment_key", Text, nullable=True),
+    Column("parent_id", UUID(as_uuid=True), nullable=True),
+    ForeignKeyConstraint(
+        ["parent_id", "post_id"],
+        ["comments.id", "comments.post_id"],
+        name="fk_comments_parent_post",
+    ),
     UniqueConstraint("post_id", "source_comment_key", name="uq_comment_source"),
+    UniqueConstraint("id", "post_id", name="uq_comments_id_post"),
 )
 
 comment_versions = Table(
     "comment_versions",
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True),
-    Column("comment_id", UUID(as_uuid=True), ForeignKey("comments.id"), nullable=False),
-    Column("observation_id", UUID(as_uuid=True), ForeignKey("observations.id"), nullable=False),
+    Column("comment_id", UUID(as_uuid=True), nullable=False),
+    Column("observation_id", UUID(as_uuid=True), nullable=False),
+    Column("post_id", UUID(as_uuid=True), nullable=False),
     Column("role", Text, nullable=False),
     Column("actor_key", Text, nullable=True),
     Column("body", Text, nullable=False),
-    Column("source_time", JSONB, nullable=False),
+    Column("source_time", DateTime(timezone=True), nullable=True),
+    Column("body_hash", String(64), nullable=False),
+    ForeignKeyConstraint(
+        ["comment_id", "post_id"],
+        ["comments.id", "comments.post_id"],
+        name="fk_comment_versions_comment_post",
+    ),
+    ForeignKeyConstraint(
+        ["observation_id", "post_id"],
+        ["observations.id", "observations.post_id"],
+        name="fk_comment_versions_observation_post",
+    ),
     UniqueConstraint("comment_id", "observation_id", name="uq_comment_version_observation"),
+    UniqueConstraint("id", "observation_id", name="uq_comment_versions_id_observation"),
 )
 
 media_assets = Table(
@@ -189,13 +234,14 @@ evidence = Table(
     Column("post_id", UUID(as_uuid=True), nullable=False),
     Column("grant_id", UUID(as_uuid=True), nullable=False),
     Column("item_id", UUID(as_uuid=True), nullable=True),
-    Column("comment_version_id", UUID(as_uuid=True), ForeignKey("comment_versions.id")),
-    Column("media_asset_id", UUID(as_uuid=True), ForeignKey("media_assets.id")),
+    Column("comment_version_id", UUID(as_uuid=True), nullable=True),
+    Column("media_asset_id", UUID(as_uuid=True), ForeignKey("media_assets.id"), nullable=True),
     Column("local_key", Text, nullable=False),
     Column("role", Text, nullable=False),
     Column("source_span", JSONB, nullable=True),
     Column("media_state", Text, nullable=False),
     Column("media_reason", Text, nullable=True),
+    Column("captured_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(
         ["observation_id", "post_id", "grant_id"],
         ["observations.id", "observations.post_id", "observations.grant_id"],
@@ -205,6 +251,15 @@ evidence = Table(
         ["item_id", "post_id"],
         ["listing_items.id", "listing_items.post_id"],
         name="fk_evidence_item_post",
+    ),
+    ForeignKeyConstraint(
+        ["comment_version_id", "observation_id"],
+        ["comment_versions.id", "comment_versions.observation_id"],
+        name="fk_evidence_comment_version_observation",
+    ),
+    CheckConstraint(
+        "(media_state = 'captured') = (media_asset_id IS NOT NULL)",
+        name="ck_evidence_captured_has_asset",
     ),
     UniqueConstraint("observation_id", "local_key", name="uq_evidence_local_key"),
 )
