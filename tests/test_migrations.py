@@ -1,5 +1,6 @@
 """Real PostgreSQL 17 migration smoke test. Never silently skip this test."""
 
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -10,10 +11,15 @@ from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
+from paiya.ingest.service import ingest_fixture
+from paiya.store.fixture_scope import seed_fixture_scope
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_upgrade_and_downgrade_on_postgres17(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upgrade_and_downgrade_on_postgres17(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     url = os.environ.get("PAIYA_TEST_DATABASE_URL")
     if not url:
         pytest.fail(
@@ -39,7 +45,20 @@ def test_upgrade_and_downgrade_on_postgres17(monkeypatch: pytest.MonkeyPatch) ->
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0002_fixture_ingest"
+        assert revision == "0003_discovery_queue"
+        scope = seed_fixture_scope(engine, "synthetic-migration")
+        sample = ROOT / "fixtures/scenarios/S01-reserve-reopen/rounds/01-open.json"
+        envelope = json.loads(sample.read_text(encoding="utf-8"))
+        envelope["payload"]["group_key"] = scope.group_key
+        ingest_fixture(engine, scope, envelope, {}, tmp_path)
+        command.downgrade(alembic, "0002_fixture_ingest")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM observations")).scalar_one() == 1
+        command.upgrade(alembic, "head")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT state FROM jobs")).scalar_one() == "succeeded"
+            assert connection.execute(text("SELECT started_at FROM capture_runs")).scalar_one()
+            assert connection.execute(text("SELECT count(*) FROM observations")).scalar_one() == 1
         command.downgrade(alembic, "base")
         with engine.connect() as connection:
             remaining = connection.execute(
@@ -50,7 +69,7 @@ def test_upgrade_and_downgrade_on_postgres17(monkeypatch: pytest.MonkeyPatch) ->
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "0002_fixture_ingest"
+                == "0003_discovery_queue"
             )
     finally:
         engine.dispose()

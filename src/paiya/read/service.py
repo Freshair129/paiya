@@ -7,8 +7,8 @@ import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
@@ -349,10 +349,7 @@ def read_group_runs(
         cursor_started_at, cursor_id = _decode_run_cursor(cursor)
         run_query = run_query.where(
             (capture_runs.c.started_at < cursor_started_at)
-            | (
-                (capture_runs.c.started_at == cursor_started_at)
-                & (capture_runs.c.id < cursor_id)
-            )
+            | ((capture_runs.c.started_at == cursor_started_at) & (capture_runs.c.id < cursor_id))
         )
     run_rows = (
         conn.execute(
@@ -389,10 +386,7 @@ def read_group_runs(
         range_start = min(
             _scheduled_for(row["kind"], row["logical_key"], row["due_at"]) for row in page
         )
-        range_end = max(
-            cast(datetime, row["ended_at"] or row["started_at"])
-            for row in page
-        )
+        range_end = max(cast(datetime, row["ended_at"] or row["started_at"]) for row in page)
         gap_rows = (
             conn.execute(
                 select(

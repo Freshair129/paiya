@@ -48,7 +48,7 @@
             "partial_reasons": {
               "type": "array",
               "uniqueItems": true,
-              "items": { "enum": ["sort_unverified", "budget_before_overlap", "parse_failures"] }
+              "items": { "enum": ["sort_unverified", "budget_before_overlap", "feed_stopped_before_overlap", "parse_failures"] }
             },
             "cards_seen": { "type": "integer", "minimum": 0 },
             "cards_parsed": { "type": "integer", "minimum": 0 },

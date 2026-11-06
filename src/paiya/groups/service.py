@@ -31,14 +31,11 @@ def _lock_capacity(conn: Connection) -> None:
 
 
 def _enabled_count(conn: Connection) -> int:
-    return cast(
-        int,
-        conn.execute(
-            select(func.count())
-            .select_from(groups)
-            .where(groups.c.enabled.is_(True), groups.c.poll_minutes.is_not(None))
-        ).scalar_one(),
-    )
+    return conn.execute(
+        select(func.count())
+        .select_from(groups)
+        .where(groups.c.enabled.is_(True), groups.c.poll_minutes.is_not(None))
+    ).scalar_one()
 
 
 def _group_row(conn: Connection, group_id: UUID, *, lock: bool = False) -> dict[str, Any]:
@@ -96,9 +93,7 @@ def _public_group(row: dict[str, Any], grant_available: bool) -> dict[str, Any]:
     }
 
 
-def add_group(
-    conn: Connection, now: datetime, group_key: str, poll_minutes: int
-) -> dict[str, Any]:
+def add_group(conn: Connection, now: datetime, group_key: str, poll_minutes: int) -> dict[str, Any]:
     """Add or activate a synthetic fixture group with a capture grant."""
     _check_now(now)
     _check_interval(poll_minutes)

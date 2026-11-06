@@ -6,8 +6,8 @@ Revises: 0002_fixture_ingest
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0003_discovery_queue"
@@ -147,9 +147,7 @@ def upgrade() -> None:
             "reason IN ('missed_slots', 'run_failed')", name="ck_capture_gaps_reason"
         ),
     )
-    op.create_index(
-        "ix_capture_gaps_group_gap_from", "capture_gaps", ["group_id", "gap_from"]
-    )
+    op.create_index("ix_capture_gaps_group_gap_from", "capture_gaps", ["group_id", "gap_from"])
     op.create_index(
         "ix_jobs_queued_due",
         "jobs",

@@ -73,8 +73,9 @@ def execute_discovery(
     with engine.connect() as conn:
         existing_run = (
             conn.execute(
-                select(capture_runs.c.id, capture_runs.c.group_id, capture_runs.c.grant_id)
-                .where(capture_runs.c.id == claim.run_id)
+                select(capture_runs.c.id, capture_runs.c.group_id, capture_runs.c.grant_id).where(
+                    capture_runs.c.id == claim.run_id
+                )
             )
             .mappings()
             .one_or_none()
@@ -85,7 +86,7 @@ def execute_discovery(
             or existing_run["grant_id"] != scope.grant_id
         ):
             raise PermissionError("The claimed capture run does not match the fixture scope")
-        preexisting_keys = set(
+        preexisting_keys: set[str] = set(
             conn.execute(
                 select(posts.c.source_post_key).where(posts.c.group_id == scope.group_id)
             ).scalars()
@@ -122,11 +123,7 @@ def execute_discovery(
                 cards_seen += 1
                 if card.parse != "ok" or card.source_post_key is None or card.envelope is None:
                     parse_failures = True
-                    if (
-                        not card.pinned
-                        and not card.suggested
-                        and not overlap_reached_in_batch
-                    ):
+                    if not card.pinned and not card.suggested and not overlap_reached_in_batch:
                         consecutive_overlap = 0
                     continue
 
@@ -192,6 +189,8 @@ def execute_discovery(
             partial_reasons.append("sort_unverified")
         if stop_reason in {"time_budget_exhausted", "scroll_budget_exhausted"}:
             partial_reasons.append("budget_before_overlap")
+        if stop_reason == "feed_end" and preexisting_keys:
+            partial_reasons.append("feed_stopped_before_overlap")
         if parse_failures:
             partial_reasons.append("parse_failures")
         coverage = "partial" if partial_reasons else "complete"

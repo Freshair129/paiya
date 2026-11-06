@@ -1,5 +1,6 @@
 """PostgreSQL-backed discovery slot scheduling and lease ownership."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -209,17 +210,21 @@ def schedule_due(conn: Connection, now: datetime) -> list[UUID]:
     normalized_now = _utc(now)
     scheduled: list[UUID] = []
     with atomic(conn):
-        ids = conn.execute(
-            select(groups.c.id)
-            .where(
-                groups.c.enabled.is_(True),
-                groups.c.source == "fixture",
-                groups.c.poll_minutes.in_((30, 60)),
+        ids: Sequence[UUID] = (
+            conn.execute(
+                select(groups.c.id)
+                .where(
+                    groups.c.enabled.is_(True),
+                    groups.c.source == "fixture",
+                    groups.c.poll_minutes.in_((30, 60)),
+                )
+                .order_by(groups.c.id)
             )
-            .order_by(groups.c.id)
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for group_id in ids:
-            job_id = _schedule_group_due(conn, normalized_now, cast(UUID, group_id))
+            job_id = _schedule_group_due(conn, normalized_now, group_id)
             if job_id is not None:
                 scheduled.append(job_id)
     return scheduled
@@ -279,9 +284,7 @@ def _grant_is_available(conn: Connection, job: dict[str, Any], now: datetime) ->
                 source_grants.c.valid_until,
                 source_grants.c.revoked_at,
             )
-            .select_from(
-                source_grants.join(groups, groups.c.id == source_grants.c.group_id)
-            )
+            .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
             .where(
                 source_grants.c.id == job["grant_id"],
                 source_grants.c.group_id == job["group_id"],
@@ -303,9 +306,13 @@ def _grant_is_available(conn: Connection, job: dict[str, Any], now: datetime) ->
 
 
 def _run_failed_gap(conn: Connection, job: dict[str, Any], now: datetime) -> None:
-    group = conn.execute(
-        select(groups.c.enabled, groups.c.poll_minutes).where(groups.c.id == job["group_id"])
-    ).mappings().one_or_none()
+    group = (
+        conn.execute(
+            select(groups.c.enabled, groups.c.poll_minutes).where(groups.c.id == job["group_id"])
+        )
+        .mappings()
+        .one_or_none()
+    )
     if group is None or not group["enabled"] or group["poll_minutes"] not in (30, 60):
         return
     gap_from = _scheduled_slot(job)
@@ -392,7 +399,7 @@ def claim_next(
     if conn.in_transaction():
         raise RuntimeError("claim_next requires a Connection with no active transaction")
     with conn.begin():
-        lock_acquired = conn.execute(
+        lock_acquired: bool = conn.execute(
             text("SELECT pg_try_advisory_xact_lock(:lock_key)"), {"lock_key": _CLAIM_LOCK}
         ).scalar_one()
         if not lock_acquired:

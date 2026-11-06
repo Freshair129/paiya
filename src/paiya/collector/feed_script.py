@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from paiya.collector.adapter import FeedCard, FeedRunData
 from paiya.collector.errors import AdapterError
@@ -84,8 +84,10 @@ class FeedScriptAdapter:
 
     def _read_envelope(self, name: str) -> dict[str, Any]:
         relative = PurePosixPath(name)
-        if relative.is_absolute() or not relative.parts or any(
-            part in {"", ".", ".."} for part in relative.parts
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
         ):
             raise AdapterError("adapter_error", "Envelope path must stay inside its feed scenario")
         root = self.feed_path.parent.resolve()

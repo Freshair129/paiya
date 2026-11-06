@@ -142,9 +142,7 @@ capture_gaps = Table(
     Column("detected_at", DateTime(timezone=True), nullable=False),
     Column("compensated_by_job_id", UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=True),
     CheckConstraint("gap_to > gap_from", name="ck_capture_gaps_positive_range"),
-    CheckConstraint(
-        "reason IN ('missed_slots', 'run_failed')", name="ck_capture_gaps_reason"
-    ),
+    CheckConstraint("reason IN ('missed_slots', 'run_failed')", name="ck_capture_gaps_reason"),
 )
 Index("ix_capture_gaps_group_gap_from", capture_gaps.c.group_id, capture_gaps.c.gap_from)
 
