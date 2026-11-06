@@ -32,8 +32,8 @@ CLI รันด้วย `uv run python -m paiya.cli groups <add|set-interval|p
 | รวมรอบที่พลาด | ถ้ามีงาน `queued` ของ slot เก่ากว่า slot ล่าสุด ให้ยกเลิกงานเก่า สร้างงานของ slot ล่าสุดหนึ่งงาน และบันทึก `capture_gaps` ตั้งแต่ slot ของงานเก่าถึง slot ล่าสุดด้วย `reason = missed_slots` และ `compensated_by_job_id` เป็นงานใหม่ |
 | จอง | เลือกงาน `queued` ที่ `due_at ≤ now` ด้วย `FOR UPDATE SKIP LOCKED` ตั้ง `state = leased`, `lease_token` ใหม่, `lease_until = now + lease` แล้ว commit ก่อนเริ่มอ่าน มี browser job ที่ `leased` ได้ครั้งละหนึ่งงานทั้งระบบ |
 | ต่ออายุและจบงาน | ต่อ lease และจบงานได้เฉพาะผู้ถือ `lease_token` ปัจจุบัน จบสำเร็จเป็น `succeeded` |
-| lease หมดอายุ | งานกลับเป็น `queued`, `retry_count + 1`, `due_at = now + backoff` และใช้ `capture_runs` แถวเดิม |
-| ล้มเหลวเกินจำนวน | เมื่อ `retry_count` ถึงค่าสูงสุดให้เป็น `failed` และบันทึก `capture_gaps` ของ slot นั้นด้วย `reason = run_failed` |
+| lease หมดอายุ | ถ้า `retry_count` ยังน้อยกว่าค่าสูงสุด งานกลับเป็น `queued`, `due_at = now + backoff[retry_count]` แล้วเพิ่ม `retry_count` ทีละหนึ่ง และใช้ `capture_runs` แถวเดิม เช่น ค่าสูงสุด 3 ได้ requeue สามครั้งด้วย backoff 1, 2 และ 4 นาที |
+| ล้มเหลวเกินจำนวน | lease หมดอายุขณะที่ `retry_count` เท่ากับค่าสูงสุดแล้ว (ครั้งที่สี่เมื่อค่าสูงสุดเป็น 3) ให้เป็น `failed` และบันทึก `capture_gaps` ของ slot นั้นด้วย `reason = run_failed` |
 
 ค่าเริ่มต้นที่ตั้งค่าได้: lease 5 นาที, retry สูงสุด 3 ครั้ง, backoff 1, 2, 4 นาที, งบต่อรอบ 120 วินาทีหรือ 30 ขั้นการเลื่อน, overlap 3 การ์ด ค่าทั้งหมดอ่านจาก configuration และเทสต์กำหนดเองได้
 
