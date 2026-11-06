@@ -194,6 +194,10 @@ def ingest_fixture(
                     grant_id=scope.grant_id,
                     kind=document["job_kind"],
                     logical_key=f"fixture:{scope.group_id}:{run_id}",
+                    target_key=f"fixture:{scope.group_id}:{run_id}",
+                    due_at=observed_at,
+                    state="succeeded",
+                    retry_count=0,
                 )
             )
             conn.execute(
@@ -203,6 +207,7 @@ def ingest_fixture(
                     group_id=scope.group_id,
                     grant_id=scope.grant_id,
                     source_kind="fixture",
+                    started_at=observed_at,
                     session_result=document["page_check"]["session"],
                     sort_result=document["page_check"]["sort"],
                 )

@@ -18,41 +18,45 @@ class FixtureScope:
 
 def seed_fixture_scope(engine: Engine, group_key: str) -> FixtureScope:
     """Provision an isolated synthetic grant; not exposed as an HTTP endpoint."""
+    now = datetime.now(UTC)
+    with engine.begin() as conn:
+        return seed_fixture_scope_in_transaction(conn, group_key, now)
+
+
+def seed_fixture_scope_in_transaction(
+    conn: Connection, group_key: str, now: datetime
+) -> FixtureScope:
+    """Seed the A3 fixture grant on a caller-owned transaction and clock."""
     if not group_key.startswith("synthetic-") or len(group_key) > 200:
         raise ValueError("Only explicit synthetic-* group keys may be seeded")
     group_id = uuid5(NAMESPACE_URL, f"paiya:fixture:group:{group_key}")
     grant_id = uuid5(NAMESPACE_URL, f"paiya:fixture:grant:{group_key}")
-    with engine.begin() as conn:
-        exists = conn.execute(
-            select(groups.c.id).where(groups.c.id == group_id)
-        ).scalar_one_or_none()
-        if exists is None:
-            conn.execute(
-                insert(groups).values(
-                    id=group_id,
-                    source="fixture",
-                    group_key=group_key,
-                    canonical_url=f"fixture://{group_key}",
-                )
+    exists = conn.execute(select(groups.c.id).where(groups.c.id == group_id)).scalar_one_or_none()
+    if exists is None:
+        conn.execute(
+            insert(groups).values(
+                id=group_id,
+                source="fixture",
+                group_key=group_key,
+                canonical_url=f"fixture://{group_key}",
             )
-        if (
-            conn.execute(
-                select(source_grants.c.id).where(source_grants.c.id == grant_id)
-            ).scalar_one_or_none()
-            is None
-        ):
-            conn.execute(
-                insert(source_grants).values(
-                    id=grant_id,
-                    group_id=group_id,
-                    source_kind="fixture",
-                    scopes=["read", "capture", "media", "comments"],
-                    authority_ref=f"synthetic-fixture-seed:{group_key}",
-                    valid_from=datetime.now(UTC),
-                    valid_until=None,
-                    retention_days=30,
-                )
+        )
+    grant_exists = conn.execute(
+        select(source_grants.c.id).where(source_grants.c.id == grant_id)
+    ).scalar_one_or_none()
+    if grant_exists is None:
+        conn.execute(
+            insert(source_grants).values(
+                id=grant_id,
+                group_id=group_id,
+                source_kind="fixture",
+                scopes=["read", "capture", "media", "comments"],
+                authority_ref=f"synthetic-fixture-seed:{group_key}",
+                valid_from=now,
+                valid_until=None,
+                retention_days=30,
             )
+        )
     return FixtureScope(group_id=group_id, grant_id=grant_id, group_key=group_key)
 
 
