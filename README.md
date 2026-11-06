@@ -8,7 +8,7 @@
 |---|---|
 | เข้าใจผู้ใช้ ขอบเขต MVP และหน้าจอ | [ข้อกำหนดผลิตภัณฑ์](docs/product/PRD.md) |
 | ดูว่าแต่ละส่วนรันที่ไหนและส่งข้อมูลอย่างไร | [ข้อกำหนดสถาปัตยกรรม](docs/architecture/SPEC.md) |
-| เริ่มเขียนโค้ดจากสัญญาข้อมูล API และเกณฑ์รับมอบ | [ข้อกำหนดระบบ](docs/requirements/SRS.md) |
+| เริ่มเขียนโค้ดจากสัญญาข้อมูล API และเกณฑ์รับมอบ | [สัญญาข้อมูลและ API](docs/architecture/contracts/collector-and-query.md) · [ข้อกำหนดระบบ](docs/requirements/SRS.md) |
 | หางานชิ้นแรกและหลักฐานที่ต้องใช้ปิดงาน | [แผนส่งมอบ](docs/delivery/ROADMAP.md) · [ตารางตรวจย้อนกลับ](docs/quality/TRACEABILITY.md) |
 
 **สำหรับผู้ร่วมพัฒนา** ก่อนหยิบงาน อ่านวิธีเปิด Issue เลือก branch และส่งหลักฐานใน [CONTRIBUTING.md](CONTRIBUTING.md) สำหรับ Agent ให้เริ่มที่ [AGENTS.md](AGENTS.md) เอกสารและบันทึกการตัดสินใจทุกฉบับอยู่ใน [สารบัญเอกสาร](docs/README.md)
