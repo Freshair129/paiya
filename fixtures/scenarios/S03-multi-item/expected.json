@@ -5,13 +5,74 @@
   ],
   "runs": [
     {
-      "name": "buyer-comment-not-seller-confirmation",
+      "name": "buyer-comment-is-not-confirmation",
       "arrival_order": [
         "01-open-both.json",
-        "02-seller-reserves-3060.json"
+        "02-buyer-only.json"
       ],
       "expect": {
         "observations": 2,
+        "items": {
+          "sku3060": {
+            "current_status": "open",
+            "status_history": [
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T09:00:00Z",
+                "evidence": {
+                  "round": "01-open-both.json",
+                  "local_key": "s03-01-3060"
+                }
+              }
+            ],
+            "ask": {
+              "amount": "5500",
+              "currency": "THB"
+            },
+            "status_evidence": {
+              "round": "01-open-both.json",
+              "local_key": "s03-01-3060"
+            }
+          },
+          "sku3070": {
+            "current_status": "open",
+            "status_history": [
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T09:00:00Z",
+                "evidence": {
+                  "round": "01-open-both.json",
+                  "local_key": "s03-01-3070"
+                }
+              }
+            ],
+            "ask": {
+              "amount": "7900",
+              "currency": "THB"
+            },
+            "status_evidence": {
+              "round": "01-open-both.json",
+              "local_key": "s03-01-3070"
+            }
+          }
+        },
+        "activity": {
+          "source_reported_comment_count": 1,
+          "distinct_comments_seen": 1,
+          "distinct_known_commenters_seen": 1,
+          "coverage": "complete"
+        }
+      }
+    },
+    {
+      "name": "seller-confirms-one-item-only",
+      "arrival_order": [
+        "01-open-both.json",
+        "02-buyer-only.json",
+        "03-seller-reserves-3060.json"
+      ],
+      "expect": {
+        "observations": 3,
         "items": {
           "sku3060": {
             "current_status": "reserved",
@@ -28,7 +89,7 @@
                 "status": "reserved",
                 "observed_at": "2026-11-07T09:30:00Z",
                 "evidence": {
-                  "round": "02-seller-reserves-3060.json",
+                  "round": "03-seller-reserves-3060.json",
                   "local_key": "s03-02-3060"
                 }
               }
@@ -38,7 +99,7 @@
               "currency": "THB"
             },
             "status_evidence": {
-              "round": "02-seller-reserves-3060.json",
+              "round": "03-seller-reserves-3060.json",
               "local_key": "s03-02-3060"
             }
           },
@@ -59,7 +120,7 @@
               "currency": "THB"
             },
             "status_evidence": {
-              "round": "02-seller-reserves-3060.json",
+              "round": "03-seller-reserves-3060.json",
               "local_key": "s03-02-3070"
             }
           }
