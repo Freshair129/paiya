@@ -29,11 +29,15 @@ def test_upgrade_and_downgrade_on_postgres17(monkeypatch: pytest.MonkeyPatch) ->
         alembic = Config(str(ROOT / "alembic.ini"))
         command.upgrade(alembic, "head")
         with engine.connect() as connection:
-            revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
         assert revision == "0001_initial_empty"
         command.downgrade(alembic, "base")
         with engine.connect() as connection:
-            remaining = connection.execute(text("SELECT COUNT(*) FROM alembic_version")).scalar_one()
+            remaining = connection.execute(
+                text("SELECT COUNT(*) FROM alembic_version")
+            ).scalar_one()
         assert remaining == 0
     finally:
         engine.dispose()

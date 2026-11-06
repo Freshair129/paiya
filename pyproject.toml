@@ -30,6 +30,8 @@ packages = ["src/paiya"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# Legacy documentation checkers predate A0 and are outside Issue #8 scope.
+extend-exclude = ["scripts/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
