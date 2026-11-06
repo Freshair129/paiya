@@ -3,7 +3,7 @@
 import hashlib
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -144,14 +144,14 @@ def get_post(post_id: UUID, scope: Scope, conn: Db) -> dict[str, Any]:
             for row in observed
         ],
     }
-    return jsonable_encoder(result)
+    return cast(dict[str, Any], jsonable_encoder(result))
 
 
 @router.get("/evidence/{evidence_id}")
 def get_evidence(evidence_id: UUID, scope: Scope, conn: Db) -> dict[str, Any]:
     _verify(conn, scope)
     row = _evidence_row(conn, scope, evidence_id)
-    return jsonable_encoder(dict(row))
+    return cast(dict[str, Any], jsonable_encoder(dict(row)))
 
 
 @router.get("/evidence/{evidence_id}/media")

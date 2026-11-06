@@ -94,7 +94,7 @@ def ingest_fixture(
                 raise PermissionError("capture_id belongs to another fixture scope")
             if duplicate["payload_hash"] != digest:
                 raise CaptureConflict("capture_id reused with different envelope content")
-            return duplicate["id"]
+            return cast(UUID, duplicate["id"])
 
         raw_seller = payload.get("seller")
         seller_id = None
@@ -245,7 +245,7 @@ def ingest_fixture(
                     for field in ("mime", "bytes", "width", "height")
                 ):
                     raise ValueError("Conflicting metadata for content-addressed media")
-                media_id = existing_media["id"]
+                media_id = cast(UUID, existing_media["id"])
             else:
                 media_id = uuid4()
                 conn.execute(

@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 SCHEMA = (
     Path(__file__).resolve().parents[3] / "docs/architecture/contracts/observation.v1.schema.json"
