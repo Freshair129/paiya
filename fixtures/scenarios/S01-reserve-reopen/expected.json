@@ -1,0 +1,109 @@
+{
+  "scenario_id": "S01",
+  "at": [
+    "AT-08"
+  ],
+  "runs": [
+    {
+      "name": "chronological",
+      "arrival_order": [
+        "01-open.json",
+        "02-reserved.json",
+        "03-reopened.json"
+      ],
+      "expect": {
+        "observations": 3,
+        "items": {
+          "sku3060": {
+            "current_status": "open",
+            "status_history": [
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T09:00:00Z",
+                "evidence": {
+                  "round": "01-open.json",
+                  "local_key": "s01-open"
+                }
+              },
+              {
+                "status": "reserved",
+                "observed_at": "2026-11-07T09:30:00Z",
+                "evidence": {
+                  "round": "02-reserved.json",
+                  "local_key": "s01-reserved"
+                }
+              },
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T10:00:00Z",
+                "evidence": {
+                  "round": "03-reopened.json",
+                  "local_key": "s01-reopened"
+                }
+              }
+            ],
+            "ask": {
+              "amount": "5500",
+              "currency": "THB"
+            },
+            "status_evidence": {
+              "round": "03-reopened.json",
+              "local_key": "s01-reopened"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "retry-old-capture-after-reopen",
+      "arrival_order": [
+        "01-open.json",
+        "02-reserved.json",
+        "03-reopened.json",
+        "02-reserved.json"
+      ],
+      "expect": {
+        "observations": 3,
+        "items": {
+          "sku3060": {
+            "current_status": "open",
+            "status_history": [
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T09:00:00Z",
+                "evidence": {
+                  "round": "01-open.json",
+                  "local_key": "s01-open"
+                }
+              },
+              {
+                "status": "reserved",
+                "observed_at": "2026-11-07T09:30:00Z",
+                "evidence": {
+                  "round": "02-reserved.json",
+                  "local_key": "s01-reserved"
+                }
+              },
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T10:00:00Z",
+                "evidence": {
+                  "round": "03-reopened.json",
+                  "local_key": "s01-reopened"
+                }
+              }
+            ],
+            "ask": {
+              "amount": "5500",
+              "currency": "THB"
+            },
+            "status_evidence": {
+              "round": "03-reopened.json",
+              "local_key": "s01-reopened"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Paiya A1 scenario golden expectations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario_id",
+    "at",
+    "runs"
+  ],
+  "properties": {
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^S[0-9]{2}$"
+    },
+    "at": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^AT-[0-9]{2}$"
+      }
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "arrival_order",
+          "expect"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "arrival_order": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]{2}-[a-z0-9-]+\\.json$"
+            }
+          },
+          "expect": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "observations",
+              "items"
+            ],
+            "properties": {
+              "observations": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "items": {
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {
+                  "minLength": 1
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/item"
+                }
+              },
+              "activity": {
+                "$ref": "#/$defs/activity"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "local_key"
+      ],
+      "properties": {
+        "round": {
+          "type": "string",
+          "pattern": "^[0-9]{2}-[a-z0-9-]+\\.json$"
+        },
+        "local_key": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_status",
+        "status_history",
+        "ask",
+        "status_evidence"
+      ],
+      "properties": {
+        "current_status": {
+          "enum": [
+            "unknown",
+            "open",
+            "reserved",
+            "sold",
+            "withdrawn"
+          ]
+        },
+        "status_history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "observed_at",
+              "evidence"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "open",
+                  "reserved",
+                  "sold",
+                  "withdrawn"
+                ]
+              },
+              "observed_at": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+              },
+              "evidence": {
+                "$ref": "#/$defs/evidence_ref"
+              }
+            }
+          }
+        },
+        "ask": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "amount",
+                "currency"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9]\\d*)(\\.\\d{1,2})?$"
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                }
+              }
+            }
+          ]
+        },
+        "status_evidence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/evidence_ref"
+            }
+          ]
+        }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_reported_comment_count",
+        "distinct_comments_seen",
+        "distinct_known_commenters_seen",
+        "coverage"
+      ],
+      "properties": {
+        "source_reported_comment_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "distinct_comments_seen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "distinct_known_commenters_seen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "none"
+          ]
+        }
+      }
+    }
+  }
+}

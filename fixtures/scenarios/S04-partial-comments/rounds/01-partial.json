@@ -1,0 +1,88 @@
+{
+  "run_id": "a1040000-0000-4000-8000-000000000001",
+  "capture_id": "s04/post-04/capture-1",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {
+    "session": "ok",
+    "sort": "verified_latest"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-s04",
+    "source_post_key": "post-04",
+    "permalink": "https://example.invalid/paiya/s04/post-04",
+    "observed_at": "2026-11-07T09:00:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T08:00:00Z",
+      "value": "2026-11-07T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-s04",
+      "external_actor_key": "seller-S04",
+      "display_name": "ผู้ขายสมมติ"
+    },
+    "items": [
+      {
+        "source_item_key": "sku3070",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": null,
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "7200",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "s04-ask"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 5,
+      "distinct_comments_seen": 2,
+      "distinct_known_commenters_seen": 1,
+      "coverage": "partial"
+    },
+    "comments": [
+      {
+        "source_comment_key": "s04-c1",
+        "role": "other",
+        "actor_key": "buyer-s04",
+        "text": "ขอดูสภาพเพิ่มได้ไหม",
+        "source_time": {
+          "source_text": "2026-11-07T08:45:00Z",
+          "value": "2026-11-07T08:45:00Z",
+          "precision": "exact"
+        }
+      },
+      {
+        "source_comment_key": "s04-c2",
+        "role": "other",
+        "actor_key": "buyer-s04",
+        "text": "ขอบคุณครับ",
+        "source_time": {
+          "source_text": "2026-11-07T08:55:00Z",
+          "value": "2026-11-07T08:55:00Z",
+          "precision": "exact"
+        }
+      }
+    ],
+    "evidence": [
+      {
+        "local_key": "s04-ask",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "RTX 3070 8GB ราคา 7,200 บาท"
+        },
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}
