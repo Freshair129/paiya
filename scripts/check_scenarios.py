@@ -4,6 +4,7 @@ No network calls and no business decision engine: expected status labels are
 reviewed against the SRS, not calculated from implementation under test.
 """
 
+import argparse
 import json
 import re
 import sys
@@ -168,11 +169,14 @@ def validate_scenarios(
 
 
 def main() -> int:
-    errors = validate_scenarios()
+    parser = argparse.ArgumentParser(description="Validate A1 synthetic scenario goldens")
+    parser.add_argument("--scenarios-dir", type=Path, default=SCENARIOS)
+    args = parser.parse_args()
+    errors = validate_scenarios(args.scenarios_dir)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    count = len([p for p in SCENARIOS.iterdir() if p.is_dir()])
+    count = len([p for p in args.scenarios_dir.iterdir() if p.is_dir()])
     print(f"Scenarios OK: {count} synthetic scenarios, all rounds and expectations valid.")
     return 0
 

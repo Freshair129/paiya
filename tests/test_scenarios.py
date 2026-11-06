@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import subprocess
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -24,6 +25,23 @@ def edit_json(path: Path, mutate: object) -> None:
     path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def assert_cli_rejects(directory: Path, fragment: str) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/check_scenarios.py"),
+            "--scenarios-dir",
+            str(directory),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert fragment in result.stderr
+
+
 def test_scenarios_are_valid(tmp_path: Path) -> None:
     directory, validate = validate_copy(tmp_path)
     assert validate(directory) == []
@@ -33,14 +51,14 @@ def test_rejects_invalid_round_schema(tmp_path: Path) -> None:
     directory, validate = validate_copy(tmp_path)
     round_file = directory / "S01-reserve-reopen/rounds/01-open.json"
     edit_json(round_file, lambda payload: payload["payload"].update(schema_version=999))
-    assert any("observation schema" in error for error in validate(directory))
+    assert_cli_rejects(directory, "observation schema")
 
 
 def test_rejects_missing_arrival_round(tmp_path: Path) -> None:
     directory, validate = validate_copy(tmp_path)
     expected = directory / "S02-late-arrival/expected.json"
     edit_json(expected, lambda doc: doc["runs"][0]["arrival_order"].append("99-missing.json"))
-    assert any("missing or invalid round" in error for error in validate(directory))
+    assert_cli_rejects(directory, "missing or invalid round")
 
 
 def test_rejects_nonexistent_status_evidence(tmp_path: Path) -> None:
@@ -52,4 +70,4 @@ def test_rejects_nonexistent_status_evidence(tmp_path: Path) -> None:
             local_key="not-a-real-evidence-key"
         ),
     )
-    assert any("status_evidence not-a-real-evidence-key" in error for error in validate(directory))
+    assert_cli_rejects(directory, "status_evidence not-a-real-evidence-key")
