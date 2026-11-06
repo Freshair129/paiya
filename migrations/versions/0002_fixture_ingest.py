@@ -11,6 +11,7 @@ from alembic import op
 # Intentionally snapshot the table definitions in this revision.
 # Importing evolving application metadata would change old migrations later.
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Column,
     DateTime,
@@ -23,7 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 metadata = MetaData()
 
@@ -41,7 +42,7 @@ source_grants = Table(
     Column("id", UUID(as_uuid=True), primary_key=True),
     Column("group_id", UUID(as_uuid=True), ForeignKey("groups.id"), nullable=False),
     Column("source_kind", Text, nullable=False),
-    Column("scopes", JSONB, nullable=False),
+    Column("scopes", ARRAY(Text), nullable=False),
     Column("valid_from", DateTime(timezone=True), nullable=False),
     Column("revoked_at", DateTime(timezone=True), nullable=True),
     UniqueConstraint("id", "group_id", name="uq_grants_id_group"),
@@ -181,7 +182,7 @@ media_assets = Table(
     Column("storage_key", Text, nullable=False, unique=True),
     Column("sha256", String(64), nullable=False, unique=True),
     Column("mime", Text, nullable=False),
-    Column("bytes", Integer, nullable=False),
+    Column("bytes", BigInteger, nullable=False),
     Column("width", Integer, nullable=False),
     Column("height", Integer, nullable=False),
     CheckConstraint("bytes > 0 AND width > 0 AND height > 0", name="ck_media_dimensions"),

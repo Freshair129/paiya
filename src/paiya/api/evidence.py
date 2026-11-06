@@ -1,6 +1,7 @@
 """Read-only fixture evidence routes. All scope is server-injected, never from headers."""
 
 import hashlib
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated, Any, cast
@@ -165,9 +166,10 @@ def get_evidence_media(
     if row["media_state"] != "captured" or row["sha256"] is None:
         raise HTTPException(status_code=404, detail="No captured image for this evidence")
     # Root comes from the trusted server configuration, not the client request.
-    root = Path(__import__("os").environ.get("PAIYA_FIXTURE_MEDIA_ROOT", "")).resolve()
-    if not __import__("os").environ.get("PAIYA_FIXTURE_MEDIA_ROOT"):
+    configured_root = os.environ.get("PAIYA_FIXTURE_MEDIA_ROOT")
+    if not configured_root:
         raise HTTPException(status_code=503, detail="Fixture media root not configured")
+    root = Path(configured_root).resolve()
     file_path = media_path(root, row["sha256"], row["mime"])
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Captured image missing from storage")
