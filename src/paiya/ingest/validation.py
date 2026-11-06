@@ -37,7 +37,7 @@ def validate_observation(document: dict[str, Any]) -> None:
     if activity is not None:
         if activity["distinct_known_commenters_seen"] > activity["distinct_comments_seen"]:
             raise ValueError("Known commenter count exceeds seen comments")
-        if "comments" in payload and len(comments) != activity["distinct_comments_seen"]:
+        if comments and len(comments) != activity["distinct_comments_seen"]:
             raise ValueError("Visible comment count differs from comments array")
 
     for entry in payload.get("items", []):
