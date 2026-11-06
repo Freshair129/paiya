@@ -266,7 +266,7 @@ def ingest_fixture(
             referenced = evidence_to_items.get(local_key, set())
             item_id = item_ids[next(iter(referenced))] if len(referenced) == 1 else None
             span = entry.get("source_span")
-            comment_id = (
+            linked_comment_version_id = (
                 versions.get(span["comment_key"])
                 if span is not None and span["field"] == "comment_text"
                 else None
@@ -278,7 +278,7 @@ def ingest_fixture(
                     post_id=post_id,
                     grant_id=scope.grant_id,
                     item_id=item_id,
-                    comment_version_id=comment_id,
+                    comment_version_id=linked_comment_version_id,
                     media_asset_id=media_by_evidence.get(local_key),
                     local_key=local_key,
                     role=entry["role"],
