@@ -15,6 +15,7 @@
 | [quality/buyer-acceptance.md](quality/buyer-acceptance.md) | ชุดสถานการณ์สังเคราะห์ร่วม การทดสอบขอบเขตสิทธิ์ และการวัดการใช้งานกับผู้ซื้อ | QA + Product owner |
 | [architecture/decisions/0001-observation-store.md](architecture/decisions/0001-observation-store.md) | บันทึกการเลือก PostgreSQL และคลังภาพในเครื่อง รวมถึงเงื่อนไขที่ควรทบทวน | Tech lead |
 | [architecture/decisions/0002-source-strategy.md](architecture/decisions/0002-source-strategy.md) | **เสนอเพื่อรับรอง** ขอบเขตนำเข้าเองสำหรับทดลอง M และสิทธิ์แยกสำหรับ Collector ระยะ B | Product owner + Tech lead |
+| [architecture/decisions/0003-dev-tooling.md](architecture/decisions/0003-dev-tooling.md) | **เสนอเพื่อรับรอง** เครื่องมือพัฒนา โครงสร้างรีโป และวิธีรันเทสต์บน Linux กับ Windows | Tech lead |
 | [quality/TRACEABILITY.md](quality/TRACEABILITY.md) | ตารางโยง PR → FR → AT และลิงก์ผลตรวจของแต่ละข้อ | QA |
 | [delivery/ROADMAP.md](delivery/ROADMAP.md) | ลำดับงาน สิ่งที่ต้องมีก่อน และหลักฐานจบแต่ละระยะ | Delivery lead |
 
