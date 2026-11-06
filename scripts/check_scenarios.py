@@ -29,6 +29,51 @@ def read_json(path: Path, errors: list[str]):
         return None
 
 
+def status_reference_error(payload: dict, local_key: str) -> str | None:
+    """Validate a status claim's speaker against the observed source.
+
+    Status is not established by a buyer comment, even if an item points to it.
+    Seller-authored comments must match the seller's stable identity in this round.
+    """
+    evidence = next(
+        (entry for entry in payload.get("evidence", []) if entry["local_key"] == local_key),
+        None,
+    )
+    if evidence is None:
+        return "missing evidence"
+    role = evidence["role"]
+    if role not in {"seller", "source_label"}:
+        return f"role {role!r} cannot confirm a sale status"
+
+    span = evidence.get("source_span")
+    if role == "source_label":
+        if not span or span["field"] != "source_label":
+            return "source_label role must cite a source_label field"
+        return None
+
+    if span and span["field"] == "source_label":
+        return "source_label field must have source_label role"
+    if span and span["field"] == "comment_text":
+        comment_key = span.get("comment_key")
+        comment = next(
+            (
+                entry
+                for entry in payload.get("comments", [])
+                if entry["source_comment_key"] == comment_key
+            ),
+            None,
+        )
+        if comment is None:
+            return f"comment {comment_key!r} was not found in this round"
+        if comment["role"] != "seller":
+            return f"comment {comment_key!r} has role {comment['role']!r}, not seller"
+        seller = payload.get("seller")
+        seller_key = seller.get("external_actor_key") if isinstance(seller, dict) else None
+        if not seller_key or comment.get("actor_key") != seller_key:
+            return f"seller actor_key mismatch for comment {comment_key!r}"
+    return None
+
+
 def validate_scenarios(
     scenarios_dir: Path = SCENARIOS,
     observation_schema_path: Path = OBSERVATION_SCHEMA,
@@ -157,6 +202,13 @@ def validate_scenarios(
                             f"{scenario_id}/{name}/{key}: status_evidence {local_key} "
                             f"not attached to that item in {filename}"
                         )
+                    else:
+                        reason = status_reference_error(payload, local_key)
+                        if reason:
+                            errors.append(
+                                f"{scenario_id}/{name}/{key}: status_evidence {local_key}: "
+                                f"{reason} in {filename}"
+                            )
             if "activity" in run["expect"]:
                 newest = max(inputs, key=lambda record: record["payload"]["observed_at"])
                 if run["expect"]["activity"] != newest["payload"].get("activity"):

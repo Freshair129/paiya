@@ -71,3 +71,73 @@ def test_rejects_nonexistent_status_evidence(tmp_path: Path) -> None:
         ),
     )
     assert_cli_rejects(directory, "status_evidence not-a-real-evidence-key")
+
+
+
+def test_rejects_buyer_comment_as_reserved_status_evidence(tmp_path: Path) -> None:
+    directory, _ = validate_copy(tmp_path)
+    scenario = directory / "S03-multi-item"
+    round_file = scenario / "rounds/03-seller-reserves-3060.json"
+    edit_json(
+        round_file,
+        lambda doc: doc["payload"]["items"][0]["evidence_keys"].append(
+            "s03-buyer-text"
+        ),
+    )
+    expected = scenario / "expected.json"
+
+    def use_buyer_as_seller(doc: dict) -> None:
+        item = doc["runs"][1]["expect"]["items"]["sku3060"]
+        item["status_history"][-1]["evidence"]["local_key"] = "s03-buyer-text"
+        item["status_evidence"]["local_key"] = "s03-buyer-text"
+
+    edit_json(expected, use_buyer_as_seller)
+    assert_cli_rejects(directory, "role 'other' cannot confirm a sale status")
+
+
+def test_rejects_mismatched_seller_actor_in_comment(tmp_path: Path) -> None:
+    directory, _ = validate_copy(tmp_path)
+    round_file = directory / "S03-multi-item/rounds/03-seller-reserves-3060.json"
+
+    def spoof_seller(doc: dict) -> None:
+        seller_comment = next(
+            comment
+            for comment in doc["payload"]["comments"]
+            if comment["source_comment_key"] == "s03-seller"
+        )
+        seller_comment["actor_key"] = "different-actor"
+
+    edit_json(round_file, spoof_seller)
+    assert_cli_rejects(directory, "seller actor_key mismatch")
+
+
+def test_rejects_comment_with_other_role_even_if_actor_matches(tmp_path: Path) -> None:
+    directory, _ = validate_copy(tmp_path)
+    round_file = directory / "S03-multi-item/rounds/03-seller-reserves-3060.json"
+
+    def wrong_comment_role(doc: dict) -> None:
+        seller_comment = next(
+            comment
+            for comment in doc["payload"]["comments"]
+            if comment["source_comment_key"] == "s03-seller"
+        )
+        seller_comment["role"] = "other"
+
+    edit_json(round_file, wrong_comment_role)
+    assert_cli_rejects(directory, "not seller")
+
+
+def test_accepts_source_label_as_status_evidence(tmp_path: Path) -> None:
+    directory, validate = validate_copy(tmp_path)
+    round_file = directory / "S01-reserve-reopen/rounds/01-open.json"
+
+    def use_source_label(doc: dict) -> None:
+        evidence = doc["payload"]["evidence"][0]
+        evidence["role"] = "source_label"
+        evidence["source_span"] = {
+            "field": "source_label",
+            "quote": doc["payload"]["items"][0]["source_status_label"],
+        }
+
+    edit_json(round_file, use_source_label)
+    assert validate(directory) == []
