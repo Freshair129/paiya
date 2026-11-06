@@ -1,0 +1,28 @@
+# Temporary branch-only workflow. Removed before requesting review.
+name: A0 bootstrap lockfiles
+on:
+  push:
+    branches: [chore/8-scaffold]
+permissions:
+  contents: write
+jobs:
+  locks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - run: corepack enable
+      - run: uv lock
+      - run: pnpm --dir web install --lockfile-only
+      - name: Commit resolved lockfiles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock web/pnpm-lock.yaml
+          git commit -m "chore: resolve A0 dependency lockfiles"
+          git push
