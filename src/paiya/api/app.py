@@ -2,7 +2,10 @@
 
 from fastapi import FastAPI
 
+from paiya.api.evidence import router as fixture_read_router
+
 app = FastAPI(title="Paiya", version="0.1.0")
+app.include_router(fixture_read_router)
 
 
 @app.get("/healthz")
