@@ -51,7 +51,7 @@ Adapter รับกลุ่ม งบ และ overlap แล้วคืน 
 | `scroll_steps` | จำนวนขั้นการเลื่อนที่ใช้ |
 | `stop_reason` | `overlap_reached`, `feed_end`, `time_budget_exhausted`, `scroll_budget_exhausted`, `access_blocked` |
 | `coverage` | `complete`, `partial`, `none` เป็น NULL ระหว่างทำงาน |
-| `partial_reasons` | อาร์เรย์ของ `sort_unverified`, `budget_before_overlap`, `parse_failures` ว่างเมื่อ `coverage` ไม่ใช่ `partial` |
+| `partial_reasons` | อาร์เรย์ของ `sort_unverified`, `budget_before_overlap`, `feed_stopped_before_overlap`, `parse_failures` ว่างเมื่อ `coverage` ไม่ใช่ `partial` |
 | `error_code` | `session_required`, `challenge_required`, `permission_denied`, `grant_unavailable`, `adapter_error` หรือ NULL |
 
 **Overlap** ถึงเมื่อพบการ์ดที่ไม่ปักหมุดและไม่ใช่โพสต์แนะนำติดกันตามจำนวน overlap ซึ่ง `source_post_key` มีอยู่แล้วใน `posts` ของกลุ่มก่อนรอบนี้เริ่ม การ์ดปักหมุดและแนะนำยังนำเข้าได้แต่ไม่นับต่อเนื่องและไม่ตัดลำดับ
@@ -59,8 +59,8 @@ Adapter รับกลุ่ม งบ และ overlap แล้วคืน 
 **ตัดสิน coverage**
 
 1. `access_blocked` หรือไม่มีการ์ดที่อ่านได้ → `none` และตั้ง `error_code`
-2. มีเหตุใดเหตุหนึ่งต่อไปนี้ → `partial` พร้อมเหตุทุกข้อที่เข้าเงื่อนไข: `sort_result = unverified` (FR-02), หยุดด้วยงบก่อนถึง overlap (FR-03 รวมรอบแรกที่ยังไม่มีโพสต์เดิม), มีการ์ดที่แยก stable key ไม่ได้
-3. นอกนั้น → `complete`
+2. มีเหตุใดเหตุหนึ่งต่อไปนี้ → `partial` พร้อมเหตุทุกข้อที่เข้าเงื่อนไข: `sort_result = unverified` (FR-02), หยุดด้วยงบก่อนถึง overlap (`budget_before_overlap` ตาม FR-03 รวมรอบแรกที่ยังไม่มีโพสต์เดิม), ฟีดหยุดโหลด (`feed_end`) ก่อนถึง overlap ทั้งที่กลุ่มมีโพสต์อยู่แล้วก่อนรอบนี้ (`feed_stopped_before_overlap` ตามกรณี “หน้าที่หยุดก่อนถึง overlap” ของ AT-02), มีการ์ดที่แยก stable key ไม่ได้ (`parse_failures`)
+3. นอกนั้น → `complete` รวมถึงรอบแรกที่อ่านจนฟีดหมดภายในงบ
 
 **Checkpoint** `groups.discovery_checkpoint` เก็บ `{"run_id": "<uuid>", "top_keys": ["<source_post_key>", …], "advanced_at": "<UTC>"}` โดย `top_keys` คือคีย์ของการ์ดที่ไม่ปักหมุดและไม่ใช่โพสต์แนะนำสูงสุด 20 รายการแรกตามลำดับฟีด เลื่อนเฉพาะเมื่อ `coverage = complete` รอบ partial และ none ไม่เปลี่ยน checkpoint แต่โพสต์ที่อ่านได้ยังบันทึก observation ตามสิทธิ์
 
