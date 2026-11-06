@@ -207,7 +207,9 @@ def test_missing_photo_reason_survives_and_media_fails_closed(
         app.dependency_overrides.clear()
 
 
-@pytest.mark.parametrize("kind", ["schema", "comment-span", "asset-hash", "traversal", "wrong-group"])
+@pytest.mark.parametrize(
+    "kind", ["schema", "comment-span", "asset-hash", "traversal", "wrong-group"]
+)
 def test_rejects_invalid_fixture_and_scope(
     kind: str,
     pg_engine: Engine,

@@ -28,7 +28,9 @@ def validate_observation(document: dict[str, Any]) -> None:
     if len(evidence) != len(payload.get("evidence", [])):
         raise ValueError("Duplicate evidence local_key")
     comments = payload.get("comments", [])
-    comment_keys = [entry["source_comment_key"] for entry in comments if entry["source_comment_key"]]
+    comment_keys = [
+        entry["source_comment_key"] for entry in comments if entry["source_comment_key"]
+    ]
     if len(comment_keys) != len(set(comment_keys)):
         raise ValueError("Duplicate source_comment_key")
 

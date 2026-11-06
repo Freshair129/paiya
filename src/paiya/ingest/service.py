@@ -147,7 +147,10 @@ def ingest_fixture(
                     job_kind=document["job_kind"],
                 )
             )
-        elif existing_run["group_id"] != scope.group_id or existing_run["grant_id"] != scope.grant_id:
+        elif (
+            existing_run["group_id"] != scope.group_id
+            or existing_run["grant_id"] != scope.grant_id
+        ):
             raise PermissionError("run_id belongs to another fixture grant")
 
         observation_id = uuid4()
@@ -225,7 +228,10 @@ def ingest_fixture(
                 ).where(media_assets.c.sha256 == meta["sha256"])
             ).mappings().one_or_none()
             if existing_media:
-                if any(existing_media[field] != meta[field] for field in ("mime", "bytes", "width", "height")):
+                if any(
+                    existing_media[field] != meta[field]
+                    for field in ("mime", "bytes", "width", "height")
+                ):
                     raise ValueError("Conflicting metadata for content-addressed media")
                 media_id = existing_media["id"]
             else:

@@ -23,7 +23,10 @@ def seed_fixture_scope(engine: Engine, group_key: str) -> FixtureScope:
     group_id = uuid5(NAMESPACE_URL, f"paiya:fixture:group:{group_key}")
     grant_id = uuid5(NAMESPACE_URL, f"paiya:fixture:grant:{group_key}")
     with engine.begin() as conn:
-        if conn.execute(select(groups.c.id).where(groups.c.id == group_id)).scalar_one_or_none() is None:
+        exists = conn.execute(
+            select(groups.c.id).where(groups.c.id == group_id)
+        ).scalar_one_or_none()
+        if exists is None:
             conn.execute(
                 insert(groups).values(id=group_id, source_key=group_key, source_kind="fixture")
             )
