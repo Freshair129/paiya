@@ -7,6 +7,7 @@ Revises: 0001_initial_empty
 from collections.abc import Sequence
 
 from alembic import op
+
 from paiya.store.tables import metadata
 
 revision: str = "0002_fixture_ingest"

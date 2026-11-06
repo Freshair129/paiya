@@ -8,8 +8,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 SCHEMA = (
-    Path(__file__).resolve().parents[3]
-    / "docs/architecture/contracts/observation.v1.schema.json"
+    Path(__file__).resolve().parents[3] / "docs/architecture/contracts/observation.v1.schema.json"
 )
 
 
@@ -71,9 +70,7 @@ def validate_observation(document: dict[str, Any]) -> None:
                 raise ValueError(f"Evidence {key} comment offsets do not match quote")
         elif span["quote"] not in text:
             raise ValueError(f"Evidence {key} quote not found in comment")
-        comment = next(
-            row for row in comments if row["source_comment_key"] == span["comment_key"]
-        )
+        comment = next(row for row in comments if row["source_comment_key"] == span["comment_key"])
         if entry["role"] != comment["role"]:
             raise ValueError(f"Evidence {key} role differs from comment role")
         if entry["role"] == "seller":

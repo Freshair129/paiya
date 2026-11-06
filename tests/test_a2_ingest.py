@@ -6,9 +6,9 @@ import hashlib
 import json
 import os
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -22,13 +22,11 @@ from paiya.api.evidence import get_db_connection, require_fixture_scope
 from paiya.ingest.service import CaptureConflict, ingest_fixture
 from paiya.store.fixture_scope import FixtureScope, seed_fixture_scope
 from paiya.store.media import cleanup_orphans, media_path
-from paiya.store.tables import evidence, media_assets, observations, source_grants
+from paiya.store.tables import evidence, observations, source_grants
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "fixtures/scenarios/S01-reserve-reopen/rounds/01-open.json"
-WEBP = base64.b64decode(
-    "UklGRi4AAABXRUJQVlA4ICIAAABQAQCdASoCAAIAAkA4JQBOgCgAAP7tBywJK1ZulhhMGnAA"
-)
+WEBP = base64.b64decode("UklGRi4AAABXRUJQVlA4ICIAAABQAQCdASoCAAIAAkA4JQBOgCgAAP7tBywJK1ZulhhMGnAA")
 
 
 @pytest.fixture
@@ -84,9 +82,9 @@ def count_observations(engine: Engine, capture_id: str) -> int:
     with engine.connect() as conn:
         return int(
             conn.execute(
-                select(func.count()).select_from(observations).where(
-                    observations.c.capture_id == capture_id
-                )
+                select(func.count())
+                .select_from(observations)
+                .where(observations.c.capture_id == capture_id)
             ).scalar_one()
         )
 
@@ -140,7 +138,7 @@ def test_ingest_captured_image_and_read_through_scoped_api(
                 conn.execute(
                     update(source_grants)
                     .where(source_grants.c.id == scope.grant_id)
-                    .values(revoked_at=datetime.now(timezone.utc))
+                    .values(revoked_at=datetime.now(UTC))
                 )
             assert client.get(f"/v1/evidence/{evidence_id}/media").status_code == 403
     finally:
@@ -170,7 +168,9 @@ def test_idempotency_and_different_capture_id(
     assert second != first
     with pg_engine.connect() as conn:
         total = conn.execute(
-            select(func.count()).select_from(observations).where(
+            select(func.count())
+            .select_from(observations)
+            .where(
                 observations.c.post_id
                 == select(observations.c.post_id)
                 .where(observations.c.id == first)
@@ -222,8 +222,9 @@ def test_rejects_invalid_fixture_and_scope(
         document["payload"]["schema_version"] = 2
     elif kind == "comment-span":
         other = json.loads(
-            (ROOT / "fixtures/scenarios/S03-multi-item/rounds/03-seller-reserves-3060.json")
-            .read_text(encoding="utf-8")
+            (
+                ROOT / "fixtures/scenarios/S03-multi-item/rounds/03-seller-reserves-3060.json"
+            ).read_text(encoding="utf-8")
         )
         other["run_id"] = document["run_id"]
         other["capture_id"] = document["capture_id"]
@@ -262,7 +263,7 @@ def test_cleanup_does_not_delete_live_referenced_media(tmp_path: Path) -> None:
     saved = hashlib.sha256(WEBP).hexdigest()
     file_path = media_path(tmp_path, saved, "image/webp")
     file_path.write_bytes(WEBP)
-    old = datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp()
+    old = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
     os.utime(file_path, (old, old))
     assert cleanup_orphans(tmp_path, {file_path.name}, grace_seconds=0) == 0
     assert file_path.is_file()

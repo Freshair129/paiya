@@ -1,8 +1,8 @@
 """Trusted, test-only fixture grant provisioning. Never inferred from request headers."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from uuid import UUID, NAMESPACE_URL, uuid5
+from datetime import UTC, datetime
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import Connection, Engine, insert, select
 
@@ -31,8 +31,9 @@ def seed_fixture_scope(engine: Engine, group_key: str) -> FixtureScope:
                 insert(groups).values(id=group_id, source_key=group_key, source_kind="fixture")
             )
         if (
-            conn.execute(select(source_grants.c.id).where(source_grants.c.id == grant_id))
-            .scalar_one_or_none()
+            conn.execute(
+                select(source_grants.c.id).where(source_grants.c.id == grant_id)
+            ).scalar_one_or_none()
             is None
         ):
             conn.execute(
@@ -41,7 +42,7 @@ def seed_fixture_scope(engine: Engine, group_key: str) -> FixtureScope:
                     group_id=group_id,
                     source_kind="fixture",
                     scopes=["read", "capture", "media", "comments"],
-                    valid_from=datetime.now(timezone.utc),
+                    valid_from=datetime.now(UTC),
                 )
             )
     return FixtureScope(group_id=group_id, grant_id=grant_id, group_key=group_key)
@@ -49,17 +50,25 @@ def seed_fixture_scope(engine: Engine, group_key: str) -> FixtureScope:
 
 def verify_fixture_scope(conn: Connection, scope: FixtureScope, purpose: str) -> None:
     """Deny scope mismatch, expired grant, and grants without the requested operation."""
-    row = conn.execute(
-        select(
-            source_grants.c.group_id,
-            source_grants.c.source_kind,
-            source_grants.c.scopes,
-            source_grants.c.revoked_at,
-        ).where(source_grants.c.id == scope.grant_id)
-    ).mappings().one_or_none()
-    group = conn.execute(
-        select(groups.c.source_key, groups.c.source_kind).where(groups.c.id == scope.group_id)
-    ).mappings().one_or_none()
+    row = (
+        conn.execute(
+            select(
+                source_grants.c.group_id,
+                source_grants.c.source_kind,
+                source_grants.c.scopes,
+                source_grants.c.revoked_at,
+            ).where(source_grants.c.id == scope.grant_id)
+        )
+        .mappings()
+        .one_or_none()
+    )
+    group = (
+        conn.execute(
+            select(groups.c.source_key, groups.c.source_kind).where(groups.c.id == scope.group_id)
+        )
+        .mappings()
+        .one_or_none()
+    )
     if (
         row is None
         or group is None

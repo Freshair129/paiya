@@ -2,10 +2,11 @@
 
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping
-from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
+from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import Connection, Engine, insert, select, update
 
@@ -76,14 +77,18 @@ def ingest_fixture(
 
     with engine.begin() as conn:
         verify_fixture_scope(conn, scope, "capture")
-        duplicate = conn.execute(
-            select(
-                observations.c.id,
-                observations.c.payload_hash,
-                observations.c.group_id,
-                observations.c.grant_id,
-            ).where(observations.c.capture_id == document["capture_id"])
-        ).mappings().one_or_none()
+        duplicate = (
+            conn.execute(
+                select(
+                    observations.c.id,
+                    observations.c.payload_hash,
+                    observations.c.group_id,
+                    observations.c.grant_id,
+                ).where(observations.c.capture_id == document["capture_id"])
+            )
+            .mappings()
+            .one_or_none()
+        )
         if duplicate is not None:
             if duplicate["group_id"] != scope.group_id or duplicate["grant_id"] != scope.grant_id:
                 raise PermissionError("capture_id belongs to another fixture scope")
@@ -121,11 +126,15 @@ def ingest_fixture(
             conn.execute(update(posts).where(posts.c.id == post_id).values(seller_id=seller_id))
 
         run_id = UUID(document["run_id"])
-        existing_run = conn.execute(
-            select(capture_runs.c.id, capture_runs.c.group_id, capture_runs.c.grant_id).where(
-                capture_runs.c.id == run_id
+        existing_run = (
+            conn.execute(
+                select(capture_runs.c.id, capture_runs.c.group_id, capture_runs.c.grant_id).where(
+                    capture_runs.c.id == run_id
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
         if existing_run is None:
             job_id = uuid5(NAMESPACE_URL, f"paiya:fixture:job:{run_id}")
             conn.execute(
@@ -148,8 +157,7 @@ def ingest_fixture(
                 )
             )
         elif (
-            existing_run["group_id"] != scope.group_id
-            or existing_run["grant_id"] != scope.grant_id
+            existing_run["group_id"] != scope.group_id or existing_run["grant_id"] != scope.grant_id
         ):
             raise PermissionError("run_id belongs to another fixture grant")
 
@@ -218,15 +226,19 @@ def ingest_fixture(
         for local_key, meta in document["assets"].items():
             key = meta["staging_key"]
             write_media(media_root, meta, staged_assets[key], key)
-            existing_media = conn.execute(
-                select(
-                    media_assets.c.id,
-                    media_assets.c.mime,
-                    media_assets.c.bytes,
-                    media_assets.c.width,
-                    media_assets.c.height,
-                ).where(media_assets.c.sha256 == meta["sha256"])
-            ).mappings().one_or_none()
+            existing_media = (
+                conn.execute(
+                    select(
+                        media_assets.c.id,
+                        media_assets.c.mime,
+                        media_assets.c.bytes,
+                        media_assets.c.width,
+                        media_assets.c.height,
+                    ).where(media_assets.c.sha256 == meta["sha256"])
+                )
+                .mappings()
+                .one_or_none()
+            )
             if existing_media:
                 if any(
                     existing_media[field] != meta[field]

@@ -5,8 +5,8 @@ import os
 import re
 import tempfile
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 MAX_MEDIA_BYTES = 5 * 1024 * 1024
 STAGING_KEY = re.compile(r"^[a-zA-Z0-9_-]{1,200}$")
@@ -40,7 +40,7 @@ def media_path(root: Path, sha256: str, mime: str) -> Path:
     """Resolve a stored content hash, never an externally supplied arbitrary path."""
     if not SHA256.fullmatch(sha256):
         raise ValueError("Invalid storage hash")
-    ext = { "image/webp": ".webp", "image/jpeg": ".jpg" }.get(mime)
+    ext = {"image/webp": ".webp", "image/jpeg": ".jpg"}.get(mime)
     if ext is None:
         raise ValueError("Invalid media MIME")
     return root / "assets" / (sha256 + ext)

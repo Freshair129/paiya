@@ -45,31 +45,35 @@ def _verify(conn: Connection, scope: FixtureScope, purpose: str = "read") -> Non
 
 
 def _evidence_row(conn: Connection, scope: FixtureScope, evidence_id: UUID) -> Any:
-    row = conn.execute(
-        select(
-            evidence.c.id,
-            evidence.c.local_key,
-            evidence.c.observation_id,
-            evidence.c.post_id,
-            evidence.c.role,
-            evidence.c.source_span,
-            evidence.c.media_state,
-            evidence.c.media_reason,
-            media_assets.c.sha256,
-            media_assets.c.mime,
-            media_assets.c.bytes,
-            media_assets.c.width,
-            media_assets.c.height,
+    row = (
+        conn.execute(
+            select(
+                evidence.c.id,
+                evidence.c.local_key,
+                evidence.c.observation_id,
+                evidence.c.post_id,
+                evidence.c.role,
+                evidence.c.source_span,
+                evidence.c.media_state,
+                evidence.c.media_reason,
+                media_assets.c.sha256,
+                media_assets.c.mime,
+                media_assets.c.bytes,
+                media_assets.c.width,
+                media_assets.c.height,
+            )
+            .join(observations, evidence.c.observation_id == observations.c.id)
+            .outerjoin(media_assets, evidence.c.media_asset_id == media_assets.c.id)
+            .where(
+                evidence.c.id == evidence_id,
+                observations.c.group_id == scope.group_id,
+                observations.c.grant_id == scope.grant_id,
+                evidence.c.grant_id == scope.grant_id,
+            )
         )
-        .join(observations, evidence.c.observation_id == observations.c.id)
-        .outerjoin(media_assets, evidence.c.media_asset_id == media_assets.c.id)
-        .where(
-            evidence.c.id == evidence_id,
-            observations.c.group_id == scope.group_id,
-            observations.c.grant_id == scope.grant_id,
-            evidence.c.grant_id == scope.grant_id,
-        )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return row
@@ -78,37 +82,49 @@ def _evidence_row(conn: Connection, scope: FixtureScope, evidence_id: UUID) -> A
 @router.get("/posts/{post_id}")
 def get_post(post_id: UUID, scope: Scope, conn: Db) -> dict[str, Any]:
     _verify(conn, scope)
-    post = conn.execute(
-        select(posts.c.id, posts.c.permalink, posts.c.source_post_key).where(
-            posts.c.id == post_id, posts.c.group_id == scope.group_id
+    post = (
+        conn.execute(
+            select(posts.c.id, posts.c.permalink, posts.c.source_post_key).where(
+                posts.c.id == post_id, posts.c.group_id == scope.group_id
+            )
         )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    observed = conn.execute(
-        select(
-            observations.c.id,
-            observations.c.capture_id,
-            observations.c.observed_at,
-            observations.c.access,
-            observations.c.activity,
-            observations.c.normalized_json,
+    observed = (
+        conn.execute(
+            select(
+                observations.c.id,
+                observations.c.capture_id,
+                observations.c.observed_at,
+                observations.c.access,
+                observations.c.activity,
+                observations.c.normalized_json,
+            )
+            .where(
+                observations.c.post_id == post_id,
+                observations.c.group_id == scope.group_id,
+                observations.c.grant_id == scope.grant_id,
+            )
+            .order_by(observations.c.observed_at, observations.c.id)
         )
-        .where(
-            observations.c.post_id == post_id,
-            observations.c.group_id == scope.group_id,
-            observations.c.grant_id == scope.grant_id,
-        )
-        .order_by(observations.c.observed_at, observations.c.id)
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     if not observed:
         raise HTTPException(status_code=404, detail="Post not found")
-    evidence_rows = conn.execute(
-        select(evidence.c.id, evidence.c.observation_id).where(
-            evidence.c.post_id == post_id,
-            evidence.c.grant_id == scope.grant_id,
+    evidence_rows = (
+        conn.execute(
+            select(evidence.c.id, evidence.c.observation_id).where(
+                evidence.c.post_id == post_id,
+                evidence.c.grant_id == scope.grant_id,
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     result = {
         "id": post["id"],
         "permalink": post["permalink"],
@@ -122,9 +138,7 @@ def get_post(post_id: UUID, scope: Scope, conn: Db) -> dict[str, Any]:
                 "activity": row["activity"],
                 "items": row["normalized_json"]["payload"].get("items", []),
                 "evidence_ids": [
-                    item["id"]
-                    for item in evidence_rows
-                    if item["observation_id"] == row["id"]
+                    item["id"] for item in evidence_rows if item["observation_id"] == row["id"]
                 ],
             }
             for row in observed
