@@ -88,9 +88,11 @@ erDiagram
 ```mermaid
 erDiagram
     evidence ||--o{ price_facts : supports
-    evidence ||--o{ sale_events : supports
+    evidence ||--o{ status_facts : supports
     evidence ||--o{ tags : supports
     listing_items |o--o{ price_facts : priced_by
+    listing_items ||--o{ status_facts : observed_as
+    status_facts ||--o{ sale_events : projects
     listing_items ||--o{ sale_events : changes
     listing_items ||--o| current_items : projects
     sale_events |o--o| current_items : latest_status
@@ -104,6 +106,21 @@ erDiagram
         numeric amount
         string currency
     }
+    status_facts {
+        uuid id PK
+        uuid item_id FK
+        uuid evidence_id FK
+        uuid observation_id FK
+        text sale_status
+        timestamptz effective_at
+    }
+    sale_events {
+        uuid id PK
+        uuid item_id FK
+        uuid status_fact_id FK
+        int seq
+        text cause_key
+    }
     current_items {
         uuid item_id PK, FK
         uuid status_event_id FK
@@ -112,7 +129,7 @@ erDiagram
     }
 ```
 
-ข้อความเดียวรองรับหลายข้อเท็จจริงได้ เช่น ราคาขายกับค่าส่งต่อชิ้น เส้นไป price_facts ยอมให้ item_id ว่างสำหรับจำนวนเงินระดับโพสต์ที่ยังจัดสรรไม่ได้ ค่า current_items เป็นผลปัจจุบันของชิ้นนั้น ส่วนประวัติยังดูได้จาก sale_events และ observations
+ข้อความเดียวรองรับหลายข้อเท็จจริงได้ เช่น ราคาขายกับค่าส่งต่อชิ้น เส้นไป price_facts ยอมให้ item_id ว่างสำหรับจำนวนเงินระดับโพสต์ที่ยังจัดสรรไม่ได้ ค่า current_items เป็นผลปัจจุบันของชิ้นนั้น ส่วนประวัติดูได้จาก sale_events ซึ่งสร้างใหม่จาก status_facts ตามลำดับเวลา จึงรับ observation ที่มาช้าได้
 
 ## 5. ตั้งรับ ติดตาม และอ่านการแจ้งเตือน
 
