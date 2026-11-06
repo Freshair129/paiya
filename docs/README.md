@@ -8,8 +8,9 @@
 | [requirements/SRS.md](requirements/SRS.md) | พฤติกรรมที่ระบบต้องทำ ขอบเขตสิทธิ์ และเกณฑ์ FR / AT | Engineering + QA |
 | [architecture/SPEC.md](architecture/SPEC.md) | ภาพรวมระบบ ขอบเขตความรับผิดชอบ เทคโนโลยีและตำแหน่งที่รัน | Tech lead |
 | [architecture/views/observation-flow.md](architecture/views/observation-flow.md) | แผนภาพเส้นทางของโพสต์หนึ่งรายการ ตั้งแต่รอบตรวจถึงการเปิดหลักฐาน | เจ้าของ Collector, API และ Worker |
-| [architecture/contracts/collector-and-query.md](architecture/contracts/collector-and-query.md) | รูปแบบข้อมูลที่ส่งข้ามส่วน ตัวอย่าง JSON, HTTP endpoints และคำสั่ง MCP | เจ้าของระบบที่ส่งและรับข้อมูล |
+| [architecture/contracts/collector-and-query.md](architecture/contracts/collector-and-query.md) | ความหมายของฟิลด์ กฎ null และเงื่อนไขข้ามฟิลด์ HTTP endpoints และคำสั่ง MCP โดยมี [observation.v1.schema.json](architecture/contracts/observation.v1.schema.json) เป็นโครงสร้างที่ใช้ตรวจจริง | เจ้าของระบบที่ส่งและรับข้อมูล |
 | [architecture/decisions/0001-observation-store.md](architecture/decisions/0001-observation-store.md) | บันทึกการเลือก PostgreSQL และคลังภาพในเครื่อง รวมถึงเงื่อนไขที่ควรทบทวน | Tech lead |
+| [architecture/decisions/0002-source-strategy.md](architecture/decisions/0002-source-strategy.md) | **ร่าง** แหล่งข้อมูลเมื่อยังไม่มีสิทธิ์เก็บอัตโนมัติ และทางเลือกให้ผู้ใช้นำเข้าเอง | Product owner + Tech lead |
 | [quality/TRACEABILITY.md](quality/TRACEABILITY.md) | ตารางโยง PR → FR → AT และลิงก์ผลตรวจของแต่ละข้อ | QA |
 | [delivery/ROADMAP.md](delivery/ROADMAP.md) | ลำดับงาน สิ่งที่ต้องมีก่อน และหลักฐานจบแต่ละระยะ | Delivery lead |
 
@@ -25,6 +26,6 @@
 1. ผู้ทำงานระบุไฟล์ที่เป็นเจ้าของเรื่องและรหัสข้อกำหนดใน Issue หากกระทบทั้งสิ่งที่ผู้ใช้เห็นและข้อมูลข้ามส่วน ให้แก้ทั้ง SRS และ contract ใน PR เดียวกับโค้ด
 2. หน้าที่เป็นข้อเสนอระบุว่า **ร่าง** พร้อมคำถามที่รอคำตอบ เมื่อทีมเลือกเป็นแนวทางพัฒนา ให้ระบุว่า **แบบที่ใช้อ้างอิง** ส่วนการระบุว่า **ตรวจยืนยันแล้ว** ต้องเจาะจงข้อที่ผ่าน แนบ commit และผลทดสอบในตารางตรวจย้อนกลับ รวมถึงแยกผลจาก fixture กับผลจากแหล่งจริง
 3. Reviewer ตรวจ diff และหลักฐานใน PR เดียวกัน ตัวอย่างเช่น เมื่อเปลี่ยนให้หน้าประกาศแสดงจำนวนบัญชีผู้คอมเมนต์ที่ยืนยันได้ ให้ตรวจ FR-06 และ AT-04 ใน SRS, กติกา `distinct_known_commenters_seen` ใน contract และผล fixture ที่คนเดียวเขียนหลายคอมเมนต์ ก่อนบันทึกว่าข้อนี้ผ่าน
-4. เมื่อเพิ่ม ย้าย หรือเปลี่ยนชื่อไฟล์ Markdown ใต้ `docs/` ให้อัปเดตลิงก์ในสารบัญนี้ รัน `python scripts/check_docs.py` จากรากรีโป CI ตรวจความครบของสารบัญ ลิงก์ภายใน และรหัสอ้างอิง ส่วนความตรงกันระหว่างคำอธิบายกับพฤติกรรมแอปให้ reviewer ตรวจจากผลทดสอบ
+4. เมื่อเพิ่ม ย้าย หรือเปลี่ยนชื่อไฟล์ Markdown ใต้ `docs/` ให้อัปเดตลิงก์ในสารบัญนี้ รัน `python scripts/check_docs.py` จากรากรีโป เมื่อแก้ schema หรือ fixture ใน `fixtures/contract/` ให้รัน `python scripts/check_contracts.py` ด้วย CI ตรวจความครบของสารบัญ ลิงก์ภายใน และรหัสอ้างอิง ส่วนความตรงกันระหว่างคำอธิบายกับพฤติกรรมแอปให้ reviewer ตรวจจากผลทดสอบ
 
 ดูขั้นตอนเปิด Issue, branch และ PR ที่ [คู่มือผู้ร่วมพัฒนา](../CONTRIBUTING.md)

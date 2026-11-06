@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Freshair129/paiya/docs/architecture/contracts/observation.v1.schema.json",
+  "title": "paiya collector observation v1",
+  "description": "One capture of one post. The worker wraps the adapter payload in an envelope before ingest. Semantics, null rules and invariants that JSON Schema cannot express live in collector-and-query.md.",
+  "$ref": "#/$defs/envelope",
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "capture_id", "grant_id", "source_kind", "job_kind", "page_check", "assets", "payload"],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/uuid"},
+        "capture_id": {"type": "string", "minLength": 1, "description": "Stable across every retry of the same job for the same post."},
+        "grant_id": {"anyOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}], "description": "Null only when source_kind is fixture."},
+        "source_kind": {"enum": ["fixture", "facebook_live"]},
+        "job_kind": {"enum": ["discover", "revisit"]},
+        "page_check": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["session", "sort"],
+          "properties": {
+            "session": {"enum": ["ok", "required", "unknown"]},
+            "sort": {"enum": ["verified_latest", "unverified", "not_applicable"], "description": "not_applicable for revisit jobs that open a permalink directly."}
+          }
+        },
+        "assets": {
+          "type": "object",
+          "description": "Maps payload evidence local_key to a staged file. Never contains filesystem paths.",
+          "additionalProperties": {"$ref": "#/$defs/asset"}
+        },
+        "payload": {"$ref": "#/$defs/payload"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"source_kind": {"const": "facebook_live"}}},
+          "then": {"properties": {"grant_id": {"$ref": "#/$defs/uuid"}}}
+        },
+        {
+          "if": {"properties": {"job_kind": {"const": "discover"}}},
+          "then": {"properties": {"page_check": {"properties": {"sort": {"enum": ["verified_latest", "unverified"]}}}}}
+        }
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "group_key", "source_post_key", "permalink", "observed_at", "access"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "group_key": {"$ref": "#/$defs/key"},
+        "source_post_key": {"$ref": "#/$defs/key"},
+        "permalink": {"type": "string", "pattern": "^https://"},
+        "observed_at": {"$ref": "#/$defs/utc_time"},
+        "access": {"enum": ["ok", "unavailable", "permission_denied", "session_required", "challenge_required"]},
+        "posted_at": {"$ref": "#/$defs/source_time"},
+        "seller": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["identity_scope", "external_actor_key"],
+              "properties": {
+                "identity_scope": {"$ref": "#/$defs/key"},
+                "external_actor_key": {"anyOf": [{"$ref": "#/$defs/key"}, {"type": "null"}]},
+                "display_name": {"type": ["string", "null"]}
+              }
+            }
+          ]
+        },
+        "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+        "activity": {"$ref": "#/$defs/activity"},
+        "comments": {"type": "array", "items": {"$ref": "#/$defs/comment"}},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}
+      },
+      "if": {"properties": {"access": {"const": "ok"}}},
+      "then": {"required": ["posted_at", "seller", "items", "activity", "evidence"]},
+      "else": {
+        "properties": {
+          "items": {"maxItems": 0},
+          "comments": {"maxItems": 0}
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_item_key", "model", "price"],
+      "properties": {
+        "source_item_key": {"anyOf": [{"$ref": "#/$defs/key"}, {"type": "null"}], "description": "Null means the adapter could not separate this item; the backend stores it as unresolved."},
+        "model": {"type": ["string", "null"]},
+        "condition_text": {"type": ["string", "null"]},
+        "source_status_label": {"type": ["string", "null"], "description": "Raw status label shown by the source, e.g. a sold badge. Not a decided sale_status."},
+        "price": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/price"}]},
+        "evidence_keys": {"type": "array", "items": {"$ref": "#/$defs/key"}}
+      }
+    },
+    "price": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "unit", "amount", "currency"],
+      "properties": {
+        "kind": {"enum": ["ask", "deposit", "shipping", "installment", "offer", "unknown"]},
+        "unit": {"enum": ["each", "bundle", "unknown"]},
+        "amount": {"$ref": "#/$defs/decimal"},
+        "amount_max": {"$ref": "#/$defs/decimal", "description": "Upper bound when the source states a range."},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"}
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_reported_comment_count", "distinct_comments_seen", "distinct_known_commenters_seen", "coverage"],
+      "properties": {
+        "source_reported_comment_count": {"type": ["integer", "null"], "minimum": 0, "description": "Null when the source shows no count. Never 0 for unseen."},
+        "distinct_comments_seen": {"type": "integer", "minimum": 0},
+        "distinct_known_commenters_seen": {"type": "integer", "minimum": 0},
+        "coverage": {"enum": ["complete", "partial", "none"]}
+      }
+    },
+    "comment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_comment_key", "role", "actor_key", "text", "source_time"],
+      "properties": {
+        "source_comment_key": {"anyOf": [{"$ref": "#/$defs/key"}, {"type": "null"}]},
+        "parent_key": {"anyOf": [{"$ref": "#/$defs/key"}, {"type": "null"}]},
+        "role": {"enum": ["seller", "other", "unknown"]},
+        "actor_key": {"anyOf": [{"$ref": "#/$defs/key"}, {"type": "null"}]},
+        "text": {"type": "string"},
+        "source_time": {"$ref": "#/$defs/source_time"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_key", "role", "source_span", "media_state"],
+      "properties": {
+        "local_key": {"$ref": "#/$defs/key"},
+        "role": {"enum": ["seller", "other", "source_label", "unknown"]},
+        "source_span": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "quote"],
+              "properties": {
+                "field": {"enum": ["post_text", "comment_text", "source_label"]},
+                "comment_key": {"anyOf": [{"$ref": "#/$defs/key"}, {"type": "null"}]},
+                "quote": {"type": "string", "minLength": 1},
+                "start": {"type": "integer", "minimum": 0},
+                "end": {"type": "integer", "minimum": 0}
+              }
+            }
+          ]
+        },
+        "media_state": {"enum": ["captured", "missing_at_source", "capture_failed", "not_requested"]},
+        "media_reason": {"type": ["string", "null"]}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staging_key", "sha256", "mime", "width", "height", "bytes"],
+      "properties": {
+        "staging_key": {"$ref": "#/$defs/key"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mime": {"enum": ["image/webp", "image/jpeg"]},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "source_time": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_text", "value", "precision"],
+      "properties": {
+        "source_text": {"type": ["string", "null"], "description": "What the source displayed, e.g. '5 ชม.'."},
+        "value": {"anyOf": [{"$ref": "#/$defs/utc_time"}, {"type": "null"}]},
+        "precision": {"enum": ["exact", "minute", "hour", "day", "unknown"]}
+      }
+    },
+    "key": {"type": "string", "minLength": 1, "maxLength": 200},
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "utc_time": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"},
+    "decimal": {"type": "string", "pattern": "^(0|[1-9]\\d*)(\\.\\d{1,2})?$"}
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "run_id": "0b9c2f4e-1d2a-4c55-9e8f-2a1b3c4d5e6f",
+  "capture_id": "demo-run-1/demo-42",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {
+    "session": "ok",
+    "sort": "verified_latest"
+  },
+  "assets": {
+    "e1": {
+      "staging_key": "stg-e1",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mime": "image/webp",
+      "width": 640,
+      "height": 480,
+      "bytes": 38211
+    }
+  },
+  "payload": {
+    "schema_version": 1,
+    "group_key": "demo-group",
+    "source_post_key": "demo-42",
+    "permalink": "https://www.facebook.com/groups/demo-group/posts/42/",
+    "observed_at": "2026-11-06T03:00:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "5 ชม.",
+      "value": null,
+      "precision": "hour"
+    },
+    "seller": {
+      "identity_scope": "demo-group",
+      "external_actor_key": "demo-s7"
+    },
+    "items": [
+      {
+        "source_item_key": "sku-1",
+        "model": "RTX 3060 12GB",
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "5500.00",
+          "currency": "thb"
+        },
+        "evidence_keys": [
+          "e1"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 5,
+      "distinct_comments_seen": 2,
+      "distinct_known_commenters_seen": 1,
+      "coverage": "partial"
+    },
+    "evidence": [
+      {
+        "local_key": "e1",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "RTX 3060 12GB 5500 บาท"
+        },
+        "media_state": "captured"
+      }
+    ]
+  }
+}
