@@ -1,0 +1,137 @@
+{
+  "run_id": "0b9c2f4e-1d2a-4c55-9e8f-2a1b3c4d5e6f",
+  "capture_id": "demo-run-2/demo-77",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "revisit",
+  "page_check": {
+    "session": "ok",
+    "sort": "not_applicable"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "demo-group",
+    "source_post_key": "demo-77",
+    "permalink": "https://www.facebook.com/groups/demo-group/posts/77/",
+    "observed_at": "2026-11-06T03:00:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "5 ชม.",
+      "value": null,
+      "precision": "hour"
+    },
+    "seller": {
+      "identity_scope": "demo-group",
+      "external_actor_key": "demo-s7"
+    },
+    "items": [
+      {
+        "source_item_key": "rtx3060",
+        "model": "RTX 3060 12GB",
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "5500",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "e1",
+          "e2"
+        ]
+      },
+      {
+        "source_item_key": "rtx3070",
+        "model": "RTX 3070 8GB",
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "7900",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "e1"
+        ]
+      },
+      {
+        "source_item_key": null,
+        "model": null,
+        "price": {
+          "kind": "shipping",
+          "unit": "unknown",
+          "amount": "60",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "e1"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 3,
+      "distinct_comments_seen": 3,
+      "distinct_known_commenters_seen": 2,
+      "coverage": "complete"
+    },
+    "evidence": [
+      {
+        "local_key": "e1",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "3060 5500 / 3070 7900 ส่ง 60"
+        },
+        "media_state": "missing_at_source",
+        "media_reason": "post has no product photo"
+      },
+      {
+        "local_key": "e2",
+        "role": "seller",
+        "source_span": {
+          "field": "comment_text",
+          "comment_key": "c2",
+          "quote": "3060 ติดจอง",
+          "start": 0,
+          "end": 11
+        },
+        "media_state": "not_requested"
+      }
+    ],
+    "comments": [
+      {
+        "source_comment_key": "c1",
+        "role": "other",
+        "actor_key": "demo-b1",
+        "text": "จองครับ",
+        "source_time": {
+          "source_text": "2 ชม.",
+          "value": null,
+          "precision": "hour"
+        }
+      },
+      {
+        "source_comment_key": "c2",
+        "parent_key": "c1",
+        "role": "seller",
+        "actor_key": "demo-s7",
+        "text": "3060 ติดจอง เหลือ 3070",
+        "source_time": {
+          "source_text": "1 ชม.",
+          "value": null,
+          "precision": "hour"
+        }
+      },
+      {
+        "source_comment_key": "c3",
+        "role": "other",
+        "actor_key": "demo-b1",
+        "text": "ขอบคุณครับ",
+        "source_time": {
+          "source_text": null,
+          "value": null,
+          "precision": "unknown"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "run_id": "0b9c2f4e-1d2a-4c55-9e8f-2a1b3c4d5e70",
+  "capture_id": "demo-run-3/demo-42",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "revisit",
+  "page_check": {
+    "session": "ok",
+    "sort": "not_applicable"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "demo-group",
+    "source_post_key": "demo-42",
+    "permalink": "https://www.facebook.com/groups/demo-group/posts/42/",
+    "observed_at": "2026-11-06T03:30:00Z",
+    "access": "unavailable"
+  }
+}

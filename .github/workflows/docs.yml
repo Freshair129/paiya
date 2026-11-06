@@ -18,3 +18,8 @@ jobs:
           persist-credentials: false
       - name: Check documentation links and requirement IDs
         run: python3 scripts/check_docs.py
+      - name: Check contract schema, fixtures and examples
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --disable-pip-version-check -q -r requirements-dev.txt
+          "$RUNNER_TEMP/venv/bin/python" scripts/check_contracts.py
