@@ -32,7 +32,7 @@ def test_upgrade_and_downgrade_on_postgres17(monkeypatch: pytest.MonkeyPatch) ->
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0001_initial_empty"
+        assert revision == "0002_fixture_ingest"
         command.downgrade(alembic, "base")
         with engine.connect() as connection:
             remaining = connection.execute(
