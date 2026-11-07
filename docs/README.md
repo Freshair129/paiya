@@ -10,6 +10,7 @@
 | [architecture/views/observation-flow.md](architecture/views/observation-flow.md) | แผนภาพเส้นทางของโพสต์หนึ่งรายการ ตั้งแต่รอบตรวจถึงการเปิดหลักฐาน | เจ้าของ Collector, API และ Worker |
 | [architecture/contracts/collector-and-query.md](architecture/contracts/collector-and-query.md) | ความหมายของฟิลด์ กฎ null และเงื่อนไขข้ามฟิลด์ HTTP endpoints และคำสั่ง MCP โดยมี [observation.v1.schema.json](architecture/contracts/observation.v1.schema.json) เป็นโครงสร้างที่ใช้ตรวจจริง | เจ้าของระบบที่ส่งและรับข้อมูล |
 | [architecture/contracts/discovery-queue.md](architecture/contracts/discovery-queue.md) | กติกาวางรอบ จองงาน ความครอบคลุมของรอบ ช่วงที่ขาด feed script สังเคราะห์ และการอ่านผลรอบ | เจ้าของ Worker และฐานข้อมูล |
+| [architecture/contracts/item-status-and-watches.md](architecture/contracts/item-status-and-watches.md) | ตารางป้ายสถานะ การยืนยันหลักฐาน การสร้าง sale_events/current_items, timeline, หน้าผู้ขาย และ Watch/revisit ระยะ A | เจ้าของ Worker, API และฐานข้อมูล |
 | [architecture/views/erd.md](architecture/views/erd.md) | ERD ของต้นทาง การสังเกต หลักฐาน ราคา และการติดตาม อ่านคู่กับข้อบังคับของแต่ละความสัมพันธ์ | Tech lead + เจ้าของฐานข้อมูล |
 | [architecture/data-model.md](architecture/data-model.md) | พจนานุกรมข้อมูล PostgreSQL ระดับตรรกะ หน่วยข้อมูล คีย์ ข้อบังคับ ดัชนี และวงจรลบ/สร้างใหม่ | เจ้าของฐานข้อมูล + API |
 | [architecture/contracts/buyer-workflows.md](architecture/contracts/buyer-workflows.md) | แบบสัญญาใหม่สำหรับนำเข้าด้วยมือ ประเมินกฎ แจ้งเตือน ติดตามรายชิ้น และเทียบราคาพร้อมหลักฐาน | เจ้าของ PWA + API + Worker |
