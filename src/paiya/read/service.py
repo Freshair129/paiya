@@ -7,14 +7,16 @@ import json
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection, and_, case, func, or_, select
 
+from paiya.extract.rules import RULE_VERSION
 from paiya.read.context import ReadContext
 from paiya.read.errors import (
     GrantUnavailable,
@@ -42,6 +44,7 @@ from paiya.store.tables import (
     sale_events,
     sellers,
     status_facts,
+    tags,
     watches,
 )
 
@@ -52,6 +55,24 @@ class MediaContent:
 
     data: bytes
     mime: str
+
+
+_BANGKOK = ZoneInfo("Asia/Bangkok")
+
+
+def bangkok_now() -> datetime:
+    """Return the current Bangkok time; API tests can override this dependency."""
+    return datetime.now(_BANGKOK)
+
+
+def _warranty_months_left(warranty_until: date | None, now: datetime) -> int | None:
+    if warranty_until is None:
+        return None
+    local_now = now.astimezone(_BANGKOK) if now.tzinfo is not None else now.replace(tzinfo=_BANGKOK)
+    months_left = (
+        (warranty_until.year - local_now.year) * 12 + warranty_until.month - local_now.month
+    )
+    return max(0, months_left)
 
 
 def _authorize(conn: Connection, context: ReadContext, purpose: str) -> None:
@@ -105,7 +126,146 @@ def _evidence_row(conn: Connection, context: ReadContext, evidence_id: UUID) -> 
     return cast(Mapping[str, Any], row)
 
 
-def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str, Any]:
+def _readable_listing_item_projections(
+    conn: Connection,
+    context: ReadContext,
+    item_rows: Sequence[Mapping[str, Any]],
+    now: datetime,
+) -> dict[UUID, dict[str, Any]]:
+    """Expose global listing-item values only when their source tags are in this grant."""
+    item_ids = [cast(UUID, row["id"]) for row in item_rows]
+    if not item_ids:
+        return {}
+
+    tag_rows = (
+        conn.execute(
+            select(
+                tags.c.item_id,
+                tags.c.key,
+                tags.c.value,
+                tags.c.observation_id,
+                observations.c.grant_id,
+            )
+            .select_from(tags.join(observations, tags.c.observation_id == observations.c.id))
+            .where(
+                tags.c.item_id.in_(item_ids),
+                tags.c.method == "rule",
+                tags.c.rule_version == RULE_VERSION,
+                tags.c.validation_result == "confirmed",
+            )
+            .order_by(
+                tags.c.item_id,
+                observations.c.observed_at.desc(),
+                observations.c.id.desc(),
+            )
+        )
+        .mappings()
+        .all()
+    )
+    rows_by_item: dict[UUID, list[Mapping[str, Any]]] = {}
+    for tag_row in tag_rows:
+        rows_by_item.setdefault(cast(UUID, tag_row["item_id"]), []).append(
+            cast(Mapping[str, Any], tag_row)
+        )
+
+    result: dict[UUID, dict[str, Any]] = {}
+    for item_row in item_rows:
+        item_id = cast(UUID, item_row["id"])
+        item_tag_rows = rows_by_item.get(item_id, [])
+        models_by_observation: dict[UUID, str] = {}
+        warranties_by_observation: dict[UUID, str] = {}
+        for tag_mapping in item_tag_rows:
+            if tag_mapping["key"] == "model_key":
+                models_by_observation.setdefault(
+                    cast(UUID, tag_mapping["observation_id"]), cast(str, tag_mapping["value"])
+                )
+            elif tag_mapping["key"] == "warranty":
+                warranties_by_observation.setdefault(
+                    cast(UUID, tag_mapping["observation_id"]), cast(str, tag_mapping["value"])
+                )
+
+        model_source = next((row for row in item_tag_rows if row["key"] == "model_key"), None)
+        condition_source = next((row for row in item_tag_rows if row["key"] == "condition"), None)
+        model_key = cast(str | None, item_row["model_key"])
+        vram_source = next(
+            (
+                row
+                for row in item_tag_rows
+                if row["key"] == "vram_gb"
+                and model_key is not None
+                and models_by_observation.get(cast(UUID, row["observation_id"])) == model_key
+            ),
+            None,
+        )
+
+        model_readable = (
+            model_source is not None
+            and model_source["grant_id"] == context.grant_id
+            and model_source["value"] == model_key
+        )
+        condition = cast(str | None, item_row["condition"])
+        condition_readable = (
+            condition_source is not None
+            and condition_source["grant_id"] == context.grant_id
+            and condition_source["value"] == condition
+        )
+        warranty_source = next((row for row in item_tag_rows if row["key"] == "warranty"), None)
+        warranty = cast(str | None, item_row["warranty"])
+        warranty_readable = (
+            warranty_source is not None
+            and warranty_source["grant_id"] == context.grant_id
+            and warranty_source["value"] == warranty
+        )
+        warranty_until_value = cast(date | None, item_row["warranty_until"])
+        warranty_until_month = (
+            f"{warranty_until_value.year:04d}-{warranty_until_value.month:02d}"
+            if warranty_until_value is not None
+            else None
+        )
+        warranty_until_source = next(
+            (
+                row
+                for row in item_tag_rows
+                if row["key"] == "warranty_until"
+                and warranty is not None
+                and warranties_by_observation.get(cast(UUID, row["observation_id"])) == warranty
+            ),
+            None,
+        )
+        warranty_until_readable = (
+            warranty_until_source is not None
+            and warranty_until_source["grant_id"] == context.grant_id
+            and warranty_until_source["value"] == warranty_until_month
+        )
+        vram = cast(int | None, item_row["vram_gb"])
+        vram_readable = (
+            model_readable
+            and vram_source is not None
+            and vram_source["grant_id"] == context.grant_id
+            and int(cast(str, vram_source["value"])) == vram
+        )
+        result[item_id] = {
+            "model_key": model_key if model_readable else None,
+            "vram_gb": vram if vram_readable else None,
+            "condition": condition if condition_readable else None,
+            "warranty": warranty if warranty_readable else None,
+            "warranty_until": warranty_until_month if warranty_until_readable else None,
+            "warranty_months_left": (
+                _warranty_months_left(warranty_until_value, now)
+                if warranty_until_readable
+                else None
+            ),
+        }
+    return result
+
+
+def read_post(
+    conn: Connection,
+    context: ReadContext,
+    post_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     """Return the post snapshot and its observations inside the trusted grant."""
     _authorize(conn, context, "read")
     post = (
@@ -174,17 +334,33 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
         evidence_by_observation.setdefault(observation_id, {})[row["local_key"]] = evidence_id
         evidence_ids_by_observation.setdefault(observation_id, []).append(evidence_id)
 
-    item_ids = {
-        cast(str, row["source_item_key"]): cast(UUID, row["id"])
-        for row in conn.execute(
-            select(listing_items.c.id, listing_items.c.source_item_key).where(
+    listing_item_rows = (
+        conn.execute(
+            select(
+                listing_items.c.id,
+                listing_items.c.source_item_key,
+                listing_items.c.model_key,
+                listing_items.c.vram_gb,
+                listing_items.c.condition,
+                listing_items.c.warranty,
+                listing_items.c.warranty_until,
+            ).where(
                 listing_items.c.post_id == post_id,
                 listing_items.c.source_item_key.is_not(None),
             )
         )
         .mappings()
         .all()
+    )
+    item_ids = {
+        cast(str, row["source_item_key"]): cast(UUID, row["id"]) for row in listing_item_rows
     }
+    readable_projections = _readable_listing_item_projections(
+        conn,
+        context,
+        cast(Sequence[Mapping[str, Any]], listing_item_rows),
+        now if now is not None else bangkok_now(),
+    )
 
     result_observations: list[dict[str, Any]] = []
     for row in observed:
@@ -195,13 +371,40 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
         result_items: list[dict[str, Any]] = []
         for item in raw_items:
             source_item_key = cast(str | None, item.get("source_item_key"))
+            item_id = item_ids.get(source_item_key) if source_item_key is not None else None
+            projection = (
+                readable_projections.get(
+                    item_id,
+                    {
+                        "model_key": None,
+                        "vram_gb": None,
+                        "condition": None,
+                        "warranty": None,
+                        "warranty_until": None,
+                        "warranty_months_left": None,
+                    },
+                )
+                if item_id is not None
+                else {
+                    "model_key": None,
+                    "vram_gb": None,
+                    "condition": None,
+                    "warranty": None,
+                    "warranty_until": None,
+                    "warranty_months_left": None,
+                }
+            )
             result_items.append(
                 {
-                    "item_id": item_ids.get(source_item_key)
-                    if source_item_key is not None
-                    else None,
+                    "item_id": item_id,
                     "source_item_key": source_item_key,
                     "model": item.get("model"),
+                    "model_key": projection["model_key"],
+                    "vram_gb": projection["vram_gb"],
+                    "condition": projection["condition"],
+                    "warranty": projection["warranty"],
+                    "warranty_until": projection["warranty_until"],
+                    "warranty_months_left": projection["warranty_months_left"],
                     "condition_text": item.get("condition_text"),
                     "source_status_label": item.get("source_status_label"),
                     "price": item.get("price"),
@@ -399,6 +602,17 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
             {
                 "item_id": row["item_id"],
                 "source_item_key": row["source_item_key"],
+                **readable_projections.get(
+                    cast(UUID, row["item_id"]),
+                    {
+                        "model_key": None,
+                        "vram_gb": None,
+                        "condition": None,
+                        "warranty": None,
+                        "warranty_until": None,
+                        "warranty_months_left": None,
+                    },
+                ),
                 "sale_status": row["sale_status"] or "unknown",
                 "status_since": row["status_since"],
                 "status_evidence_id": row["status_evidence_id"],
@@ -468,8 +682,9 @@ def _post_card(
     *,
     watched: bool,
     last_success_at: datetime | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    detail = read_post(conn, context, post_id)
+    detail = read_post(conn, context, post_id, now=now)
     observations_in_scope = cast(list[Mapping[str, Any]], detail["observations"])
     if not observations_in_scope:
         raise NotFound()
@@ -532,6 +747,12 @@ def _post_card(
                 "item_id": item["item_id"],
                 "source_item_key": source_item_key,
                 "model": models_by_key.get(source_item_key),
+                "model_key": item["model_key"],
+                "vram_gb": item["vram_gb"],
+                "condition": item["condition"],
+                "warranty": item["warranty"],
+                "warranty_until": item["warranty_until"],
+                "warranty_months_left": item["warranty_months_left"],
                 "sale_status": item["sale_status"],
                 "status_since": item["status_since"],
                 "needs_review": item["needs_review"],
@@ -566,25 +787,41 @@ def _post_card_matches(
     sale_status: str | None,
     min_price: Decimal | None,
     max_price: Decimal | None,
+    model_key: str | None,
+    vram_gb: int | None,
+    condition: str | None,
+    warranty: str | None,
 ) -> bool:
     items = cast(list[Mapping[str, Any]], card["items"])
-    if sale_status is not None and not any(item["sale_status"] == sale_status for item in items):
-        return False
-    if min_price is None and max_price is None:
+    if all(
+        value is None
+        for value in (sale_status, min_price, max_price, model_key, vram_gb, condition, warranty)
+    ):
         return True
 
     for item in items:
-        ask_value = item["ask"]
-        if ask_value is None:
+        if sale_status is not None and item["sale_status"] != sale_status:
             continue
-        ask = cast(Mapping[str, Any], ask_value)
-        if ask["currency"] != "THB":
+        if model_key is not None and item["model_key"] != model_key:
             continue
-        amount = Decimal(cast(str, ask["amount"]))
-        if min_price is not None and amount < min_price:
+        if vram_gb is not None and item["vram_gb"] != vram_gb:
             continue
-        if max_price is not None and amount > max_price:
+        if condition is not None and item["condition"] != condition:
             continue
+        if warranty is not None and item["warranty"] != warranty:
+            continue
+        if min_price is not None or max_price is not None:
+            ask_value = item["ask"]
+            if ask_value is None:
+                continue
+            ask = cast(Mapping[str, Any], ask_value)
+            if ask["currency"] != "THB":
+                continue
+            amount = Decimal(cast(str, ask["amount"]))
+            if min_price is not None and amount < min_price:
+                continue
+            if max_price is not None and amount > max_price:
+                continue
         return True
     return False
 
@@ -596,14 +833,20 @@ def read_posts(
     sale_status: str | None = None,
     min_price: Decimal | None = None,
     max_price: Decimal | None = None,
+    model_key: str | None = None,
+    vram_gb: int | None = None,
+    condition: str | None = None,
+    warranty: str | None = None,
     limit: int = 20,
     cursor: str | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """List scoped post cards in last-success order with an opaque continuation cursor."""
     if not 1 <= limit <= 50:
         raise ValueError("limit must be between 1 and 50")
     _authorize(conn, context, "read")
     cursor_key = _decode_post_cursor(cursor) if cursor is not None else None
+    read_at = now if now is not None else bangkok_now()
 
     successful_observations = (
         select(
@@ -686,12 +929,17 @@ def read_posts(
             post_id,
             watched=post_id in watched_post_ids,
             last_success_at=last_success_at,
+            now=read_at,
         )
         if not _post_card_matches(
             card,
             sale_status=sale_status,
             min_price=min_price,
             max_price=max_price,
+            model_key=model_key,
+            vram_gb=vram_gb,
+            condition=condition,
+            warranty=warranty,
         ):
             continue
         if len(cards) == limit:

@@ -10,6 +10,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import Connection, Engine, insert, select, text, update
 
+from paiya.extract.service import create_tags_and_rebuild_listing_items
 from paiya.ingest.validation import validate_observation
 from paiya.status.service import create_facts_and_rebuild_current_items
 from paiya.store.fixture_scope import (
@@ -267,6 +268,8 @@ def ingest_fixture(
                     "variant": None,
                     "vram_gb": None,
                     "condition": None,
+                    "warranty": None,
+                    "warranty_until": None,
                     "unit": price["unit"] if price is not None else "unknown",
                     "resolution": "keyed",
                 },
@@ -407,6 +410,13 @@ def ingest_fixture(
                 observation_id=observation_id,
                 post_id=post_id,
                 observed_at=observed_at,
+                payload=payload,
+                item_ids=item_ids,
+            )
+            create_tags_and_rebuild_listing_items(
+                conn,
+                observation_id=observation_id,
+                post_id=post_id,
                 payload=payload,
                 item_ids=item_ids,
             )

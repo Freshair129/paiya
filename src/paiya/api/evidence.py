@@ -17,6 +17,7 @@ from paiya.read.context import (
 )
 from paiya.read.errors import ReadContextRequired
 from paiya.read.service import (
+    bangkok_now,
     read_evidence,
     read_evidence_media,
     read_group_runs,
@@ -53,17 +54,23 @@ def get_db_connection() -> Iterator[Connection]:
 
 Scope = Annotated[ReadContext, Depends(require_read_context)]
 Db = Annotated[Connection, Depends(get_db_connection)]
+ReadNow = Annotated[datetime, Depends(bangkok_now)]
 
 
 @router.get("/posts")
 def get_posts(
     scope: Scope,
     conn: Db,
+    now: ReadNow,
     sale_status: Literal["unknown", "open", "reserved", "sold", "withdrawn"] | None = Query(
         default=None
     ),
     min_price: Decimal | None = Query(default=None),
     max_price: Decimal | None = Query(default=None),
+    model_key: str | None = Query(default=None, min_length=1),
+    vram_gb: int | None = Query(default=None, ge=1, le=99),
+    condition: Literal["new", "new_no_warranty", "used"] | None = Query(default=None),
+    warranty: Literal["active", "none"] | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = Query(default=None),
 ) -> dict[str, object]:
@@ -74,8 +81,13 @@ def get_posts(
             sale_status=sale_status,
             min_price=min_price,
             max_price=max_price,
+            model_key=model_key,
+            vram_gb=vram_gb,
+            condition=condition,
+            warranty=warranty,
             limit=limit,
             cursor=cursor,
+            now=now,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail="Invalid cursor") from error
@@ -87,8 +99,8 @@ def get_groups(scope: Scope, conn: Db) -> dict[str, object]:
 
 
 @router.get("/posts/{post_id}")
-def get_post(post_id: UUID, scope: Scope, conn: Db) -> dict[str, object]:
-    return read_post(conn, scope, post_id)
+def get_post(post_id: UUID, scope: Scope, conn: Db, now: ReadNow) -> dict[str, object]:
+    return read_post(conn, scope, post_id, now=now)
 
 
 @router.get("/sellers/{seller_id}")
