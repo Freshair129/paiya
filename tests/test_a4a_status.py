@@ -276,6 +276,12 @@ def test_api_current_items_shape_and_unresolved(pg_engine, tmp_path):
             "status_evidence_id",
             "last_success_at",
             "needs_review",
+            "model_key",
+            "vram_gb",
+            "condition",
+            "warranty",
+            "warranty_until",
+            "warranty_months_left",
             "ask",
         }
         assert item["sale_status"] == "unknown"

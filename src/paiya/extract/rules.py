@@ -78,7 +78,7 @@ def _model_parts(model_key: str) -> tuple[str, str, str]:
 _MODEL_TOKENS = re.compile(
     r"(?<![^\W_])"
     r"(?:(?P<geforce>geforce)\s*)?"
-    r"(?:(?P<radeon>radeon)\s*)?"
+    r"(?:(?P<radeon>radeon)\s*(?=rx))?"
     r"(?P<family>rtx|gtx|rx)?\s*"
     r"(?P<number>\d{4})"
     r"(?:\s*(?P<suffix>ti\s*super|ti|super|xtx|xt))?"
@@ -104,8 +104,10 @@ def _resolve_model_token(match: re.Match[str]) -> tuple[str | None, bool]:
         return None, True
 
     prefix_family = match.group("family")
-    if match.group("geforce") and prefix_family not in {"rtx", "gtx"}:
-        return None, True
+    if match.group("geforce"):
+        if prefix_family is not None and prefix_family not in {"rtx", "gtx"}:
+            return None, True
+        candidates = [key for key in candidates if _model_parts(key)[0] in {"rtx", "gtx"}]
     if match.group("radeon") and prefix_family != "rx":
         return None, True
     if prefix_family is not None:
