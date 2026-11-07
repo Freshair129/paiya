@@ -97,7 +97,7 @@ Worker ห่อ payload ด้วย envelope ที่มี run_id, capture_i
 | `posted_at` | `posts.posted_at` และ `observations.source_time` ใช้ `value` `source_time_precision` ใช้ `precision` หรือ `unknown` เมื่อไม่มี `posted_at` ข้อความต้นทางคงอยู่ใน `normalized_json` |
 | `activity` | สามยอดและ `coverage` ลงคอลัมน์ของ observation เป็น NULL ทั้งหมดเมื่อ payload ไม่มี `activity` |
 | `seller` | สร้าง seller เฉพาะเมื่อมี `external_actor_key` ชื่อแสดงผลไม่เก็บในตาราง `sellers` เพราะเป็นข้อมูลที่สังเกตตาม grant ให้อ่านจาก observation |
-| `items[]` ที่มี `source_item_key` | หา/สร้าง `listing_items` ด้วย UNIQUE(post_id, source_item_key) `resolution = keyed`, `unit` มาจาก `price.unit` หรือ `unknown` เมื่อไม่มีราคา `model_key` ว่างไว้จนมีกฎสกัด (A6) |
+| `items[]` ที่มี `source_item_key` | หา/สร้าง `listing_items` ด้วย UNIQUE(post_id, source_item_key) `resolution = keyed`, `unit` มาจาก `price.unit` หรือ `unknown` เมื่อไม่มีราคา `model_key`, `vram_gb` และ `condition` มาจากกฎสกัดตาม [สัญญากฎสกัด](extraction-and-tags.md) |
 | `items[]` ที่ `source_item_key` เป็น null | ระยะ A2 ไม่สร้างแถว `listing_items` ข้อมูลอยู่ใน `normalized_json` การจับคู่ข้ามรอบเป็น `unresolved` หรือ `bundle` เป็นงาน A4 |
 | `comments[]` | คอมเมนต์ที่มี key ใช้แถวเดิมของโพสต์ คอมเมนต์ที่ไม่มี key สร้างแถวใหม่ทุก observation `parent_key` ผูก `parent_id` เมื่อพบ parent ในโพสต์เดียวกัน ทุกคอมเมนต์ได้ `comment_versions` หนึ่งแถวต่อ observation พร้อม `body_hash` (SHA-256 ของข้อความ) และ `source_time` จาก `value` |
 | `evidence[]` | `captured_at` ใช้ `observed_at` ของ payload `item_id` ใส่เมื่อมีชิ้นที่มี key อ้างหลักฐานนั้นเพียงชิ้นเดียว span ของ `comment_text` ผูก `comment_version_id` ของ observation เดียวกัน `media_asset_id` มีค่าเมื่อ `media_state = captured` เท่านั้น |
