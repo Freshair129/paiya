@@ -164,9 +164,11 @@ def evidence_document(scope, case):
         payload["evidence"][1]["role"] = "source_label"
     elif case == "post_text":
         payload["evidence"][1]["source_span"] = {"field": "post_text", "quote": "synthetic"}
-    elif case == "role":
+    elif case in {"role", "role_seller_unknown"}:
         payload["evidence"][0]["role"] = "seller"
         payload["items"][0]["evidence_keys"] = ["s03-buyer-text"]
+        if case == "role_seller_unknown":
+            payload["seller"] = None
     elif case == "actor":
         payload["comments"][1]["actor_key"] = "different-synthetic-actor"
     elif case == "seller":
@@ -213,23 +215,26 @@ def test_price_evidence_validation(pg_engine, tmp_path, case, expected, reason):
 
 def test_backfill_matches_ingest_evidence_paths(pg_engine, tmp_path):
     scope = seed_fixture_scope(pg_engine, "synthetic-trend-backfill")
-    cases = [
-        "source_label",
-        "post_text",
-        "comment",
-        "role",
-        "actor",
-        "seller",
-        "other",
-        "later_eligible",
-    ]
+    cases = {
+        "source_label": ("confirmed", None),
+        "post_text": ("confirmed", None),
+        "comment": ("confirmed", None),
+        # The buyer comment also has a different actor from the known seller.
+        "role": ("rejected", "role_mismatch"),
+        # The role differs even though the seller is unknown.
+        "role_seller_unknown": ("rejected", "role_mismatch"),
+        "actor": ("rejected", "actor_mismatch"),
+        "seller": ("rejected", "seller_unknown"),
+        "other": ("rejected", "no_eligible_evidence"),
+        "later_eligible": ("confirmed", None),
+    }
     ids = []
     for case in cases:
         doc = evidence_document(scope, case)
         doc["run_id"] = str(uuid4())
         doc["capture_id"] = f"synthetic-{uuid4()}"
         doc["payload"]["source_post_key"] = f"synthetic-{case}"
-        ids.append(ingest_fixture(pg_engine, scope, doc, {}, tmp_path))
+        ids.append((ingest_fixture(pg_engine, scope, doc, {}, tmp_path), cases[case]))
     with pg_engine.connect() as conn:
         expected = {
             row[0]: (row[1], row[2])
@@ -241,11 +246,13 @@ def test_backfill_matches_ingest_evidence_paths(pg_engine, tmp_path):
                 )
             ).all()
         }
+    for observation_id, decision in ids:
+        assert expected[observation_id] == decision
     alembic = Config(str(ROOT / "alembic.ini"))
     command.downgrade(alembic, "0005_watches")
     copies = {}
     with pg_engine.begin() as conn:
-        for observation_id in ids:
+        for observation_id, _ in ids:
             new_id = uuid4()
             copies[new_id] = observation_id
             conn.execute(
