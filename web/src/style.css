@@ -430,6 +430,25 @@ h3 {
   font-weight: 650;
 }
 
+.item-attributes {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.4rem;
+  margin: 0 0 0.35rem;
+  color: #455c65;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.item-attributes span {
+  max-width: 100%;
+  padding: 0.14rem 0.45rem;
+  border-radius: 999px;
+  background: #eef3f1;
+  overflow-wrap: anywhere;
+}
+
 .post-time {
   margin: -0.15rem 0 0.35rem;
   color: var(--muted);
@@ -734,6 +753,10 @@ h3 {
 .item-detail-heading h3 {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.item-detail-attributes {
+  margin-top: 0.45rem;
 }
 
 .seller-link {

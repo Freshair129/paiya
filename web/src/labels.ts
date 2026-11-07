@@ -1,4 +1,4 @@
-import type { SaleStatus } from './api'
+import type { ItemCondition, SaleStatus, WarrantyStatus } from './api'
 
 export const THAI_LABELS = {
   saleStatus: {
@@ -46,6 +46,75 @@ const PARTIAL_REASON_LABELS: Record<string, string> = {
 
 export function saleStatusLabel(status: SaleStatus): string {
   return THAI_LABELS.saleStatus[status]
+}
+
+const MODEL_SUFFIX_LABELS: Record<string, string> = {
+  ti: 'Ti',
+  super: 'Super',
+  xt: 'XT',
+  xtx: 'XTX',
+}
+
+export function modelLabel(
+  modelKey: string | null | undefined,
+  vramGb: number | null | undefined,
+  rawModel: string | null | undefined,
+): string | null {
+  let label: string
+  if (modelKey) {
+    const [family, ...parts] = modelKey.split('-')
+    label = [
+      family.toUpperCase(),
+      ...parts.map((part) =>
+        /^\d+$/.test(part)
+          ? part
+          : MODEL_SUFFIX_LABELS[part.toLowerCase()] ??
+            `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`,
+      ),
+    ].join(' ')
+  } else {
+    label = rawModel ?? ''
+  }
+  if (!label) return null
+  return vramGb !== null && vramGb !== undefined ? `${label} · ${vramGb}GB` : label
+}
+
+export function conditionLabel(condition: ItemCondition | null | undefined): string | null {
+  switch (condition) {
+    case 'new': return 'ของใหม่'
+    case 'new_no_warranty': return 'ของใหม่ ไม่มีประกัน'
+    case 'used': return 'มือสอง'
+    default: return null
+  }
+}
+
+function formatWarrantyMonth(value: string): string | null {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null
+  const date = new Date(`${value}-01T00:00:00.000Z`)
+  if (Number.isNaN(date.getTime())) return null
+  return new Intl.DateTimeFormat('th-TH', {
+    timeZone: 'UTC',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+export function warrantyLabel(
+  warranty: WarrantyStatus | null | undefined,
+  warrantyUntil: string | null | undefined,
+  monthsLeft: number | null | undefined,
+): string | null {
+  if (warranty === 'none') return 'ไม่มีประกัน'
+  if (warranty !== 'active') return null
+  if (!warrantyUntil) return 'มีประกัน'
+
+  const monthLabel = formatWarrantyMonth(warrantyUntil)
+  if (!monthLabel) return 'มีประกัน'
+  if (monthsLeft !== null && monthsLeft !== undefined && monthsLeft > 0) {
+    return `ประกันเหลือ ${monthsLeft} เดือน (ถึง ${monthLabel})`
+  }
+  if (monthsLeft === 0) return `ประกันถึง ${monthLabel} · ครบกำหนดแล้ว`
+  return 'มีประกัน'
 }
 
 export function accessLabel(access: string): string {

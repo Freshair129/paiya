@@ -22,6 +22,7 @@ from paiya.read.service import (
     read_evidence_media,
     read_group_runs,
     read_groups,
+    read_models,
     read_post,
     read_post_timeline,
     read_posts,
@@ -55,6 +56,11 @@ def get_db_connection() -> Iterator[Connection]:
 Scope = Annotated[ReadContext, Depends(require_read_context)]
 Db = Annotated[Connection, Depends(get_db_connection)]
 ReadNow = Annotated[datetime, Depends(bangkok_now)]
+
+
+@router.get("/models")
+def get_models(scope: Scope, conn: Db, now: ReadNow) -> dict[str, object]:
+    return read_models(conn, scope, now=now)
 
 
 @router.get("/posts")

@@ -1,4 +1,15 @@
 export type SaleStatus = 'unknown' | 'open' | 'reserved' | 'sold' | 'withdrawn'
+export type ItemCondition = 'new' | 'new_no_warranty' | 'used'
+export type WarrantyStatus = 'active' | 'none'
+
+export interface ModelOption {
+  model_key: string
+  item_count: number
+}
+
+export interface ModelsResponse {
+  models: ModelOption[]
+}
 
 export interface AskPrice {
   amount: string
@@ -11,6 +22,12 @@ export interface PostCardItem {
   item_id: string | null
   source_item_key: string | null
   model: string | null
+  model_key?: string | null
+  vram_gb?: number | null
+  condition?: ItemCondition | null
+  warranty?: WarrantyStatus | null
+  warranty_until?: string | null
+  warranty_months_left?: number | null
   sale_status: SaleStatus
   status_since: string | null
   needs_review: boolean
@@ -80,6 +97,12 @@ export interface PostObservationItem {
   item_id: string | null
   source_item_key: string | null
   model: string | null
+  model_key?: string | null
+  vram_gb?: number | null
+  condition?: ItemCondition | null
+  warranty?: WarrantyStatus | null
+  warranty_until?: string | null
+  warranty_months_left?: number | null
   condition_text: string | null
   source_status_label: string | null
   price: AskPrice | null
@@ -105,6 +128,12 @@ export interface PostObservation {
 export interface PostCurrentItem {
   item_id: string
   source_item_key: string
+  model_key?: string | null
+  vram_gb?: number | null
+  condition?: ItemCondition | null
+  warranty?: WarrantyStatus | null
+  warranty_until?: string | null
+  warranty_months_left?: number | null
   sale_status: SaleStatus
   status_since: string | null
   status_evidence_id: string | null
@@ -252,6 +281,10 @@ export interface PostFilters {
   sale_status: SaleStatus | null
   min_price: string
   max_price: string
+  model_key?: string | null
+  vram_gb?: number | null
+  condition?: ItemCondition | null
+  warranty?: WarrantyStatus | null
 }
 
 export function getPosts(
@@ -263,9 +296,18 @@ export function getPosts(
   if (filters.sale_status) query.set('sale_status', filters.sale_status)
   if (filters.min_price) query.set('min_price', filters.min_price)
   if (filters.max_price) query.set('max_price', filters.max_price)
+  if (filters.model_key) query.set('model_key', filters.model_key)
+  if (filters.vram_gb !== undefined && filters.vram_gb !== null) {
+    query.set('vram_gb', String(filters.vram_gb))
+  }
+  if (filters.condition) query.set('condition', filters.condition)
+  if (filters.warranty) query.set('warranty', filters.warranty)
   if (cursor) query.set('cursor', cursor)
   return getJson(`/v1/posts?${query.toString()}`, signal)
 }
+
+export const getModels = (signal?: AbortSignal): Promise<ModelsResponse> =>
+  getJson('/v1/models', signal)
 
 export const getGroups = (signal?: AbortSignal): Promise<GroupsResponse> =>
   getJson('/v1/groups', signal)
