@@ -223,6 +223,10 @@ def _ceil_slot(value: datetime, poll_minutes: int) -> datetime:
     return slot if slot == value.astimezone(UTC) else slot + timedelta(minutes=poll_minutes)
 
 
+def _next_slot(value: datetime, poll_minutes: int) -> datetime:
+    return _slot(value, poll_minutes) + timedelta(minutes=poll_minutes)
+
+
 def _open_post_ids(conn: Connection, group_id: UUID) -> set[UUID]:
     return set(
         conn.execute(
@@ -353,7 +357,6 @@ def _schedule_revisits_for_group(
 
     open_posts = _open_post_ids(conn, group_id)
     candidates: list[tuple[datetime, UUID, datetime]] = []
-    cadence = timedelta(minutes=interval)
     for post in post_rows:
         post_id = cast(UUID, post["id"])
         first_seen = cast(datetime, post["first_seen_at"]).astimezone(UTC)
@@ -364,10 +367,7 @@ def _schedule_revisits_for_group(
 
         new_window_end = first_seen + timedelta(hours=24)
         if now < new_window_end:
-            next_new = _ceil_slot(
-                max(first_seen, last_success + cadence) if last_success is not None else first_seen,
-                interval,
-            )
+            next_new = _next_slot(last_success or first_seen, interval)
             if next_new <= now:
                 reasons.append((next_new, group_slot))
 
