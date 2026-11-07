@@ -1,6 +1,6 @@
 # ADR 0004 การเข้าถึง API ในเครื่อง ช่องทาง MCP และการบังคับ agent_export
 
-**สถานะ** เสนอเพื่อรับรอง · ผู้ตัดสินใจคือ Product owner + Tech lead · 7 พฤศจิกายน 2026 · เจ้าของเลือกทางเลือกทั้งสามข้อใน [Issue #16](https://github.com/Freshair129/paiya/issues/16) แล้ว ฉบับนี้รอรับรองตัวเอกสาร
+**สถานะ** รับรองแล้ว · ผู้ตัดสินใจคือ Product owner + Tech lead · เสนอ 7 พฤศจิกายน 2026 · เจ้าของเลือกทางเลือกทั้งสามข้อใน [Issue #16](https://github.com/Freshair129/paiya/issues/16) และรับรองตัวเอกสาร 8 พฤศจิกายน 2026 ([Issue #48 ข้อ E1](https://github.com/Freshair129/paiya/issues/48#issuecomment-6712472610))
 **เกี่ยวข้อง** [SRS ข้อ 6](../../requirements/SRS.md) · [SPEC ข้อ 6](../SPEC.md) · [สัญญา Collector และ API](../contracts/collector-and-query.md) · [ADR 0003](0003-dev-tooling.md)
 
 ## โจทย์
