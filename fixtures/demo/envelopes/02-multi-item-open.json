@@ -1,0 +1,66 @@
+{
+  "run_id": "a5370002-0000-4000-8000-000000000002",
+  "capture_id": "demo/multi-item/capture-open",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {"session": "ok", "sort": "verified_latest"},
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-demo",
+    "source_post_key": "demo-multi-item-bundle",
+    "permalink": "https://example.invalid/paiya/demo/multi-item-bundle",
+    "observed_at": "2026-11-07T02:15:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T01:55:00Z",
+      "value": "2026-11-07T01:55:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-demo",
+      "external_actor_key": "seller-alpha",
+      "display_name": "ร้านสมมิตะวัน"
+    },
+    "items": [
+      {
+        "source_item_key": "gpu-rtx3060",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {"kind": "ask", "unit": "each", "amount": "5500", "currency": "THB"},
+        "evidence_keys": ["bundle-open-3060"]
+      },
+      {
+        "source_item_key": "gpu-rtx3070",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {"kind": "ask", "unit": "each", "amount": "7900", "currency": "THB"},
+        "evidence_keys": ["bundle-open-3070"]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "bundle-open-3060",
+        "role": "seller",
+        "source_span": {"field": "post_text", "quote": "RTX 3060 12GB ราคา 5,500 ยังขายอยู่"},
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "bundle-open-3070",
+        "role": "seller",
+        "source_span": {"field": "post_text", "quote": "RTX 3070 8GB ราคา 7,900 ยังขายอยู่"},
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}

@@ -9,6 +9,7 @@ from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from paiya.demo import seed_demo
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.settings import get_database_engine
@@ -59,10 +60,19 @@ def _parser() -> argparse.ArgumentParser:
         action = watch_actions.add_parser(name, help=help_text)
         action.add_argument("post_id", type=UUID)
     watch_actions.add_parser("list", help="list active-grant post watches")
+
+    demo = commands.add_parser("demo", help="manage the synthetic mobile demo data")
+    demo_actions = demo.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    demo_actions.add_parser("seed", help="seed the synthetic mobile demo group and posts")
     return parser
 
 
 def _execute(args: argparse.Namespace) -> object:
+    if args.resource == "demo" and args.action == "seed":
+        return seed_demo(get_database_engine())
+
     now = datetime.now(UTC)
     engine = get_database_engine()
     with engine.connect() as conn:
@@ -100,6 +110,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except (RuntimeError, ValueError) as error:
         _print_error("invalid_command", str(error))
+        return 1
+    except OSError as error:
+        _print_error("io_error", str(error))
         return 1
     except SQLAlchemyError:
         _print_error("database_error", "The database operation failed")

@@ -1,0 +1,122 @@
+{
+  "run_id": "a5370003-0000-4000-8000-000000000003",
+  "capture_id": "demo/multi-item/capture-reserved",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "revisit",
+  "page_check": {"session": "ok", "sort": "not_applicable"},
+  "assets": {
+    "multi-item-photo": {
+      "staging_key": "demo-multi-item",
+      "sha256": "8dcbfb6310b05fec668c9ca5eb5f47aa049326c9297102c97ffb0174670bd655",
+      "mime": "image/webp",
+      "width": 480,
+      "height": 360,
+      "bytes": 5862
+    }
+  },
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-demo",
+    "source_post_key": "demo-multi-item-bundle",
+    "permalink": "https://example.invalid/paiya/demo/multi-item-bundle",
+    "observed_at": "2026-11-07T02:30:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T01:55:00Z",
+      "value": "2026-11-07T01:55:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-demo",
+      "external_actor_key": "seller-alpha",
+      "display_name": "ร้านสมมิตะวัน"
+    },
+    "items": [
+      {
+        "source_item_key": "gpu-rtx3060",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "ติดจอง",
+        "price": {"kind": "ask", "unit": "each", "amount": "5500", "currency": "THB"},
+        "evidence_keys": ["bundle-reserved-3060"]
+      },
+      {
+        "source_item_key": "gpu-rtx3070",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {"kind": "ask", "unit": "each", "amount": "7900", "currency": "THB"},
+        "evidence_keys": ["bundle-reserved-3070"]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 2,
+      "distinct_comments_seen": 2,
+      "distinct_known_commenters_seen": 2,
+      "coverage": "complete"
+    },
+    "comments": [
+      {
+        "source_comment_key": "demo-buyer-reservation",
+        "role": "other",
+        "actor_key": "buyer-synthetic",
+        "text": "จองครับ",
+        "source_time": {
+          "source_text": "2026-11-07T02:20:00Z",
+          "value": "2026-11-07T02:20:00Z",
+          "precision": "exact"
+        }
+      },
+      {
+        "source_comment_key": "demo-seller-confirmation",
+        "role": "seller",
+        "actor_key": "seller-alpha",
+        "text": "3060 ติดจองแล้ว 3070 ยังขายอยู่",
+        "source_time": {
+          "source_text": "2026-11-07T02:25:00Z",
+          "value": "2026-11-07T02:25:00Z",
+          "precision": "exact"
+        }
+      }
+    ],
+    "evidence": [
+      {
+        "local_key": "demo-buyer-text",
+        "role": "other",
+        "source_span": {
+          "field": "comment_text",
+          "comment_key": "demo-buyer-reservation",
+          "quote": "จองครับ"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "bundle-reserved-3060",
+        "role": "seller",
+        "source_span": {
+          "field": "comment_text",
+          "comment_key": "demo-seller-confirmation",
+          "quote": "3060 ติดจองแล้ว"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "bundle-reserved-3070",
+        "role": "seller",
+        "source_span": {
+          "field": "comment_text",
+          "comment_key": "demo-seller-confirmation",
+          "quote": "3070 ยังขายอยู่"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "multi-item-photo",
+        "role": "seller",
+        "source_span": {"field": "post_text", "quote": "การ์ดจอ RTX 3060 และ RTX 3070"},
+        "media_state": "captured"
+      }
+    ]
+  }
+}
