@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     MetaData,
     SmallInteger,
@@ -60,12 +61,38 @@ jobs = Table(
     Column("group_id", UUID(as_uuid=True), nullable=False),
     Column("grant_id", UUID(as_uuid=True), nullable=False),
     Column("kind", Text, nullable=False),
+    Column("target_key", Text, nullable=False),
     Column("logical_key", Text, nullable=False, unique=True),
+    Column("request_digest", Text, nullable=True),
+    Column("due_at", DateTime(timezone=True), nullable=False),
+    Column("state", Text, nullable=False),
+    Column("lease_token", UUID(as_uuid=True), nullable=True),
+    Column("lease_until", DateTime(timezone=True), nullable=True),
+    Column("retry_count", Integer, nullable=False, server_default=text("0")),
+    CheckConstraint(
+        "kind IN ('discover', 'revisit', 'manual_import', 'enrich', 'purge')",
+        name="ck_jobs_kind",
+    ),
+    CheckConstraint(
+        "state IN ('queued', 'leased', 'succeeded', 'failed', 'cancelled')",
+        name="ck_jobs_state",
+    ),
     ForeignKeyConstraint(
         ["grant_id", "group_id"],
         ["source_grants.id", "source_grants.group_id"],
         name="fk_jobs_grant_scope",
     ),
+)
+Index(
+    "ix_jobs_queued_due",
+    jobs.c.due_at,
+    jobs.c.id,
+    postgresql_where=text("state = 'queued'"),
+)
+Index(
+    "ix_jobs_leased_until",
+    jobs.c.lease_until,
+    postgresql_where=text("state = 'leased'"),
 )
 
 capture_runs = Table(
@@ -76,8 +103,26 @@ capture_runs = Table(
     Column("group_id", UUID(as_uuid=True), nullable=False),
     Column("grant_id", UUID(as_uuid=True), nullable=False),
     Column("source_kind", Text, nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("ended_at", DateTime(timezone=True), nullable=True),
     Column("session_result", Text, nullable=True),
     Column("sort_result", Text, nullable=True),
+    Column("coverage", Text, nullable=True),
+    Column("partial_reasons", ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")),
+    Column("stop_reason", Text, nullable=True),
+    Column("cards_seen", Integer, nullable=True),
+    Column("cards_parsed", Integer, nullable=True),
+    Column("scroll_steps", Integer, nullable=True),
+    Column("error_code", Text, nullable=True),
+    CheckConstraint(
+        "coverage IS NULL OR coverage IN ('complete', 'partial', 'none')",
+        name="ck_runs_coverage",
+    ),
+    CheckConstraint(
+        "stop_reason IS NULL OR stop_reason IN ('overlap_reached', 'feed_end', "
+        "'time_budget_exhausted', 'scroll_budget_exhausted', 'access_blocked')",
+        name="ck_runs_stop_reason",
+    ),
     ForeignKeyConstraint(
         ["grant_id", "group_id"],
         ["source_grants.id", "source_grants.group_id"],
@@ -85,6 +130,21 @@ capture_runs = Table(
     ),
     UniqueConstraint("id", "group_id", "grant_id", name="uq_runs_scope"),
 )
+
+capture_gaps = Table(
+    "capture_gaps",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("group_id", UUID(as_uuid=True), ForeignKey("groups.id"), nullable=False),
+    Column("gap_from", DateTime(timezone=True), nullable=False),
+    Column("gap_to", DateTime(timezone=True), nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("detected_at", DateTime(timezone=True), nullable=False),
+    Column("compensated_by_job_id", UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=True),
+    CheckConstraint("gap_to > gap_from", name="ck_capture_gaps_positive_range"),
+    CheckConstraint("reason IN ('missed_slots', 'run_failed')", name="ck_capture_gaps_reason"),
+)
+Index("ix_capture_gaps_group_gap_from", capture_gaps.c.group_id, capture_gaps.c.gap_from)
 
 sellers = Table(
     "sellers",

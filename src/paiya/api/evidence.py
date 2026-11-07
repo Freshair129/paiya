@@ -4,13 +4,13 @@ from collections.abc import Iterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import Connection
 
 from paiya.read.context import ReadContext
 from paiya.read.errors import ReadContextRequired
-from paiya.read.service import read_evidence, read_evidence_media, read_post
+from paiya.read.service import read_evidence, read_evidence_media, read_group_runs, read_post
 from paiya.settings import get_database_engine
 
 router = APIRouter(prefix="/v1")
@@ -56,3 +56,17 @@ def get_evidence_media(evidence_id: UUID, scope: Scope, conn: Db) -> Response:
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/groups/{group_id}/runs")
+def get_group_runs(
+    group_id: UUID,
+    scope: Scope,
+    conn: Db,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+) -> dict[str, object]:
+    try:
+        return read_group_runs(conn, scope, group_id, limit=limit, cursor=cursor)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Invalid cursor") from error

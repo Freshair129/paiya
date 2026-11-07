@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paiya.invalid/contracts/feed-script.schema.json",
+  "title": "Paiya synthetic feed script",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["feed_version", "group_key", "runs"],
+  "properties": {
+    "feed_version": { "const": 1 },
+    "group_key": { "type": "string", "pattern": "^synthetic-[A-Za-z0-9._-]{1,190}$" },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/run" }
+    }
+  },
+  "$defs": {
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "started_at", "session", "sort", "access", "load_limit", "cards"],
+      "properties": {
+        "label": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "session": { "enum": ["ok", "required", "unknown"] },
+        "sort": { "enum": ["verified_latest", "unverified"] },
+        "access": {
+          "enum": ["ok", "unavailable", "permission_denied", "session_required", "challenge_required"]
+        },
+        "load_limit": { "type": ["integer", "null"], "minimum": 0 },
+        "cards": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/card" }
+        }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_post_key", "pinned", "suggested", "parse", "envelope"],
+      "properties": {
+        "source_post_key": { "type": ["string", "null"], "minLength": 1 },
+        "pinned": { "type": "boolean" },
+        "suggested": { "type": "boolean" },
+        "parse": { "enum": ["ok", "failed"] },
+        "envelope": {
+          "type": ["string", "null"],
+          "pattern": "^envelopes/[A-Za-z0-9_-][A-Za-z0-9._/-]*\\.json$"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "parse": { "const": "ok" } } },
+          "then": {
+            "properties": {
+              "source_post_key": { "type": "string", "minLength": 1 },
+              "envelope": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "parse": { "const": "failed" } } },
+          "then": {
+            "properties": {
+              "source_post_key": { "type": "null" },
+              "envelope": { "type": "null" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

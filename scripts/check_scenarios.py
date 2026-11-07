@@ -16,6 +16,7 @@ from check_contracts import problems
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = ROOT / "fixtures/scenarios"
+FEEDS = ROOT / "fixtures/feeds"
 OBSERVATION_SCHEMA = ROOT / "docs/architecture/contracts/observation.v1.schema.json"
 SCENARIO_RE = re.compile(r"^(S\d{2})-[a-z0-9-]+$")
 ROUND_RE = re.compile(r"^\d{2}-[a-z0-9-]+\.json$")
@@ -220,16 +221,64 @@ def validate_scenarios(
     return errors
 
 
+def validate_feed_scenarios(feeds_dir: Path = FEEDS) -> list[str]:
+    """Validate any authored feed scripts and expectations without requiring cases."""
+    errors: list[str] = []
+    feed_schema = read_json(feeds_dir / "feed.schema.json", errors)
+    expected_schema = read_json(feeds_dir / "expected.schema.json", errors)
+    if feed_schema is None or expected_schema is None:
+        return errors
+
+    Draft202012Validator.check_schema(feed_schema)
+    Draft202012Validator.check_schema(expected_schema)
+    feed_validator = Draft202012Validator(feed_schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+    expected_validator = Draft202012Validator(
+        expected_schema, format_checker=Draft202012Validator.FORMAT_CHECKER
+    )
+
+    def read_feed_document(path: Path) -> tuple[object, bool]:
+        """Keep valid JSON null distinct from a failed read so it reaches the schema."""
+        try:
+            return json.loads(path.read_text(encoding="utf-8")), True
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"{path}: cannot load JSON: {exc}")
+            return None, False
+
+    scenario_dirs = sorted(path for path in feeds_dir.iterdir() if path.is_dir())
+    for directory in scenario_dirs:
+        feed_path = directory / "feed.json"
+        expected_path = directory / "expected.json"
+        feed, feed_loaded = read_feed_document(feed_path)
+        expected, expected_loaded = read_feed_document(expected_path)
+        if feed_loaded:
+            failures = sorted(feed_validator.iter_errors(feed), key=lambda error: str(error.path))
+            errors.extend(f"{feed_path}: feed schema: {failure.message}" for failure in failures)
+        if expected_loaded:
+            failures = sorted(
+                expected_validator.iter_errors(expected), key=lambda error: str(error.path)
+            )
+            errors.extend(
+                f"{expected_path}: expected schema: {failure.message}" for failure in failures
+            )
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate A1 synthetic scenario goldens")
     parser.add_argument("--scenarios-dir", type=Path, default=SCENARIOS)
+    parser.add_argument("--feeds-dir", type=Path, default=FEEDS)
     args = parser.parse_args()
     errors = validate_scenarios(args.scenarios_dir)
+    errors.extend(validate_feed_scenarios(args.feeds_dir))
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
     count = len([p for p in args.scenarios_dir.iterdir() if p.is_dir()])
-    print(f"Scenarios OK: {count} synthetic scenarios, all rounds and expectations valid.")
+    feed_count = len([p for p in args.feeds_dir.iterdir() if p.is_dir()])
+    print(
+        f"Scenarios OK: {count} A1 scenarios and {feed_count} feed scenarios; "
+        "all fixture data matches its schema."
+    )
     return 0
 
 

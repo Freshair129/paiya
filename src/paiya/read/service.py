@@ -1,9 +1,13 @@
 """Scope-checked read operations, independent of FastAPI and transport details."""
 
+import base64
+import binascii
 import hashlib
+import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -20,7 +24,16 @@ from paiya.read.errors import (
 )
 from paiya.store.fixture_scope import verify_fixture_scope
 from paiya.store.media import media_path
-from paiya.store.tables import evidence, listing_items, media_assets, observations, posts
+from paiya.store.tables import (
+    capture_gaps,
+    capture_runs,
+    evidence,
+    jobs,
+    listing_items,
+    media_assets,
+    observations,
+    posts,
+)
 
 
 @dataclass(frozen=True)
@@ -293,3 +306,148 @@ def read_evidence_media(conn: Connection, context: ReadContext, evidence_id: UUI
     if len(data) != row["bytes"] or hashlib.sha256(data).hexdigest() != row["sha256"]:
         raise MediaIntegrityFailure()
     return MediaContent(data=data, mime=cast(str, row["mime"]))
+
+
+def read_group_runs(
+    conn: Connection,
+    context: ReadContext,
+    group_id: UUID,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Read newest run summaries and gaps within the trusted fixture context."""
+    if not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100")
+    if group_id != context.group_id:
+        raise NotFound()
+    _authorize(conn, context, "read")
+
+    run_query = (
+        select(
+            capture_runs.c.id,
+            jobs.c.kind,
+            jobs.c.logical_key,
+            jobs.c.due_at,
+            capture_runs.c.started_at,
+            capture_runs.c.ended_at,
+            capture_runs.c.coverage,
+            capture_runs.c.partial_reasons,
+            capture_runs.c.stop_reason,
+            capture_runs.c.cards_seen,
+            capture_runs.c.cards_parsed,
+            capture_runs.c.session_result,
+            capture_runs.c.sort_result,
+            capture_runs.c.error_code,
+        )
+        .select_from(capture_runs.join(jobs, jobs.c.id == capture_runs.c.job_id))
+        .where(
+            capture_runs.c.group_id == context.group_id,
+            capture_runs.c.grant_id == context.grant_id,
+        )
+    )
+    if cursor is not None:
+        cursor_started_at, cursor_id = _decode_run_cursor(cursor)
+        run_query = run_query.where(
+            (capture_runs.c.started_at < cursor_started_at)
+            | ((capture_runs.c.started_at == cursor_started_at) & (capture_runs.c.id < cursor_id))
+        )
+    run_rows = (
+        conn.execute(
+            run_query.order_by(capture_runs.c.started_at.desc(), capture_runs.c.id.desc()).limit(
+                limit + 1
+            )
+        )
+        .mappings()
+        .all()
+    )
+    has_more = len(run_rows) > limit
+    page = run_rows[:limit]
+    runs = [
+        {
+            "run_id": row["id"],
+            "job_kind": row["kind"],
+            "scheduled_for": _scheduled_for(row["kind"], row["logical_key"], row["due_at"]),
+            "started_at": row["started_at"],
+            "ended_at": row["ended_at"],
+            "coverage": row["coverage"],
+            "partial_reasons": row["partial_reasons"],
+            "stop_reason": row["stop_reason"],
+            "cards_seen": row["cards_seen"],
+            "cards_parsed": row["cards_parsed"],
+            "session_result": row["session_result"],
+            "sort_result": row["sort_result"],
+            "error_code": row["error_code"],
+        }
+        for row in page
+    ]
+
+    gaps: list[dict[str, Any]] = []
+    if page:
+        range_start = min(
+            _scheduled_for(row["kind"], row["logical_key"], row["due_at"]) for row in page
+        )
+        range_end = max(cast(datetime, row["ended_at"] or row["started_at"]) for row in page)
+        gap_rows = (
+            conn.execute(
+                select(
+                    capture_gaps.c.gap_from,
+                    capture_gaps.c.gap_to,
+                    capture_gaps.c.reason,
+                )
+                .where(
+                    capture_gaps.c.group_id == context.group_id,
+                    capture_gaps.c.gap_from <= range_end,
+                    capture_gaps.c.gap_to >= range_start,
+                )
+                .order_by(capture_gaps.c.gap_from.desc(), capture_gaps.c.id.desc())
+            )
+            .mappings()
+            .all()
+        )
+        gaps = [
+            {"gap_from": row["gap_from"], "gap_to": row["gap_to"], "reason": row["reason"]}
+            for row in gap_rows
+        ]
+
+    next_cursor = _encode_run_cursor(page[-1]["started_at"], page[-1]["id"]) if has_more else None
+    return {"group_id": context.group_id, "runs": runs, "gaps": gaps, "next_cursor": next_cursor}
+
+
+def _encode_run_cursor(started_at: datetime, run_id: UUID) -> str:
+    content = json.dumps(
+        {"started_at": started_at.astimezone(UTC).isoformat(), "run_id": str(run_id)},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(content).decode("ascii").rstrip("=")
+
+
+def _scheduled_for(kind: str, logical_key: str, due_at: datetime) -> datetime:
+    if kind == "discover":
+        parts = logical_key.split(":", 2)
+        if len(parts) == 3 and parts[0] == "discover":
+            try:
+                return datetime.fromisoformat(parts[2].replace("Z", "+00:00")).astimezone(UTC)
+            except ValueError:
+                pass
+    return due_at
+
+
+def _decode_run_cursor(cursor: str) -> tuple[datetime, UUID]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        value = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+        if set(value) != {"started_at", "run_id"}:
+            raise ValueError
+        started_at = datetime.fromisoformat(value["started_at"])
+        if started_at.tzinfo is None or started_at.utcoffset() is None:
+            raise ValueError
+        return started_at.astimezone(UTC), UUID(value["run_id"])
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        UnicodeError,
+        binascii.Error,
+        json.JSONDecodeError,
+    ) as error:
+        raise ValueError("cursor is invalid") from error
