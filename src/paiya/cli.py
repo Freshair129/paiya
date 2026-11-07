@@ -73,6 +73,17 @@ def _parser() -> argparse.ArgumentParser:
         dest="action", required=True, parser_class=_JsonArgumentParser
     )
     extract_actions.add_parser("rebuild", help="add missing tags and rebuild item projections")
+
+    enrich = commands.add_parser("enrich", help="run or inspect local-model enrichment")
+    enrich_actions = enrich.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    for name, help_text in (
+        ("run-once", "process one due enrichment job"),
+        ("run", "keep processing enrichment jobs"),
+        ("status", "show enrichment queue status"),
+    ):
+        enrich_actions.add_parser(name, help=help_text)
     return parser
 
 
@@ -84,6 +95,16 @@ def _execute(args: argparse.Namespace) -> object:
     engine = get_database_engine()
     if args.resource == "extract" and args.action == "rebuild":
         return rebuild_extractions(engine)
+    if args.resource == "enrich":
+        from paiya.enrich.service import enrich_status, run_enrich_once, run_enrich_worker
+
+        if args.action == "status":
+            return enrich_status(engine, now=now)
+        if args.action == "run-once":
+            return run_enrich_once(engine, now=now) or {"state": "idle"}
+        if args.action == "run":
+            run_enrich_worker(engine)
+            return {"state": "stopped"}
 
     with engine.connect() as conn:
         if args.resource == "watches":
@@ -127,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     except SQLAlchemyError:
         _print_error("database_error", "The database operation failed")
         return 1
+    except KeyboardInterrupt:
+        print(json.dumps({"ok": True, "result": {"state": "stopped"}}))
+        return 0
     print(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":")))
     return 0
 

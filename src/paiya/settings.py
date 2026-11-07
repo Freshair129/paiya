@@ -3,6 +3,7 @@
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from sqlalchemy import Engine, create_engine
 
@@ -15,6 +16,16 @@ class PriceTrendSettings:
     min_offers: int = 10
     min_sellers: int = 3
     flat_band_pct: int = 5
+
+
+@dataclass(frozen=True)
+class EnrichSettings:
+    """Runtime configuration for the loopback-only enrichment worker."""
+
+    enabled: bool
+    ollama_url: str
+    ollama_model: str
+    timeout_seconds: int
 
 
 def _positive_int(name: str, default: int) -> int:
@@ -37,6 +48,60 @@ def get_price_trend_settings() -> PriceTrendSettings:
         min_offers=_positive_int("PAIYA_TREND_MIN_OFFERS", 10),
         min_sellers=_positive_int("PAIYA_TREND_MIN_SELLERS", 3),
         flat_band_pct=_positive_int("PAIYA_TREND_FLAT_BAND_PCT", 5),
+    )
+
+
+def _boolean(name: str, default: bool) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    normalized = raw_value.strip().casefold()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise ValueError(f"{name} must be 'true' or 'false'; got {raw_value!r}")
+
+
+def get_enrich_enabled() -> bool:
+    """Read only the enable switch for use by the ingest transaction."""
+    return _boolean("PAIYA_ENRICH_ENABLED", False)
+
+
+def get_enrich_settings() -> EnrichSettings:
+    """Read and validate enrichment settings before a worker or server starts."""
+    enabled = get_enrich_enabled()
+    raw_url = os.environ.get("PAIYA_OLLAMA_URL", "http://127.0.0.1:11434").strip()
+    try:
+        parsed_url = urlsplit(raw_url)
+        hostname = parsed_url.hostname
+        port = parsed_url.port
+    except ValueError as error:
+        raise ValueError("PAIYA_OLLAMA_URL must be a valid loopback HTTP URL") from error
+
+    if (
+        parsed_url.scheme not in {"http", "https"}
+        or hostname is None
+        or hostname.casefold() not in {"127.0.0.1", "localhost", "::1"}
+        or parsed_url.username is not None
+        or parsed_url.password is not None
+        or parsed_url.query
+        or parsed_url.fragment
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ValueError(
+            "PAIYA_OLLAMA_URL must use http(s) and a loopback host: 127.0.0.1, localhost, or [::1]"
+        )
+
+    model = os.environ.get("PAIYA_OLLAMA_MODEL", "qwen3:4b").strip()
+    if not model:
+        raise ValueError("PAIYA_OLLAMA_MODEL must be a non-empty model name")
+
+    return EnrichSettings(
+        enabled=enabled,
+        ollama_url=raw_url.rstrip("/"),
+        ollama_model=model,
+        timeout_seconds=_positive_int("PAIYA_ENRICH_TIMEOUT_SECONDS", 60),
     )
 
 

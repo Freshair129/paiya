@@ -17,3 +17,13 @@ class JobClaim:
     due_at: datetime
     lease_token: UUID
     lease_until: datetime
+
+
+@dataclass(frozen=True)
+class EnrichJobClaim:
+    job_id: UUID
+    group_id: UUID
+    grant_id: UUID
+    target_key: str
+    lease_token: UUID
+    lease_until: datetime

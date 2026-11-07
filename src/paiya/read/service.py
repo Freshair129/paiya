@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection, and_, case, func, or_, select
 
+from paiya.enrich import ENRICH_RULE_VERSION
 from paiya.extract.rules import RULE_VERSION
 from paiya.read.context import ReadContext
 from paiya.read.errors import (
@@ -149,14 +150,20 @@ def _readable_listing_item_projections(
             .select_from(tags.join(observations, tags.c.observation_id == observations.c.id))
             .where(
                 tags.c.item_id.in_(item_ids),
-                tags.c.method == "rule",
-                tags.c.rule_version == RULE_VERSION,
+                or_(
+                    and_(tags.c.method == "rule", tags.c.rule_version == RULE_VERSION),
+                    and_(
+                        tags.c.method == "model",
+                        tags.c.rule_version == ENRICH_RULE_VERSION,
+                    ),
+                ),
                 tags.c.validation_result == "confirmed",
             )
             .order_by(
                 tags.c.item_id,
                 observations.c.observed_at.desc(),
                 observations.c.id.desc(),
+                case((tags.c.method == "rule", 0), else_=1),
             )
         )
         .mappings()

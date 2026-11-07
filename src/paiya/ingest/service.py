@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -12,6 +12,8 @@ from sqlalchemy import Connection, Engine, insert, select, text, update
 
 from paiya.extract.service import create_tags_and_rebuild_listing_items
 from paiya.ingest.validation import validate_observation
+from paiya.scheduler.queue import enqueue_enrich_job
+from paiya.settings import get_enrich_enabled
 from paiya.status.service import create_facts_and_rebuild_current_items
 from paiya.store.fixture_scope import (
     FixtureScope,
@@ -104,6 +106,7 @@ def ingest_fixture(
     if document["source_kind"] != "fixture" or document["grant_id"] is not None:
         raise PermissionError("A2 ingest accepts fixture sources with null source grant only")
     payload = document["payload"]
+    enrich_enabled = get_enrich_enabled()
     if payload["group_key"] != scope.group_key:
         raise PermissionError("Ingest group does not match the trusted fixture grant")
 
@@ -143,6 +146,21 @@ def ingest_fixture(
                 raise PermissionError("capture_id belongs to another fixture scope")
             if duplicate["payload_hash"] != digest:
                 raise CaptureConflict("capture_id reused with different envelope content")
+            if (
+                enrich_enabled
+                and payload["access"] == "ok"
+                and any(
+                    item.get("source_item_key") is not None and item.get("evidence_keys")
+                    for item in payload.get("items", [])
+                )
+            ):
+                enqueue_enrich_job(
+                    conn,
+                    now=datetime.now(UTC),
+                    group_id=scope.group_id,
+                    grant_id=scope.grant_id,
+                    observation_id=cast(UUID, duplicate["id"]),
+                )
             verify_fixture_scope_for_commit(conn, scope, "capture")
             return cast(UUID, duplicate["id"])
 
@@ -419,6 +437,22 @@ def ingest_fixture(
                 post_id=post_id,
                 payload=payload,
                 item_ids=item_ids,
+            )
+
+        if (
+            enrich_enabled
+            and payload["access"] == "ok"
+            and any(
+                item.get("source_item_key") is not None and item.get("evidence_keys")
+                for item in payload.get("items", [])
+            )
+        ):
+            enqueue_enrich_job(
+                conn,
+                now=datetime.now(UTC),
+                group_id=scope.group_id,
+                grant_id=scope.grant_id,
+                observation_id=observation_id,
             )
 
         # This is deliberately the final DB operation before transaction commit.

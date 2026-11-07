@@ -11,7 +11,7 @@ from paiya.api.evidence import router as fixture_read_router
 from paiya.api.prices import router as price_router
 from paiya.read.context import read_context_group_key_from_env
 from paiya.read.errors import ReadError
-from paiya.settings import get_price_trend_settings
+from paiya.settings import get_enrich_settings, get_price_trend_settings
 
 
 @asynccontextmanager
@@ -19,6 +19,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Reject an invalid server-selected read group before serving requests."""
     read_context_group_key_from_env()
     get_price_trend_settings()
+    get_enrich_settings()
     yield
 
 
