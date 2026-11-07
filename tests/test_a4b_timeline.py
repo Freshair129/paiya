@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 from test_a2_ingest import pg_engine as pg_engine  # noqa: F401
 from test_a4a_status import ingest
 
@@ -19,7 +19,7 @@ from paiya.groups.service import add_group
 from paiya.read.service import read_post, read_post_timeline
 from paiya.scheduler.queue import claim_next, schedule_due
 from paiya.store.fixture_scope import FixtureScope, seed_fixture_scope
-from paiya.store.tables import evidence, listing_items, observations, source_grants
+from paiya.store.tables import comments, evidence, listing_items, observations, source_grants
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = ROOT / "fixtures/scenarios"
@@ -53,6 +53,76 @@ def variant(document, minute):
     result["capture_id"] = f"synthetic-{uuid4()}"
     result["payload"]["observed_at"] = f"2026-11-07T09:{minute:02d}:00Z"
     return result
+
+
+def test_reobserved_keyless_comment_does_not_create_timeline_events(pg_engine, tmp_path):
+    scope = seed_fixture_scope(pg_engine, "synthetic-keyless-timeline")
+    first = load(SCENARIOS / "S04-partial-comments/rounds/01-partial.json")
+    first["payload"]["comments"] = [first["payload"]["comments"][0]]
+    first["payload"]["comments"][0]["source_comment_key"] = None
+    first["payload"]["activity"]["distinct_comments_seen"] = 1
+    first_id = ingest(pg_engine, scope, tmp_path, first)
+    second_id = ingest(pg_engine, scope, tmp_path, variant(first, 10))
+    post_id = post_id_for(pg_engine, first_id)
+    assert post_id_for(pg_engine, second_id) == post_id
+    with pg_engine.connect() as conn:
+        keyless = (
+            conn.execute(
+                select(comments.c.id).where(
+                    comments.c.post_id == post_id, comments.c.source_comment_key.is_(None)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(keyless) == 2
+    assert not [
+        event
+        for event in timeline(pg_engine, scope, post_id)
+        if event["kind"] in ("comment_added", "comment_count_changed")
+    ]
+
+
+def test_timeline_isolates_observations_between_grants_in_same_group(pg_engine, tmp_path):
+    first_scope = seed_fixture_scope(pg_engine, "synthetic-timeline-grants")
+    second_grant = uuid4()
+    with pg_engine.begin() as conn:
+        conn.execute(
+            insert(source_grants).values(
+                id=second_grant,
+                group_id=first_scope.group_id,
+                source_kind="fixture",
+                scopes=["read", "capture", "media", "comments"],
+                authority_ref="synthetic-second-grant",
+                valid_from=datetime.now(UTC),
+                retention_days=30,
+            )
+        )
+    second_scope = FixtureScope(first_scope.group_id, second_grant, first_scope.group_key)
+    first = load(SCENARIOS / "S04-partial-comments/rounds/01-partial.json")
+    first_id = ingest(pg_engine, first_scope, tmp_path, first)
+    second = variant(first, 10)
+    second["payload"]["comments"][0]["source_comment_key"] = "synthetic-other-grant-comment"
+    second_id = ingest(pg_engine, second_scope, tmp_path, second)
+    post_id = post_id_for(pg_engine, first_id)
+    assert post_id_for(pg_engine, second_id) == post_id
+    with pg_engine.connect() as conn:
+        comment_id = conn.execute(
+            select(comments.c.id).where(
+                comments.c.post_id == post_id,
+                comments.c.source_comment_key == "synthetic-other-grant-comment",
+            )
+        ).scalar_one()
+    first_events = timeline(pg_engine, first_scope, post_id)
+    second_events = timeline(pg_engine, second_scope, post_id)
+    assert first_events and second_events
+    assert all(event["observation_id"] == first_id for event in first_events)
+    assert all(event["observation_id"] == second_id for event in second_events)
+    assert not [event for event in first_events if event.get("comment_id") == comment_id]
+    assert any(
+        event["kind"] == "comment_added" and event["comment_id"] == comment_id
+        for event in second_events
+    )
 
 
 @pytest.mark.parametrize(
