@@ -140,10 +140,12 @@ jobs:
       - name: Run browser tests
         working-directory: web
         run: corepack pnpm e2e
-      - name: Upload screenshots
+      - name: Upload Playwright report and screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: paiya-e2e-screenshots
-          path: web/test-results/e2e/
+          name: paiya-e2e-report-and-screenshots
+          path: |
+            web/test-results/e2e/
+            web/playwright-report/
           if-no-files-found: ignore
