@@ -67,8 +67,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # A6b-only rows cannot satisfy the frozen 0007 checks and are removed on rollback.
-    op.execute("DELETE FROM tags WHERE method = 'model'")
+    count = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT count(*) FROM tags WHERE method = 'model' OR validation_result = 'proposed'"
+            )
+        )
+        .scalar_one()
+    )
+    if count:
+        raise RuntimeError(
+            f"Cannot downgrade: {count} incompatible tags; remove those rows deliberately "
+            "before downgrading"
+        )
 
     op.drop_constraint("ck_tags_reason", "tags", type_="check")
     op.create_check_constraint(

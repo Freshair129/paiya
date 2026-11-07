@@ -11,6 +11,8 @@ from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
+from test_a2_ingest import pg_engine as pg_engine  # noqa: F401
+from test_a4c_seller import envelope
 
 from paiya.ingest.service import ingest_fixture
 from paiya.store.fixture_scope import seed_fixture_scope
@@ -46,7 +48,9 @@ def test_upgrade_and_downgrade_on_postgres17(
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0007_tags"
+        assert revision == "0008_enrich_tags"
+        command.downgrade(alembic, "0007_tags")
+        command.upgrade(alembic, "head")
         command.downgrade(alembic, "0006_price_validation")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT to_regclass('tags')")).scalar_one() is None
@@ -162,10 +166,68 @@ def test_upgrade_and_downgrade_on_postgres17(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "0007_tags"
+                == "0008_enrich_tags"
             )
     finally:
         engine.dispose()
         with admin.begin() as connection:
             connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
         admin.dispose()
+
+
+def test_downgrade_preserves_model_tags(pg_engine, tmp_path):
+    scope = seed_fixture_scope(pg_engine, "synthetic-downgrade")
+    doc = envelope(scope, "model-tag")
+    doc["payload"]["items"][0]["model"] = "RTX 3060"
+    doc["payload"]["evidence"][0]["source_span"]["quote"] = "RTX 3060"
+    ingest_fixture(pg_engine, scope, doc, {}, tmp_path)
+    with pg_engine.begin() as connection:
+        count = connection.execute(
+            text("""
+            UPDATE tags SET method = 'model', model_version = 'synthetic', confidence = 0.9
+            WHERE key = 'model_key'
+        """)
+        ).rowcount
+        assert count == 1
+    with pytest.raises(RuntimeError, match=r"1.*remove.*deliberately"):
+        command.downgrade(Config(str(ROOT / "alembic.ini")), "0007_tags")
+    with pg_engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM tags WHERE method = 'model'")
+            ).scalar_one()
+            == 1
+        )
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            "0008_enrich_tags"
+        )
+
+
+def test_downgrade_preserves_proposed_rule_tags(pg_engine, tmp_path):
+    scope = seed_fixture_scope(pg_engine, "synthetic-proposed-downgrade")
+    doc = envelope(scope, "proposed-tag")
+    doc["payload"]["items"][0]["model"] = "RTX 3060"
+    doc["payload"]["evidence"][0]["source_span"]["quote"] = "RTX 3060"
+    ingest_fixture(pg_engine, scope, doc, {}, tmp_path)
+    with pg_engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("""
+            UPDATE tags SET validation_result = 'proposed', reason = 'rule_not_confirmed'
+            WHERE key = 'model_key'
+        """)
+            ).rowcount
+            == 1
+        )
+    with pytest.raises(RuntimeError, match=r"1.*remove.*deliberately"):
+        command.downgrade(Config(str(ROOT / "alembic.ini")), "0007_tags")
+    with pg_engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM tags WHERE method = 'rule' "
+                    "AND validation_result = 'proposed'"
+                )
+            ).scalar_one()
+            == 1
+        )
