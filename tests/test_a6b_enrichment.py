@@ -390,6 +390,81 @@ def test_unconfirmed_never_projects(pg_engine, tmp_path, monkeypatch, value, quo
         assert conn.execute(select(listing_items.c.model_key)).scalar_one() is None
 
 
+def test_newer_unconfirmed_model_tags_do_not_change_api(pg_engine, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from paiya.api.app import app
+    from paiya.api.evidence import get_db_connection, require_fixture_scope
+
+    monkeypatch.setenv("PAIYA_ENRICH_ENABLED", "false")
+    scope = seed_fixture_scope(pg_engine, "synthetic-unconfirmed-api")
+    first = envelope(scope, "synthetic-post")
+    first["payload"]["items"][0].update(model="RTX 3060 12GB", condition_text="")
+    first["payload"]["evidence"][0]["source_span"]["quote"] = "RTX 3060 12GB"
+    ingest_fixture(pg_engine, scope, first, {}, tmp_path)
+
+    monkeypatch.setenv("PAIYA_ENRICH_ENABLED", "true")
+    second = envelope(scope, "synthetic-post", minute=1)
+    second["payload"]["items"][0].update(model="", condition_text="")
+    second["payload"]["evidence"][0]["source_span"]["quote"] = "RTX 3060"
+    ingest_fixture(pg_engine, scope, second, {}, tmp_path)
+    run_enrich_once(
+        pg_engine,
+        transport=httpx.MockTransport(
+            lambda request: response(
+                [proposal(value="rtx-3070"), proposal(key="vram_gb", value="delete")]
+            )
+        ),
+        now=datetime.now(UTC) + timedelta(seconds=2),
+    )
+    assert {
+        (row["value"], row["validation_result"], row["reason"]) for row in model_tags(pg_engine)
+    } == {
+        ("rtx-3070", "proposed", "rule_not_confirmed"),
+        (None, "rejected", "value_out_of_vocabulary"),
+    }
+    with pg_engine.connect() as conn:
+        assert conn.execute(select(listing_items.c.model_key, listing_items.c.vram_gb)).one() == (
+            "rtx-3060",
+            12,
+        )
+        assert set(
+            conn.execute(
+                select(tags.c.key, tags.c.value).where(
+                    tags.c.method == "rule", tags.c.validation_result == "confirmed"
+                )
+            ).all()
+        ) >= {("model_key", "rtx-3060"), ("vram_gb", "12")}
+
+    def db():
+        with pg_engine.connect() as conn:
+            yield conn
+
+    app.dependency_overrides[get_db_connection] = db
+    app.dependency_overrides[require_fixture_scope] = lambda: scope
+    try:
+        with TestClient(app) as client:
+            listing = client.get("/v1/posts")
+            assert listing.status_code == 200
+            (post,) = listing.json()["posts"]
+            item = post["items"][0]
+            assert (item["model_key"], item["vram_gb"]) == ("rtx-3060", 12)
+            detail = client.get(f"/v1/posts/{post['post_id']}")
+            assert detail.status_code == 200
+            item = detail.json()["current_items"][0]
+            assert (item["model_key"], item["vram_gb"]) == ("rtx-3060", 12)
+            models = client.get("/v1/models")
+            assert models.status_code == 200
+            assert models.json()["models"] == [{"model_key": "rtx-3060", "item_count": 1}]
+            match = client.get("/v1/posts", params={"model_key": "rtx-3060"})
+            no_match = client.get("/v1/posts", params={"model_key": "rtx-3070"})
+            assert match.status_code == no_match.status_code == 200
+            assert len(match.json()["posts"]) == 1
+            assert no_match.json()["posts"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_long_input_drops_trailing_evidence(pg_engine, tmp_path, monkeypatch):
     monkeypatch.setenv("PAIYA_ENRICH_ENABLED", "true")
     scope = seed_fixture_scope(pg_engine, "synthetic-enrich-bound")
