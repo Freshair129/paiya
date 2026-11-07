@@ -318,10 +318,11 @@ def test_missing_image_reasons(pg_engine, monkeypatch, tmp_path, state):
     asyncio.run(check())
 
 
-def test_image_larger_than_limit(pg_engine, monkeypatch, tmp_path):
+@pytest.mark.parametrize("size", [1_048_576, 1_048_577])
+def test_image_size_limit(pg_engine, monkeypatch, tmp_path, size):
     scope = seed_fixture_scope(pg_engine, "synthetic-large")
     doc = envelope(scope, "large")
-    data = WEBP + b"x" * (1_048_577 - len(WEBP))
+    data = WEBP + b"x" * (size - len(WEBP))
     attach_webp(doc)
     asset = doc["assets"]["status"] = doc["assets"].pop("s01-open")
     asset.update(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data))
@@ -338,11 +339,18 @@ def test_image_larger_than_limit(pg_engine, monkeypatch, tmp_path):
     async def check():
         async with session(scope.group_key) as client:
             result = await client.call_tool("get_evidence", {"evidence_id": str(eid)})
-            assert result.structured_content["media_reason"] == "image_too_large"
             with TestClient(app) as http:
                 expected = http.get(f"/v1/evidence/{eid}").json()
-            assert_result(result, {**expected, "media_reason": "image_too_large"})
-            assert not any(part.type == "image" for part in result.content)
+                media = http.get(f"/v1/evidence/{eid}/media")
+            assert media.status_code == 200 and media.content == data
+            images = [part for part in result.content if part.type == "image"]
+            if size == 1_048_576:
+                assert_result(result, expected)
+                assert len(images) == 1
+                assert base64.b64decode(images[0].data) == media.content
+            else:
+                assert_result(result, {**expected, "media_reason": "image_too_large"})
+                assert not images
 
     asyncio.run(check())
 
