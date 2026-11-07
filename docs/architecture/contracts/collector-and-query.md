@@ -107,7 +107,7 @@ Worker ห่อ payload ด้วย envelope ที่มี run_id, capture_i
 
 ### context สำหรับอ่านในระยะ A
 
-ระยะ A ยังไม่มีสัญญายืนยันตัวตนสำหรับการใช้งานจริง แนวทางที่เจ้าของเลือกอยู่ใน [ADR 0004](../decisions/0004-local-access-and-mcp.md) ซึ่งรอรับรอง API อ่านข้อมูลภายใต้ fixture read context หนึ่งชุด คือ group และ grant ที่ server กำหนดจากการตั้งค่าฝั่ง server หรือ test harness ห้ามรับกลุ่ม grant หรือ path จาก header, query หรือ body ของคำขอ การตรวจขอบเขตอยู่ใน service layer ที่ API และ MCP ใช้ร่วมกัน ไม่ผูกไว้กับ dependency ของ FastAPI เพียงอย่างเดียว
+ระยะ A ยังไม่มีสัญญายืนยันตัวตนสำหรับการใช้งานจริง แนวทางที่เจ้าของเลือกอยู่ใน [ADR 0004](../decisions/0004-local-access-and-mcp.md) ซึ่งรับรองแล้ว (งาน session ยังเป็นงานความเสี่ยงสูงที่ต้องอนุมัติแยก) API อ่านข้อมูลภายใต้ fixture read context หนึ่งชุด คือ group และ grant ที่ server กำหนดจากการตั้งค่าฝั่ง server หรือ test harness ห้ามรับกลุ่ม grant หรือ path จาก header, query หรือ body ของคำขอ การตรวจขอบเขตอยู่ใน service layer ที่ API และ MCP ใช้ร่วมกัน ไม่ผูกไว้กับ dependency ของ FastAPI เพียงอย่างเดียว
 
 ### รูปแบบ response
 
