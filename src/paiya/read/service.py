@@ -468,12 +468,30 @@ def read_seller(conn: Connection, context: ReadContext, seller_id: UUID) -> dict
                         current_items.c.item_id == listing_items.c.id,
                         current_items.c.post_id == listing_items.c.post_id,
                     ),
-                ).join(
+                )
+                .join(
                     sale_events,
                     and_(
                         sale_events.c.id == current_items.c.status_event_id,
                         sale_events.c.item_id == current_items.c.item_id,
                         sale_events.c.post_id == current_items.c.post_id,
+                    ),
+                )
+                .join(
+                    status_facts,
+                    and_(
+                        sale_events.c.status_fact_id == status_facts.c.id,
+                        sale_events.c.item_id == status_facts.c.item_id,
+                        sale_events.c.post_id == status_facts.c.post_id,
+                        status_facts.c.validation_result == "confirmed",
+                    ),
+                )
+                .join(
+                    observations,
+                    and_(
+                        status_facts.c.observation_id == observations.c.id,
+                        observations.c.group_id == context.group_id,
+                        observations.c.grant_id == context.grant_id,
                     ),
                 )
             )
