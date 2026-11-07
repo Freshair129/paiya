@@ -16,6 +16,7 @@ from paiya.read.service import (
     read_group_runs,
     read_post,
     read_post_timeline,
+    read_seller,
 )
 from paiya.settings import get_database_engine
 
@@ -44,6 +45,11 @@ Db = Annotated[Connection, Depends(get_db_connection)]
 @router.get("/posts/{post_id}")
 def get_post(post_id: UUID, scope: Scope, conn: Db) -> dict[str, object]:
     return read_post(conn, scope, post_id)
+
+
+@router.get("/sellers/{seller_id}")
+def get_seller(seller_id: UUID, scope: Scope, conn: Db) -> dict[str, object]:
+    return read_seller(conn, scope, seller_id)
 
 
 @router.get("/posts/{post_id}/timeline")

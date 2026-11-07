@@ -38,6 +38,7 @@ from paiya.store.tables import (
     posts,
     price_facts,
     sale_events,
+    sellers,
     status_facts,
 )
 
@@ -414,6 +415,96 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
         "has_unresolved_items": has_unresolved_items,
         "current_items": current_item_results,
         "observations": result_observations,
+    }
+
+
+def read_seller(conn: Connection, context: ReadContext, seller_id: UUID) -> dict[str, Any]:
+    """Return a seller's posts observed by the active group and grant only."""
+    _authorize(conn, context, "read")
+    seller_posts = (
+        conn.execute(
+            select(
+                sellers.c.identity_scope,
+                posts.c.id.label("post_id"),
+                posts.c.permalink,
+                func.min(observations.c.observed_at).label("first_seen_at"),
+            )
+            .select_from(
+                sellers.join(posts, posts.c.seller_id == sellers.c.id).join(
+                    observations,
+                    and_(
+                        observations.c.post_id == posts.c.id,
+                        observations.c.group_id == context.group_id,
+                        observations.c.grant_id == context.grant_id,
+                    ),
+                )
+            )
+            .where(
+                sellers.c.id == seller_id,
+                posts.c.group_id == context.group_id,
+            )
+            .group_by(
+                sellers.c.id,
+                sellers.c.identity_scope,
+                posts.c.id,
+                posts.c.permalink,
+            )
+            .order_by(func.min(observations.c.observed_at), posts.c.id)
+        )
+        .mappings()
+        .all()
+    )
+    if not seller_posts:
+        raise NotFound()
+
+    post_ids = [cast(UUID, row["post_id"]) for row in seller_posts]
+    sold_post_rows = (
+        conn.execute(
+            select(listing_items.c.post_id.label("post_id"))
+            .select_from(
+                listing_items.join(
+                    current_items,
+                    and_(
+                        current_items.c.item_id == listing_items.c.id,
+                        current_items.c.post_id == listing_items.c.post_id,
+                    ),
+                ).join(
+                    sale_events,
+                    and_(
+                        sale_events.c.id == current_items.c.status_event_id,
+                        sale_events.c.item_id == current_items.c.item_id,
+                        sale_events.c.post_id == current_items.c.post_id,
+                    ),
+                )
+            )
+            .where(
+                listing_items.c.post_id.in_(post_ids),
+                sale_events.c.sale_status == "sold",
+            )
+            .distinct()
+        )
+        .mappings()
+        .all()
+    )
+    sold_post_ids = {cast(UUID, row["post_id"]) for row in sold_post_rows}
+
+    result_posts = [
+        {
+            "post_id": cast(UUID, row["post_id"]),
+            "permalink": row["permalink"],
+            "first_seen_at": row["first_seen_at"],
+            "has_sold_item": cast(UUID, row["post_id"]) in sold_post_ids,
+        }
+        for row in seller_posts
+    ]
+    return {
+        "id": seller_id,
+        "identity_scope": seller_posts[0]["identity_scope"],
+        "first_seen_at": min(cast(datetime, row["first_seen_at"]) for row in seller_posts),
+        "group_ids": [context.group_id],
+        "post_count": len(result_posts),
+        "sold_post_count": sum(post["has_sold_item"] for post in result_posts),
+        "posts": result_posts,
     }
 
 
