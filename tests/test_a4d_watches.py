@@ -689,6 +689,7 @@ def test_watches_api_is_scoped_and_reports_overdue(pg_engine, tmp_path, monkeypa
                 "next_due_at",
                 "last_success_at",
                 "overdue_since",
+                "post",
             }
             assert datetime.fromisoformat(rows[0]["last_success_at"]) == NOW
             assert datetime.fromisoformat(rows[0]["overdue_since"]) == NOW + timedelta(days=1)

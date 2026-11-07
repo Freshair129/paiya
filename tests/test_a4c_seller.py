@@ -196,6 +196,7 @@ def test_counts_current_sold_posts_and_orders_first_seen(pg_engine, tmp_path):
     assert set(page) == {
         "id",
         "identity_scope",
+        "display_name",
         "first_seen_at",
         "group_ids",
         "post_count",
