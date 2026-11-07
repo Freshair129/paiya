@@ -373,6 +373,9 @@ price_facts = Table(
     Column("amount", Numeric(14, 2), nullable=False),
     Column("amount_max", Numeric(14, 2), nullable=True),
     Column("currency", Text, nullable=False),
+    Column("rule_version", Text, nullable=False),
+    Column("validation_result", Text, nullable=False),
+    Column("reason", Text, nullable=True),
     ForeignKeyConstraint(
         ["observation_id", "post_id"],
         ["observations.id", "observations.post_id"],
@@ -392,6 +395,20 @@ price_facts = Table(
         "amount >= 0 AND (amount_max IS NULL OR amount_max >= amount)",
         name="ck_price_facts_amount_range",
     ),
+    CheckConstraint(
+        "validation_result IN ('confirmed', 'rejected')",
+        name="ck_price_facts_validation_result",
+    ),
+    CheckConstraint(
+        "(validation_result = 'confirmed' AND reason IS NULL) OR "
+        "(validation_result = 'rejected' AND reason IS NOT NULL)",
+        name="ck_price_facts_reason_required",
+    ),
+    CheckConstraint(
+        "reason IS NULL OR reason IN "
+        "('role_mismatch', 'actor_mismatch', 'seller_unknown', 'no_eligible_evidence')",
+        name="ck_price_facts_reason",
+    ),
     UniqueConstraint("observation_id", "fact_key", name="uq_price_facts_observation_fact"),
     UniqueConstraint("id", "item_id", "post_id", name="uq_price_facts_id_item_post"),
 )
@@ -400,6 +417,12 @@ Index(
     price_facts.c.item_id,
     price_facts.c.price_kind,
     price_facts.c.observation_id,
+)
+Index(
+    "ix_price_facts_confirmed_ask_item_observation",
+    price_facts.c.item_id,
+    price_facts.c.observation_id,
+    postgresql_where=text("price_kind = 'ask' AND validation_result = 'confirmed'"),
 )
 
 status_facts = Table(

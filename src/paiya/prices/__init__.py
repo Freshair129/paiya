@@ -1,0 +1,1 @@
+"""Price trend query services."""

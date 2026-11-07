@@ -8,19 +8,23 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from paiya.api.evidence import router as fixture_read_router
+from paiya.api.prices import router as price_router
 from paiya.read.context import read_context_group_key_from_env
 from paiya.read.errors import ReadError
+from paiya.settings import get_price_trend_settings
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Reject an invalid server-selected read group before serving requests."""
     read_context_group_key_from_env()
+    get_price_trend_settings()
     yield
 
 
 app = FastAPI(title="Paiya", version="0.1.0", lifespan=lifespan)
 app.include_router(fixture_read_router)
+app.include_router(price_router)
 
 
 @app.exception_handler(ReadError)
