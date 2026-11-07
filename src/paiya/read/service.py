@@ -956,6 +956,68 @@ def read_posts(
     return {"posts": cards, "next_cursor": next_cursor}
 
 
+def read_models(
+    conn: Connection,
+    context: ReadContext,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """List model keys whose current item projections are readable in this grant."""
+    _authorize(conn, context, "read")
+    last_observation = observations.alias("model_last_observation")
+    item_rows = (
+        conn.execute(
+            select(
+                listing_items.c.id,
+                listing_items.c.model_key,
+                listing_items.c.vram_gb,
+                listing_items.c.condition,
+                listing_items.c.warranty,
+                listing_items.c.warranty_until,
+            )
+            .select_from(
+                current_items.join(
+                    listing_items,
+                    and_(
+                        current_items.c.item_id == listing_items.c.id,
+                        current_items.c.post_id == listing_items.c.post_id,
+                    ),
+                ).join(
+                    last_observation,
+                    and_(
+                        current_items.c.last_observation_id == last_observation.c.id,
+                        current_items.c.post_id == last_observation.c.post_id,
+                    ),
+                )
+            )
+            .where(
+                listing_items.c.source_item_key.is_not(None),
+                last_observation.c.group_id == context.group_id,
+                last_observation.c.grant_id == context.grant_id,
+            )
+        )
+        .mappings()
+        .all()
+    )
+    readable = _readable_listing_item_projections(
+        conn,
+        context,
+        cast(Sequence[Mapping[str, Any]], item_rows),
+        now if now is not None else bangkok_now(),
+    )
+    counts: dict[str, int] = {}
+    for projection in readable.values():
+        model_key = cast(str | None, projection["model_key"])
+        if model_key is not None:
+            counts[model_key] = counts.get(model_key, 0) + 1
+    return {
+        "models": [
+            {"model_key": model_key, "item_count": counts[model_key]}
+            for model_key in sorted(counts)
+        ]
+    }
+
+
 def read_groups(conn: Connection, context: ReadContext) -> dict[str, Any]:
     """Return the one group selected by this read context and its latest run."""
     _authorize(conn, context, "read")

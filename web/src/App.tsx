@@ -14,6 +14,7 @@ import {
   getEvidence,
   getGroupRuns,
   getGroups,
+  getModels,
   getPost,
   getPosts,
   getSeller,
@@ -24,6 +25,8 @@ import {
   type Group,
   type GroupRun,
   type GroupRunsResponse,
+  type ItemCondition,
+  type ModelOption,
   type PostCard,
   type PostCurrentItem,
   type PostDetail,
@@ -32,6 +35,7 @@ import {
   type SellerDetail,
   type TimelineEvent,
   type TimelineResponse,
+  type WarrantyStatus,
   type Watch,
 } from './api'
 import {
@@ -41,8 +45,11 @@ import {
   formatBangkokTime,
   isStale,
   mediaStateLabel,
+  conditionLabel,
+  modelLabel,
   saleStatusLabel,
   THAI_LABELS,
+  warrantyLabel,
 } from './labels'
 
 type Route =
@@ -210,6 +217,13 @@ function PostCardView({
     item_id: item.item_id,
     source_item_key: item.source_item_key,
     model: item.model,
+    modelLabel: modelLabel(item.model_key, item.vram_gb, item.model),
+    conditionLabel: conditionLabel(item.condition),
+    warrantyLabel: warrantyLabel(
+      item.warranty,
+      item.warranty_until,
+      item.warranty_months_left,
+    ),
     sale_status: item.sale_status,
     status_since: item.status_since,
     needs_review: item.needs_review,
@@ -223,13 +237,13 @@ function PostCardView({
     ? true
     : isStale(post.last_success_at, pollMinutes)
   const staleTime = staleAt ?? post.last_success_at
-  const title = itemSummaries.find((item) => item.model)?.model ?? 'รุ่นไม่ระบุ'
+  const title = itemSummaries.find((item) => item.modelLabel)?.modelLabel ?? 'สินค้าในประกาศ'
 
   return (
     <RouteLink
       to={`/posts/${encodeURIComponent(post.post_id)}`}
       className="post-card-link"
-      ariaLabel={`เปิดประกาศ ${title}`}
+      ariaLabel={`เปิดประกาศ${title ? ` ${title}` : ''}`}
     >
       <article className="post-card">
         <Thumbnail evidenceId={post.thumbnail_evidence_id} />
@@ -241,8 +255,14 @@ function PostCardView({
           <div className="post-card-items">
             {itemSummaries.map((item, index) => (
               <div className="post-card-item" key={item.item_id ?? item.source_item_key ?? index}>
-                {itemSummaries.length > 1 ? (
-                  <p className="model-subtitle">{item.model ?? 'รุ่นไม่ระบุ'}</p>
+                {itemSummaries.length > 1 && item.modelLabel ? (
+                  <p className="model-subtitle">{item.modelLabel}</p>
+                ) : null}
+                {item.conditionLabel || item.warrantyLabel ? (
+                  <div className="item-attributes">
+                    {item.conditionLabel ? <span>{item.conditionLabel}</span> : null}
+                    {item.warrantyLabel ? <span>{item.warrantyLabel}</span> : null}
+                  </div>
                 ) : null}
                 {allStatusesKnown ? (
                   <div className="status-and-time">
@@ -282,7 +302,15 @@ function PostCardView({
   )
 }
 
-const DEFAULT_FILTERS: PostFilters = { sale_status: null, min_price: '', max_price: '' }
+const DEFAULT_FILTERS: PostFilters = {
+  sale_status: null,
+  min_price: '',
+  max_price: '',
+  model_key: null,
+  vram_gb: null,
+  condition: null,
+  warranty: null,
+}
 const STATUS_OPTIONS: Array<{ value: SaleStatus | ''; label: string }> = [
   { value: '', label: 'ทุกสถานะ' },
   { value: 'unknown', label: saleStatusLabel('unknown') },
@@ -291,12 +319,34 @@ const STATUS_OPTIONS: Array<{ value: SaleStatus | ''; label: string }> = [
   { value: 'sold', label: saleStatusLabel('sold') },
   { value: 'withdrawn', label: saleStatusLabel('withdrawn') },
 ]
+const VRAM_OPTIONS = [4, 6, 8, 10, 11, 12, 16, 20, 24]
+const CONDITION_OPTIONS: Array<{ value: ItemCondition | ''; label: string }> = [
+  { value: '', label: 'ทุกสภาพ' },
+  { value: 'new', label: 'ของใหม่' },
+  { value: 'new_no_warranty', label: 'ของใหม่ ไม่มีประกัน' },
+  { value: 'used', label: 'มือสอง' },
+]
+const WARRANTY_OPTIONS: Array<{ value: WarrantyStatus | ''; label: string }> = [
+  { value: '', label: 'ทุกแบบ' },
+  { value: 'active', label: 'มีประกัน' },
+  { value: 'none', label: 'ไม่มีประกัน' },
+]
 
 function filterSummary(filters: PostFilters): string[] {
   const summary: string[] = []
   if (filters.sale_status) summary.push(saleStatusLabel(filters.sale_status))
   if (filters.min_price) summary.push(`ตั้งแต่ ${filters.min_price} บาท`)
   if (filters.max_price) summary.push(`ไม่เกิน ${filters.max_price} บาท`)
+  if (filters.model_key) {
+    summary.push(modelLabel(filters.model_key, null, null) ?? filters.model_key)
+  }
+  if (filters.vram_gb !== undefined && filters.vram_gb !== null) {
+    summary.push(`${filters.vram_gb}GB`)
+  }
+  const condition = conditionLabel(filters.condition)
+  if (condition) summary.push(condition)
+  const warranty = warrantyLabel(filters.warranty, null, null)
+  if (warranty) summary.push(warranty)
   return summary
 }
 
@@ -305,6 +355,8 @@ function FeedPage() {
   const [draft, setDraft] = useState<PostFilters>(DEFAULT_FILTERS)
   const [filterOpen, setFilterOpen] = useState(false)
   const [posts, setPosts] = useState<PostCard[]>([])
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
+  const [modelLoadError, setModelLoadError] = useState('')
   const [groups, setGroups] = useState<Group[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -338,6 +390,27 @@ function FeedPage() {
       .finally(() => setLoading(false))
     return () => controller.abort()
   }, [filters])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getModels(controller.signal)
+      .then((response) => {
+        if (!Array.isArray(response.models)) {
+          setModelOptions([])
+          setModelLoadError('โหลดรายการรุ่นไม่สำเร็จ')
+          return
+        }
+        setModelOptions(response.models)
+        setModelLoadError('')
+      })
+      .catch((cause: unknown) => {
+        if (errorMessage(cause)) {
+          setModelOptions([])
+          setModelLoadError('โหลดรายการรุ่นไม่สำเร็จ')
+        }
+      })
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     if (!filterOpen) {
@@ -509,6 +582,57 @@ function FeedPage() {
                   <input type="number" min="0" step="any" inputMode="decimal" placeholder="ไม่จำกัด" value={draft.max_price} onChange={(event) => setDraft((value) => ({ ...value, max_price: event.target.value }))} />
                 </label>
               </div>
+              <label className="field-label" htmlFor="model-key">รุ่น</label>
+              <select
+                id="model-key"
+                value={draft.model_key ?? ''}
+                onChange={(event) => setDraft((value) => ({ ...value, model_key: event.target.value || null }))}
+              >
+                <option value="">ทุกรุ่น</option>
+                {draft.model_key && !modelOptions.some((option) => option.model_key === draft.model_key) ? (
+                  <option value={draft.model_key}>{modelLabel(draft.model_key, null, null) ?? draft.model_key}</option>
+                ) : null}
+                {modelOptions.map((option) => (
+                  <option value={option.model_key} key={option.model_key}>
+                    {modelLabel(option.model_key, null, null) ?? option.model_key} ({option.item_count})
+                  </option>
+                ))}
+              </select>
+              {modelLoadError ? <p className="field-error" role="status">{modelLoadError}</p> : null}
+              <label className="field-label" htmlFor="vram-gb">หน่วยความจำ</label>
+              <select
+                id="vram-gb"
+                value={draft.vram_gb ?? ''}
+                onChange={(event) => setDraft((value) => ({
+                  ...value,
+                  vram_gb: event.target.value ? Number(event.target.value) : null,
+                }))}
+              >
+                <option value="">ทุกขนาด</option>
+                {VRAM_OPTIONS.map((value) => <option value={value} key={value}>{value} GB</option>)}
+              </select>
+              <label className="field-label" htmlFor="item-condition">สภาพ</label>
+              <select
+                id="item-condition"
+                value={draft.condition ?? ''}
+                onChange={(event) => setDraft((value) => ({
+                  ...value,
+                  condition: (event.target.value || null) as ItemCondition | null,
+                }))}
+              >
+                {CONDITION_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+              </select>
+              <label className="field-label" htmlFor="item-warranty">ประกัน</label>
+              <select
+                id="item-warranty"
+                value={draft.warranty ?? ''}
+                onChange={(event) => setDraft((value) => ({
+                  ...value,
+                  warranty: (event.target.value || null) as WarrantyStatus | null,
+                }))}
+              >
+                {WARRANTY_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+              </select>
               {filterError ? <p className="field-error" role="alert">{filterError}</p> : null}
               <div className="sheet-actions">
                 <button className="button button-secondary" type="button" onClick={() => { setDraft(DEFAULT_FILTERS); setFilters(DEFAULT_FILTERS); setFilterOpen(false) }}>
@@ -525,12 +649,19 @@ function FeedPage() {
 }
 
 function ItemDetail({ item, model }: { item: PostCurrentItem; model: string | null }) {
+  const itemModel = modelLabel(item.model_key, item.vram_gb, model)
+  const condition = conditionLabel(item.condition)
+  const warranty = warrantyLabel(
+    item.warranty,
+    item.warranty_until,
+    item.warranty_months_left,
+  )
   return (
     <article className="item-detail">
       <div className="item-detail-heading">
         <div>
-          <h3>{model ?? item.source_item_key}</h3>
-          {model ? <p className="list-meta">{item.source_item_key}</p> : null}
+          {itemModel ? <h3>{itemModel}</h3> : null}
+          {itemModel ? <p className="list-meta">{item.source_item_key}</p> : null}
         </div>
         {item.needs_review ? (
           <span className="status-pill status-review">{THAI_LABELS.needsReview}</span>
@@ -538,6 +669,12 @@ function ItemDetail({ item, model }: { item: PostCurrentItem; model: string | nu
           <span className={`status-pill status-${item.sale_status}`}>{saleStatusLabel(item.sale_status)}</span>
         )}
       </div>
+      {condition || warranty ? (
+        <div className="item-attributes item-detail-attributes">
+          {condition ? <span>{condition}</span> : null}
+          {warranty ? <span>{warranty}</span> : null}
+        </div>
+      ) : null}
       <p className="detail-time">
         สถานะเมื่อ {formatBangkokTime(item.status_since ?? item.last_success_at)}
       </p>
