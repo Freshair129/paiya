@@ -657,3 +657,169 @@ def test_buyer_comment_never_confirms_model_or_vram(pg_engine, tmp_path):
         "model_key": ("rtx-3070", "rejected", "role_mismatch", "s03-buyer-text"),
         "vram_gb": ("8", "rejected", "role_mismatch", "s03-buyer-text"),
     }
+
+
+def test_latest_tags_from_another_grant_are_hidden(pg_engine, tmp_path):
+    from uuid import uuid4
+
+    from fastapi.testclient import TestClient
+    from sqlalchemy import insert
+
+    from paiya.api.app import app
+    from paiya.api.evidence import get_db_connection, require_fixture_scope
+    from paiya.store.fixture_scope import FixtureScope
+    from paiya.store.tables import observations, source_grants
+
+    a = seed_fixture_scope(pg_engine, "synthetic-latest-tag-grant")
+    b = FixtureScope(a.group_id, uuid4(), a.group_key)
+    with pg_engine.begin() as conn:
+        conn.execute(
+            insert(source_grants).values(
+                id=b.grant_id,
+                group_id=b.group_id,
+                source_kind="fixture",
+                scopes=["read", "capture", "media", "comments"],
+                authority_ref="synthetic-latest-tag-second",
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                retention_days=30,
+            )
+        )
+    oid = ingest_fixture(
+        pg_engine, a, capture(a, "3060 12GB", "used มีประกัน", "3060 12GB used มีประกัน"), {}, tmp_path
+    )
+    second_oid = ingest_fixture(
+        pg_engine,
+        b,
+        capture(
+            b,
+            "3070 8GB",
+            "ของใหม่ หมดประกัน",
+            "3070 8GB ของใหม่ หมดประกัน",
+            observed="2026-11-16T12:00:00Z",
+        ),
+        {},
+        tmp_path,
+    )
+    assert {key: value[0] for key, value in saved_tags(pg_engine, second_oid).items()} == {
+        "model_key": "rtx-3070",
+        "vram_gb": "8",
+        "condition": "new_no_warranty",
+        "warranty": "none",
+    }
+    # Restore the current item to grant A without superseding B's confirmed tags.
+    ingest_fixture(
+        pg_engine,
+        a,
+        capture(a, "unrelated", "", "unrelated", observed="2026-11-17T12:00:00Z"),
+        {},
+        tmp_path,
+    )
+    with pg_engine.connect() as conn:
+        post_id = conn.execute(
+            select(observations.c.post_id).where(observations.c.id == oid)
+        ).scalar_one()
+
+    def db():
+        with pg_engine.connect() as conn:
+            yield conn
+
+    app.dependency_overrides[get_db_connection] = db
+    app.dependency_overrides[require_fixture_scope] = lambda: a
+    try:
+        with TestClient(app) as client:
+            fields = {
+                "model_key": "rtx-3070",
+                "vram_gb": 8,
+                "condition": "new_no_warranty",
+                "warranty": "none",
+            }
+            listing = client.get("/v1/posts")
+            assert listing.status_code == 200
+            item = listing.json()["posts"][0]["items"][0]
+            detail = client.get(f"/v1/posts/{post_id}")
+            assert detail.status_code == 200
+            detail_item = detail.json()["current_items"][0]
+            for key, value in fields.items():
+                assert item[key] is None
+                assert detail_item[key] is None
+                assert client.get("/v1/posts", params={key: value}).json()["posts"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    ("params", "first", "second", "both"),
+    [
+        (
+            {"model_key": "rtx-3060", "condition": "used"},
+            ("3060 12GB", "ของใหม่"),
+            ("3070 8GB", "used"),
+            ("3060 12GB", "used"),
+        ),
+        (
+            {"vram_gb": 12, "warranty": "active"},
+            ("3060 12GB", "หมดประกัน"),
+            ("3070 8GB", "มีประกัน"),
+            ("3060 12GB", "มีประกัน"),
+        ),
+    ],
+)
+def test_filters_must_match_one_item(pg_engine, tmp_path, params, first, second, both):
+    from fastapi.testclient import TestClient
+
+    from paiya.api.app import app
+    from paiya.api.evidence import get_db_connection, require_fixture_scope
+    from paiya.store.tables import observations
+
+    scope = seed_fixture_scope(pg_engine, "synthetic-filter-same-item")
+
+    def make_post(post, entries):
+        model, condition = entries[0]
+        doc = capture(scope, model, condition, f"{model} {condition}", post=post)
+        for index, (model, condition) in enumerate(entries[1:], start=2):
+            key = f"evidence-{index}"
+            doc["payload"]["items"].append(
+                dict(
+                    doc["payload"]["items"][0],
+                    source_item_key=f"item-{index}",
+                    model=model,
+                    condition_text=condition,
+                    evidence_keys=[key],
+                )
+            )
+            doc["payload"]["evidence"].append(
+                {
+                    "local_key": key,
+                    "role": "seller",
+                    "source_span": {"field": "post_text", "quote": f"{model} {condition}"},
+                    "media_state": "not_requested",
+                }
+            )
+        oid = ingest_fixture(pg_engine, scope, doc, {}, tmp_path)
+        with pg_engine.connect() as conn:
+            return str(
+                conn.execute(
+                    select(observations.c.post_id).where(observations.c.id == oid)
+                ).scalar_one()
+            )
+
+    split_id = make_post("split", [first, second])
+    both_id = make_post("both", [both])
+
+    def db():
+        with pg_engine.connect() as conn:
+            yield conn
+
+    app.dependency_overrides[get_db_connection] = db
+    app.dependency_overrides[require_fixture_scope] = lambda: scope
+    try:
+        with TestClient(app) as client:
+            for key, value in params.items():
+                response = client.get("/v1/posts", params={key: value})
+                assert response.status_code == 200
+                assert split_id in {post["post_id"] for post in response.json()["posts"]}
+            response = client.get("/v1/posts", params=params)
+            assert response.status_code == 200
+            assert {post["post_id"] for post in response.json()["posts"]} == {both_id}
+    finally:
+        app.dependency_overrides.clear()
