@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 
 from paiya.demo import seed_demo
+from paiya.extract.service import rebuild_extractions
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.settings import get_database_engine
@@ -66,6 +67,12 @@ def _parser() -> argparse.ArgumentParser:
         dest="action", required=True, parser_class=_JsonArgumentParser
     )
     demo_actions.add_parser("seed", help="seed the synthetic mobile demo group and posts")
+
+    extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
+    extract_actions = extract.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    extract_actions.add_parser("rebuild", help="add missing tags and rebuild item projections")
     return parser
 
 
@@ -75,6 +82,9 @@ def _execute(args: argparse.Namespace) -> object:
 
     now = datetime.now(UTC)
     engine = get_database_engine()
+    if args.resource == "extract" and args.action == "rebuild":
+        return rebuild_extractions(engine)
+
     with engine.connect() as conn:
         if args.resource == "watches":
             if args.action == "add":

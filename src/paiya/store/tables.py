@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -191,9 +193,16 @@ listing_items = Table(
     Column("variant", Text, nullable=True),
     Column("vram_gb", SmallInteger, nullable=True),
     Column("condition", Text, nullable=True),
+    Column("warranty", Text, nullable=True),
+    Column("warranty_until", Date, nullable=True),
     Column("unit", Text, nullable=False),
     Column("resolution", Text, nullable=False),
     CheckConstraint("resolution IN ('keyed', 'unresolved', 'bundle')", name="ck_items_resolution"),
+    CheckConstraint("warranty IS NULL OR warranty IN ('active', 'none')", name="ck_items_warranty"),
+    CheckConstraint(
+        "warranty_until IS NULL OR EXTRACT(DAY FROM warranty_until) = 1",
+        name="ck_items_warranty_until_first_day",
+    ),
     UniqueConstraint("post_id", "source_item_key", name="uq_items_source"),
     UniqueConstraint("id", "post_id", name="uq_items_post"),
 )
@@ -424,6 +433,75 @@ Index(
     price_facts.c.observation_id,
     postgresql_where=text("price_kind = 'ask' AND validation_result = 'confirmed'"),
 )
+
+tags = Table(
+    "tags",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("observation_id", UUID(as_uuid=True), nullable=False),
+    Column("post_id", UUID(as_uuid=True), nullable=False),
+    Column("item_id", UUID(as_uuid=True), nullable=False),
+    Column("evidence_id", UUID(as_uuid=True), nullable=False),
+    Column("key", Text, nullable=False),
+    Column("value", Text, nullable=True),
+    Column("method", Text, nullable=False),
+    Column("model_version", Text, nullable=True),
+    Column("confidence", Numeric, nullable=True),
+    Column("rule_version", Text, nullable=False),
+    Column("validation_result", Text, nullable=False),
+    Column("reason", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    ForeignKeyConstraint(
+        ["observation_id", "post_id"],
+        ["observations.id", "observations.post_id"],
+        name="fk_tags_observation_post",
+    ),
+    ForeignKeyConstraint(
+        ["item_id", "post_id"],
+        ["listing_items.id", "listing_items.post_id"],
+        name="fk_tags_item_post",
+    ),
+    ForeignKeyConstraint(
+        ["evidence_id", "observation_id", "post_id"],
+        ["evidence.id", "evidence.observation_id", "evidence.post_id"],
+        name="fk_tags_evidence_scope",
+    ),
+    CheckConstraint(
+        "key IN ('model_key', 'vram_gb', 'condition', 'warranty', 'warranty_until')",
+        name="ck_tags_key",
+    ),
+    CheckConstraint("method = 'rule'", name="ck_tags_method"),
+    CheckConstraint("model_version IS NULL AND confidence IS NULL", name="ck_tags_rule_versions"),
+    CheckConstraint(
+        "validation_result IN ('confirmed', 'rejected')", name="ck_tags_validation_result"
+    ),
+    CheckConstraint(
+        "(validation_result = 'confirmed' AND reason IS NULL) OR "
+        "(validation_result = 'rejected' AND reason IS NOT NULL)",
+        name="ck_tags_reason_required",
+    ),
+    CheckConstraint(
+        "reason IS NULL OR reason IN "
+        "('quote_mismatch', 'role_mismatch', 'actor_mismatch', 'seller_unknown', "
+        "'no_eligible_evidence', 'ambiguous_model', 'unknown_model', 'ambiguous_vram', "
+        "'vram_not_valid_for_model', 'model_unknown', 'ambiguous_condition', "
+        "'ambiguous_warranty', 'ambiguous_warranty_until', 'warranty_date_invalid')",
+        name="ck_tags_reason",
+    ),
+    CheckConstraint(
+        "validation_result <> 'confirmed' OR value IS NOT NULL",
+        name="ck_tags_confirmed_value",
+    ),
+    UniqueConstraint(
+        "observation_id",
+        "item_id",
+        "key",
+        "method",
+        "rule_version",
+        name="uq_tags_observation_item_key_method_version",
+    ),
+)
+Index("ix_tags_item_key_observation", tags.c.item_id, tags.c.key, tags.c.observation_id)
 
 status_facts = Table(
     "status_facts",

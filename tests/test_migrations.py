@@ -46,7 +46,33 @@ def test_upgrade_and_downgrade_on_postgres17(
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0006_price_validation"
+        assert revision == "0007_tags"
+        command.downgrade(alembic, "0006_price_validation")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT to_regclass('tags')")).scalar_one() is None
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT count(*) FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() AND table_name = 'listing_items' "
+                        "AND column_name IN ('warranty', 'warranty_until')"
+                    )
+                ).scalar_one()
+                == 0
+            )
+        command.upgrade(alembic, "head")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT to_regclass('tags')")).scalar_one() == "tags"
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT count(*) FROM information_schema.columns "
+                        "WHERE table_schema = current_schema() AND table_name = 'listing_items' "
+                        "AND column_name IN ('warranty', 'warranty_until')"
+                    )
+                ).scalar_one()
+                == 2
+            )
         command.downgrade(alembic, "0005_watches")
         with engine.connect() as connection:
             assert (
@@ -136,7 +162,7 @@ def test_upgrade_and_downgrade_on_postgres17(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "0006_price_validation"
+                == "0007_tags"
             )
     finally:
         engine.dispose()
