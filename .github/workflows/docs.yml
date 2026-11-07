@@ -73,3 +73,82 @@ jobs:
       - run: pnpm --dir web typecheck
       - run: pnpm --dir web test
       - run: pnpm --dir web build
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: paiya
+          POSTGRES_PASSWORD: paiya_dev_only
+          POSTGRES_DB: paiya_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U paiya -d paiya_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PAIYA_DATABASE_URL: postgresql+psycopg://paiya:paiya_dev_only@127.0.0.1:5432/paiya_test
+      PAIYA_READ_CONTEXT_GROUP_KEY: synthetic-demo
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - run: uv sync --frozen
+      - run: uv run --frozen alembic upgrade head
+      - name: Create temporary fixture media root
+        run: |
+          media_root="$RUNNER_TEMP/paiya-fixture-media"
+          mkdir -p "$media_root"
+          echo "PAIYA_FIXTURE_MEDIA_ROOT=$media_root" >> "$GITHUB_ENV"
+      - run: uv run --frozen python -m paiya.cli demo seed
+      - run: corepack enable && corepack prepare pnpm@10.20.0 --activate
+      - name: Install web dependencies
+        working-directory: web
+        run: corepack pnpm install --frozen-lockfile
+      - name: Build web app
+        working-directory: web
+        run: corepack pnpm build
+      - name: Start fixture server and wait for readiness
+        run: |
+          set -euo pipefail
+          uv run --frozen python -m paiya.serve > "$RUNNER_TEMP/paiya-serve.log" 2>&1 &
+          server_pid=$!
+          echo "$server_pid" > "$RUNNER_TEMP/paiya-serve.pid"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8000/v1/groups >/dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/paiya-serve.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/paiya-serve.log"
+          exit 1
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: corepack pnpm exec playwright install --with-deps chromium
+      - name: Run browser tests
+        working-directory: web
+        run: corepack pnpm e2e
+      - name: Upload Playwright report and screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: paiya-e2e-report-and-screenshots
+          path: |
+            web/test-results/e2e/
+            web/playwright-report/
+          if-no-files-found: ignore

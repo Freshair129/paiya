@@ -17,6 +17,7 @@
 | [architecture/data-model.md](architecture/data-model.md) | พจนานุกรมข้อมูล PostgreSQL ระดับตรรกะ หน่วยข้อมูล คีย์ ข้อบังคับ ดัชนี และวงจรลบ/สร้างใหม่ | เจ้าของฐานข้อมูล + API |
 | [architecture/contracts/buyer-workflows.md](architecture/contracts/buyer-workflows.md) | แบบสัญญาใหม่สำหรับนำเข้าด้วยมือ ประเมินกฎ แจ้งเตือน ติดตามรายชิ้น และเทียบราคาพร้อมหลักฐาน | เจ้าของ PWA + API + Worker |
 | [quality/buyer-acceptance.md](quality/buyer-acceptance.md) | ชุดสถานการณ์สังเคราะห์ร่วม การทดสอบขอบเขตสิทธิ์ และการวัดการใช้งานกับผู้ซื้อ | QA + Product owner |
+| [quality/evidence/AT-05/2026-11-07/README.md](quality/evidence/AT-05/2026-11-07/README.md) | ภาพและผลตรวจเส้นทางมือถือ AT-05 ด้วยข้อมูลสังเคราะห์ | QA + เจ้าของ PWA |
 | [architecture/decisions/0001-observation-store.md](architecture/decisions/0001-observation-store.md) | บันทึกการเลือก PostgreSQL และคลังภาพในเครื่อง รวมถึงเงื่อนไขที่ควรทบทวน | Tech lead |
 | [architecture/decisions/0002-source-strategy.md](architecture/decisions/0002-source-strategy.md) | **เสนอเพื่อรับรอง** ขอบเขตนำเข้าเองสำหรับทดลอง M และสิทธิ์แยกสำหรับ Collector ระยะ B | Product owner + Tech lead |
 | [architecture/decisions/0003-dev-tooling.md](architecture/decisions/0003-dev-tooling.md) | **เสนอเพื่อรับรอง** เครื่องมือพัฒนา โครงสร้างรีโป และวิธีรันเทสต์บน Linux กับ Windows | Tech lead |
