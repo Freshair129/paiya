@@ -45,7 +45,19 @@ def test_upgrade_and_downgrade_on_postgres17(
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0004_item_status"
+        assert revision == "0005_watches"
+        command.downgrade(alembic, "0004_item_status")
+        with engine.connect() as connection:
+            assert (
+                connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+                == "0004_item_status"
+            )
+            assert connection.execute(text("SELECT to_regclass('watches')")).scalar_one() is None
+        command.upgrade(alembic, "head")
+        with engine.connect() as connection:
+            assert (
+                connection.execute(text("SELECT to_regclass('watches')")).scalar_one() == "watches"
+            )
         scope = seed_fixture_scope(engine, "synthetic-migration")
         sample = ROOT / "fixtures/scenarios/S01-reserve-reopen/rounds/01-open.json"
         envelope = json.loads(sample.read_text(encoding="utf-8"))
@@ -71,7 +83,7 @@ def test_upgrade_and_downgrade_on_postgres17(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "0004_item_status"
+                == "0005_watches"
             )
     finally:
         engine.dispose()

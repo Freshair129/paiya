@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Freshair129/paiya/fixtures/revisits/script.schema.json",
+  "title": "paiya revisit test script",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["revisit_version", "group_key", "visits"],
+  "properties": {
+    "revisit_version": {"const": 1},
+    "group_key": {"type": "string", "pattern": "^synthetic-", "minLength": 1, "maxLength": 200},
+    "visits": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/visit"}
+    }
+  },
+  "$defs": {
+    "visit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_post_key", "at", "access", "envelope"],
+      "properties": {
+        "source_post_key": {"type": "string", "minLength": 1, "maxLength": 200},
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+        },
+        "access": {
+          "enum": ["ok", "unavailable", "permission_denied", "session_required", "challenge_required"]
+        },
+        "envelope": {
+          "anyOf": [
+            {"$ref": "#/$defs/envelope_path"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"access": {"const": "ok"}}},
+          "then": {"properties": {"envelope": {"$ref": "#/$defs/envelope_path"}}},
+          "else": {"properties": {"envelope": {"type": "null"}}}
+        }
+      ]
+    },
+    "envelope_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+\\.json$"
+    }
+  }
+}
