@@ -12,6 +12,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.settings import get_database_engine
+from paiya.watches.errors import WatchError
+from paiya.watches.service import add_watch, list_watches, remove_watch, set_watch_hot
 
 
 class _JsonArgumentParser(argparse.ArgumentParser):
@@ -44,6 +46,19 @@ def _parser() -> argparse.ArgumentParser:
         action = actions.add_parser(name, help=help_text)
         action.add_argument("group_id", type=UUID)
     actions.add_parser("list", help="list groups")
+
+    watch = commands.add_parser("watches", help="manage post watches")
+    watch_actions = watch.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    for name, help_text in (
+        ("add", "watch a post"),
+        ("remove", "remove a post watch"),
+        ("hot", "open a 24-hour accelerated revisit window"),
+    ):
+        action = watch_actions.add_parser(name, help=help_text)
+        action.add_argument("post_id", type=UUID)
+    watch_actions.add_parser("list", help="list active-grant post watches")
     return parser
 
 
@@ -51,6 +66,15 @@ def _execute(args: argparse.Namespace) -> object:
     now = datetime.now(UTC)
     engine = get_database_engine()
     with engine.connect() as conn:
+        if args.resource == "watches":
+            if args.action == "add":
+                return add_watch(conn, now, args.post_id)
+            if args.action == "remove":
+                return remove_watch(conn, now, args.post_id)
+            if args.action == "hot":
+                return set_watch_hot(conn, now, args.post_id)
+            if args.action == "list":
+                return list_watches(conn, now)
         if args.action == "add":
             return add_group(conn, now, args.group_key, args.poll_minutes)
         if args.action == "set-interval":
@@ -69,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = _execute(args)
     except GroupError as error:
+        _print_error(error.code, error.message)
+        return 1
+    except WatchError as error:
         _print_error(error.code, error.message)
         return 1
     except (RuntimeError, ValueError) as error:

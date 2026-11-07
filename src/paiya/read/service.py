@@ -7,12 +7,12 @@ import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sqlalchemy import Connection, and_, case, func, select
+from sqlalchemy import Connection, and_, case, func, or_, select
 
 from paiya.read.context import ReadContext
 from paiya.read.errors import (
@@ -40,6 +40,7 @@ from paiya.store.tables import (
     sale_events,
     sellers,
     status_facts,
+    watches,
 )
 
 
@@ -1033,6 +1034,115 @@ def read_group_runs(
 
     next_cursor = _encode_run_cursor(page[-1]["started_at"], page[-1]["id"]) if has_more else None
     return {"group_id": context.group_id, "runs": runs, "gaps": gaps, "next_cursor": next_cursor}
+
+
+def read_watches(conn: Connection, context: ReadContext, now: datetime) -> dict[str, object]:
+    """Return watches in the trusted group and whether their slow revisit is overdue."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    normalized_now = now.astimezone(UTC)
+    _authorize(conn, context, "read")
+    rows = (
+        conn.execute(
+            select(
+                watches.c.post_id,
+                watches.c.saved_at,
+                watches.c.hot_until,
+                watches.c.next_due_at,
+            )
+            .select_from(watches.join(posts, watches.c.post_id == posts.c.id))
+            .where(
+                posts.c.group_id == context.group_id,
+                watches.c.item_id.is_(None),
+                select(observations.c.id)
+                .where(
+                    observations.c.post_id == posts.c.id,
+                    observations.c.group_id == context.group_id,
+                    observations.c.grant_id == context.grant_id,
+                )
+                .exists(),
+            )
+            .order_by(watches.c.saved_at, watches.c.post_id)
+        )
+        .mappings()
+        .all()
+    )
+    result: list[dict[str, object]] = []
+    for row in rows:
+        post_id = cast(UUID, row["post_id"])
+        last_success_at = cast(
+            datetime | None,
+            conn.execute(
+                select(func.max(capture_runs.c.ended_at))
+                .select_from(capture_runs.join(jobs, capture_runs.c.job_id == jobs.c.id))
+                .where(
+                    jobs.c.kind == "revisit",
+                    jobs.c.state == "succeeded",
+                    jobs.c.target_key == str(post_id),
+                    jobs.c.group_id == context.group_id,
+                    capture_runs.c.group_id == context.group_id,
+                    capture_runs.c.grant_id == context.grant_id,
+                    capture_runs.c.coverage == "complete",
+                    capture_runs.c.error_code.is_(None),
+                )
+            ).scalar_one(),
+        )
+        first_seen_at = cast(
+            datetime | None,
+            conn.execute(
+                select(func.min(observations.c.observed_at)).where(
+                    observations.c.post_id == post_id,
+                    observations.c.group_id == context.group_id,
+                    observations.c.grant_id == context.grant_id,
+                )
+            ).scalar_one(),
+        )
+        open_item = conn.execute(
+            select(listing_items.c.id)
+            .select_from(
+                listing_items.outerjoin(
+                    current_items, current_items.c.item_id == listing_items.c.id
+                ).outerjoin(sale_events, sale_events.c.id == current_items.c.status_event_id)
+            )
+            .where(
+                listing_items.c.post_id == post_id,
+                or_(
+                    sale_events.c.sale_status.is_(None),
+                    sale_events.c.sale_status.not_in(("sold", "withdrawn")),
+                ),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        next_due_at = cast(datetime | None, row["next_due_at"])
+        hot_until = cast(datetime | None, row["hot_until"])
+        overdue = (
+            next_due_at is not None
+            and next_due_at <= normalized_now
+            and first_seen_at is not None
+            and first_seen_at + timedelta(hours=24) <= normalized_now
+            and (hot_until is None or hot_until <= normalized_now)
+            and open_item is not None
+            and (last_success_at is None or last_success_at < next_due_at)
+        )
+        result.append(
+            {
+                "post_id": str(post_id),
+                "saved_at": _timeline_timestamp(cast(datetime, row["saved_at"])),
+                "hot_until": (_timeline_timestamp(hot_until) if hot_until is not None else None),
+                "next_due_at": (
+                    _timeline_timestamp(next_due_at) if next_due_at is not None else None
+                ),
+                "last_success_at": (
+                    _timeline_timestamp(last_success_at) if last_success_at is not None else None
+                ),
+                "overdue_since": (
+                    _timeline_timestamp(next_due_at)
+                    if overdue and next_due_at is not None
+                    else None
+                ),
+            }
+        )
+    return {"watches": result}
 
 
 def _encode_run_cursor(started_at: datetime, run_id: UUID) -> str:

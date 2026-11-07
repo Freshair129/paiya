@@ -12,6 +12,7 @@ class SchedulerSettings:
     scroll_budget_steps: int = 30
     overlap_count: int = 3
     cards_per_step: int = 5
+    revisit_budget_per_group_slot: int = 10
 
     def __post_init__(self) -> None:
         if self.lease_minutes <= 0:
@@ -26,3 +27,5 @@ class SchedulerSettings:
             raise ValueError("time and scroll budgets must be positive")
         if self.overlap_count <= 0 or self.cards_per_step != 5:
             raise ValueError("overlap_count must be positive and cards_per_step is fixed at 5")
+        if self.revisit_budget_per_group_slot <= 0:
+            raise ValueError("revisit_budget_per_group_slot must be positive")

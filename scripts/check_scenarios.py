@@ -17,6 +17,7 @@ from check_contracts import problems
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = ROOT / "fixtures/scenarios"
 FEEDS = ROOT / "fixtures/feeds"
+REVISITS = ROOT / "fixtures/revisits"
 OBSERVATION_SCHEMA = ROOT / "docs/architecture/contracts/observation.v1.schema.json"
 SCENARIO_RE = re.compile(r"^(S\d{2})-[a-z0-9-]+$")
 ROUND_RE = re.compile(r"^\d{2}-[a-z0-9-]+\.json$")
@@ -129,7 +130,9 @@ def validate_scenarios(
         expected = read_json(expected_path, errors)
         if expected is None:
             continue
-        violations = sorted(expected_validator.iter_errors(expected), key=lambda error: str(error.path))
+        violations = sorted(
+            expected_validator.iter_errors(expected), key=lambda error: str(error.path)
+        )
         if violations:
             for violation in violations:
                 errors.append(f"{expected_path}: expected schema: {violation.message}")
@@ -188,7 +191,9 @@ def validate_scenarios(
                         continue
                     filename, local_key = ref["round"], ref["local_key"]
                     if filename not in order or filename not in rounds:
-                        errors.append(f"{scenario_id}/{name}/{key}: invalid evidence round {filename}")
+                        errors.append(
+                            f"{scenario_id}/{name}/{key}: invalid evidence round {filename}"
+                        )
                         continue
                     payload = rounds[filename]["payload"]
                     evidence_keys = {e["local_key"] for e in payload.get("evidence", [])}
@@ -231,7 +236,9 @@ def validate_feed_scenarios(feeds_dir: Path = FEEDS) -> list[str]:
 
     Draft202012Validator.check_schema(feed_schema)
     Draft202012Validator.check_schema(expected_schema)
-    feed_validator = Draft202012Validator(feed_schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+    feed_validator = Draft202012Validator(
+        feed_schema, format_checker=Draft202012Validator.FORMAT_CHECKER
+    )
     expected_validator = Draft202012Validator(
         expected_schema, format_checker=Draft202012Validator.FORMAT_CHECKER
     )
@@ -263,20 +270,47 @@ def validate_feed_scenarios(feeds_dir: Path = FEEDS) -> list[str]:
     return errors
 
 
+def validate_revisit_scripts(revisits_dir: Path = REVISITS) -> list[str]:
+    """Validate every authored permalink revisit script; an empty fixture set is valid."""
+    errors: list[str] = []
+    schema = read_json(revisits_dir / "script.schema.json", errors)
+    if schema is None:
+        return errors
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+    for directory in sorted(path for path in revisits_dir.iterdir() if path.is_dir()):
+        script_path = directory / "script.json"
+        if not script_path.is_file():
+            errors.append(f"{directory}: missing script.json")
+            continue
+        document = read_json(script_path, errors)
+        if document is None:
+            continue
+        failures = sorted(validator.iter_errors(document), key=lambda error: str(error.path))
+        errors.extend(
+            f"{script_path}: revisit script schema: {failure.message}" for failure in failures
+        )
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate A1 synthetic scenario goldens")
     parser.add_argument("--scenarios-dir", type=Path, default=SCENARIOS)
     parser.add_argument("--feeds-dir", type=Path, default=FEEDS)
+    parser.add_argument("--revisits-dir", type=Path, default=REVISITS)
     args = parser.parse_args()
     errors = validate_scenarios(args.scenarios_dir)
     errors.extend(validate_feed_scenarios(args.feeds_dir))
+    errors.extend(validate_revisit_scripts(args.revisits_dir))
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
     count = len([p for p in args.scenarios_dir.iterdir() if p.is_dir()])
     feed_count = len([p for p in args.feeds_dir.iterdir() if p.is_dir()])
+    revisit_count = len([p for p in args.revisits_dir.iterdir() if p.is_dir()])
     print(
-        f"Scenarios OK: {count} A1 scenarios and {feed_count} feed scenarios; "
+        f"Scenarios OK: {count} A1 scenarios, {feed_count} feed scenarios, "
+        f"and {revisit_count} revisit scripts; "
         "all fixture data matches its schema."
     )
     return 0

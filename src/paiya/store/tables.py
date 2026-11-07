@@ -95,6 +95,12 @@ Index(
     jobs.c.lease_until,
     postgresql_where=text("state = 'leased'"),
 )
+Index(
+    "uq_jobs_active_revisit_target",
+    jobs.c.target_key,
+    unique=True,
+    postgresql_where=text("kind = 'revisit' AND state IN ('queued', 'leased')"),
+)
 
 capture_runs = Table(
     "capture_runs",
@@ -190,6 +196,33 @@ listing_items = Table(
     CheckConstraint("resolution IN ('keyed', 'unresolved', 'bundle')", name="ck_items_resolution"),
     UniqueConstraint("post_id", "source_item_key", name="uq_items_source"),
     UniqueConstraint("id", "post_id", name="uq_items_post"),
+)
+
+watches = Table(
+    "watches",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column(
+        "post_id",
+        UUID(as_uuid=True),
+        ForeignKey("posts.id", name="fk_watches_post_id_posts_id"),
+        nullable=False,
+    ),
+    Column("item_id", UUID(as_uuid=True), nullable=True),
+    Column("saved_at", DateTime(timezone=True), nullable=False),
+    Column("hot_until", DateTime(timezone=True), nullable=True),
+    Column("next_due_at", DateTime(timezone=True), nullable=True),
+    ForeignKeyConstraint(
+        ["item_id", "post_id"],
+        ["listing_items.id", "listing_items.post_id"],
+        name="fk_watches_item_post",
+    ),
+    UniqueConstraint(
+        "post_id",
+        "item_id",
+        name="uq_watches_post_item",
+        postgresql_nulls_not_distinct=True,
+    ),
 )
 
 observations = Table(

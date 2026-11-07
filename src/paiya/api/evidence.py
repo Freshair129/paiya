@@ -1,6 +1,7 @@
 """HTTP routes that adapt the shared fixture read services to FastAPI."""
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from paiya.read.service import (
     read_post,
     read_post_timeline,
     read_seller,
+    read_watches,
 )
 from paiya.settings import get_database_engine
 
@@ -50,6 +52,11 @@ def get_post(post_id: UUID, scope: Scope, conn: Db) -> dict[str, object]:
 @router.get("/sellers/{seller_id}")
 def get_seller(seller_id: UUID, scope: Scope, conn: Db) -> dict[str, object]:
     return read_seller(conn, scope, seller_id)
+
+
+@router.get("/watches")
+def get_watches(scope: Scope, conn: Db) -> dict[str, object]:
+    return read_watches(conn, scope, datetime.now(UTC))
 
 
 @router.get("/posts/{post_id}/timeline")
