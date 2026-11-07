@@ -8,6 +8,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import Connection, delete, func, insert, select, update
 
+from paiya.status.evidence import select_evidence_for_fact
 from paiya.store.tables import (
     comment_versions,
     comments,
@@ -45,45 +46,6 @@ def _source_time_precision_by_comment(
             else "unknown"
         )
     return precision_by_key
-
-
-def _evidence_eligibility(
-    evidence_row: Mapping[str, Any],
-    comments_by_version: Mapping[UUID, Mapping[str, Any]],
-    precision_by_comment: Mapping[str, str],
-    seller_actor_key: str | None,
-) -> tuple[bool, str | None, datetime | None, str]:
-    role = cast(str, evidence_row["role"])
-    source_span = cast(Mapping[str, Any] | None, evidence_row["source_span"])
-    field = source_span.get("field") if source_span is not None else None
-
-    if role == "source_label":
-        return True, None, None, "unknown"
-    if role == "seller" and field == "post_text":
-        return True, None, None, "unknown"
-
-    if field != "comment_text":
-        return False, "no_eligible_evidence", None, "unknown"
-
-    comment_version_id = cast(UUID | None, evidence_row["comment_version_id"])
-    comment = (
-        comments_by_version.get(comment_version_id) if comment_version_id is not None else None
-    )
-    comment_key = cast(str | None, source_span.get("comment_key")) if source_span else None
-    precision = precision_by_comment.get(comment_key, "unknown") if comment_key else "unknown"
-    effective_at = cast(datetime | None, comment["source_time"]) if comment is not None else None
-
-    if comment is None:
-        return False, "no_eligible_evidence", effective_at, precision
-    if role != comment["role"]:
-        return False, "role_mismatch", effective_at, precision
-    if seller_actor_key is None:
-        return False, "seller_unknown", effective_at, precision
-    if comment["actor_key"] != seller_actor_key:
-        return False, "actor_mismatch", effective_at, precision
-    if role == "seller" and comment["role"] == "seller":
-        return True, None, effective_at, precision
-    return False, "no_eligible_evidence", effective_at, precision
 
 
 def _load_evidence_context(
@@ -157,6 +119,9 @@ def _create_price_fact(
     price: Mapping[str, Any] | None,
     evidence_keys: Sequence[str],
     evidence_by_key: Mapping[str, Mapping[str, Any]],
+    comments_by_version: Mapping[UUID, Mapping[str, Any]],
+    precision_by_comment: Mapping[str, str],
+    seller_actor_key: str | None,
 ) -> bool:
     if price is None or not evidence_keys:
         return False
@@ -167,6 +132,14 @@ def _create_price_fact(
     price_kind = cast(str, price["kind"])
     unit = cast(str, price["unit"])
     amount_max = _price_amount(cast(str | None, price.get("amount_max")))
+    validation = select_evidence_for_fact(
+        evidence_keys,
+        evidence_by_key,
+        comments_by_version,
+        precision_by_comment,
+        seller_actor_key,
+    )
+    confirmed = validation is not None and validation[1]
     conn.execute(
         insert(price_facts).values(
             id=uuid4(),
@@ -180,6 +153,11 @@ def _create_price_fact(
             amount=Decimal(cast(str, price["amount"])),
             amount_max=amount_max,
             currency=cast(str, price["currency"]),
+            rule_version="price-v1.0",
+            validation_result="confirmed" if confirmed else "rejected",
+            reason=None
+            if confirmed
+            else (validation[2] if validation is not None else "no_eligible_evidence"),
         )
     )
     return True
@@ -205,25 +183,13 @@ def _create_status_fact(
     if sale_status is None:
         return False
 
-    evidence_context = [evidence_by_key[key] for key in evidence_keys if key in evidence_by_key]
-    if not evidence_context:
-        return False
-
-    selected: tuple[Mapping[str, Any], bool, str | None, datetime | None, str] | None = None
-    first_result: tuple[Mapping[str, Any], bool, str | None, datetime | None, str] | None = None
-    for evidence_row in evidence_context:
-        decision = _evidence_eligibility(
-            evidence_row, comments_by_version, precision_by_comment, seller_actor_key
-        )
-        result = (evidence_row, *decision)
-        if first_result is None:
-            first_result = result
-        if decision[0]:
-            selected = result
-            break
-
-    if selected is None:
-        selected = first_result
+    selected = select_evidence_for_fact(
+        evidence_keys,
+        evidence_by_key,
+        comments_by_version,
+        precision_by_comment,
+        seller_actor_key,
+    )
     if selected is None:
         return False
 
@@ -430,6 +396,9 @@ def create_facts_and_rebuild_current_items(
             price=price,
             evidence_keys=entry_evidence_keys,
             evidence_by_key=evidence_by_key,
+            comments_by_version=comments_by_version,
+            precision_by_comment=precision_by_comment,
+            seller_actor_key=seller_actor_key,
         )
         status_created = _create_status_fact(
             conn,

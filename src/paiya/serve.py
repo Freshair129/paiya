@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 from paiya.api.app import app
 from paiya.read.context import read_context_group_key_from_env
+from paiya.settings import get_price_trend_settings
 
 
 def _web_dist() -> Path:
@@ -60,6 +61,7 @@ def main() -> None:
     """Start uvicorn on loopback only; the host is intentionally not configurable."""
     try:
         read_context_group_key_from_env()
+        get_price_trend_settings()
         port = _port_from_env()
     except ValueError as error:
         print(f"paiya.serve: {error}", file=sys.stderr)
