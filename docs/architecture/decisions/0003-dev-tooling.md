@@ -18,7 +18,8 @@ SPEC กำหนด stack ระดับเทคโนโลยีไว้�
 | ฐานข้อมูลตอนพัฒนา | `compose.yaml` ที่รากมี service `db` เป็น `postgres:17` ส่วน CI ใช้ service container รุ่นเดียวกัน | ตรง SPEC และเปิดได้ทั้ง Docker Desktop บน Windows และ Linux |
 | Migration | Alembic ใน `migrations/` เขียน DDL ให้ตรงกับ data model ทีละกลุ่มตาราง | ตามลำดับที่ ROADMAP กำหนด และทดสอบ upgrade/downgrade บนฐานว่างได้ |
 | Web | Node 24 LTS, pnpm (ตรึงผ่าน `packageManager`), Vite, TypeScript strict, ESLint, vitest | ตรง SPEC และ build ได้ในขั้นตอนเดียว |
-| CI | GitHub Actions แยก job `docs`, `python`, `web` บน ubuntu-latest ตรึง action ด้วย SHA | job แยกทำให้เห็นว่าส่วนไหนพัง และไม่ต้องรอส่วนที่ไม่เกี่ยว |
+| ทดสอบ UI บนเบราว์เซอร์ | Playwright (`@playwright/test` ตรึงรุ่นใน `web/`) ใช้ Chromium อย่างเดียว เทสต์ปิดคำขอไปยังปลายทางที่ไม่ใช่ `127.0.0.1` | นับจำนวนแตะ ตรวจ layout 360 CSS px แป้นพิมพ์ และถ่ายภาพหลักฐาน AT-05 จาก fixture ซึ่ง jsdom ทำไม่ได้ เพิ่มตามคำตัดสิน F3 ใน Issue #37 |
+| CI | GitHub Actions แยก job `docs`, `python`, `web` และ `e2e` (PostgreSQL 17 + API ที่ seed fixture สาธิต + Playwright) บน ubuntu-latest ตรึง action ด้วย SHA | job แยกทำให้เห็นว่าส่วนไหนพัง และไม่ต้องรอส่วนที่ไม่เกี่ยว |
 
 ## กติกาที่ตามมา
 
