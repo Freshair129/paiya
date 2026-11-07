@@ -120,6 +120,14 @@ UNIQUE(`observation_id`, `item_id`, `key`, `method`, `rule_version`) ทำใ�
 
 ทุกชิ้นใน `GET /v1/posts` และ `GET /v1/posts/{id}` เพิ่มฟิลด์ `model_key`, `vram_gb` (number หรือ null), `condition`, `warranty`, `warranty_until` (`YYYY-MM` หรือ null) และ `warranty_months_left` จาก `listing_items` โดย `warranty_months_left` คำนวณตอนอ่านเป็นจำนวนเดือนจากเดือนปัจจุบันตามเวลา Asia/Bangkok ถึง `warranty_until` (เดือนเดียวกันได้ 0) เป็น null เมื่อ `warranty_until` เป็น null และไม่ติดลบ เมื่อเลยเดือนสิ้นสุดแล้วให้เป็น 0 ส่วน `warranty` คงค่าตามหลักฐาน ฟิลด์เดิม `model` (ข้อความดิบ) คงอยู่ ข้อมูลที่อ่านได้ยังอยู่ใน read context เดิม
 
+**`GET /v1/models`** (A6d) คืนรุ่นที่มีชิ้นซึ่งผู้อ่านเห็น `model_key` ได้ตามกติกาการอ่านของข้อนี้ ใน read context เดียวกับ `GET /v1/posts` เรียงตาม `model_key` ใช้เติมตัวเลือกรุ่นในหน้าแรก ไม่มีพารามิเตอร์ ตอบ `Cache-Control: no-store` เหมือน endpoint อื่น
+
+```json
+{"models": [{"model_key": "rtx-3060", "item_count": 2}, {"model_key": "rtx-3070", "item_count": 1}]}
+```
+
+`item_count` นับชิ้นที่ผู้อ่านเห็นค่านั้น ไม่นับชิ้นที่ค่าถูกซ่อนเพราะ tag ล่าสุดมาจาก grant อื่น
+
 ## 8. ตัวอย่างสำหรับเทสต์
 
 | `model` / `condition_text` | quote ของหลักฐาน seller | ผล |
