@@ -66,6 +66,7 @@ jobs = Table(
     Column("kind", Text, nullable=False),
     Column("target_key", Text, nullable=False),
     Column("logical_key", Text, nullable=False, unique=True),
+    Column("result", JSONB, nullable=True),
     Column("request_digest", Text, nullable=True),
     Column("due_at", DateTime(timezone=True), nullable=False),
     Column("state", Text, nullable=False),
@@ -470,14 +471,20 @@ tags = Table(
         "key IN ('model_key', 'vram_gb', 'condition', 'warranty', 'warranty_until')",
         name="ck_tags_key",
     ),
-    CheckConstraint("method = 'rule'", name="ck_tags_method"),
-    CheckConstraint("model_version IS NULL AND confidence IS NULL", name="ck_tags_rule_versions"),
+    CheckConstraint("method IN ('rule', 'model')", name="ck_tags_method"),
     CheckConstraint(
-        "validation_result IN ('confirmed', 'rejected')", name="ck_tags_validation_result"
+        "(method = 'rule' AND model_version IS NULL AND confidence IS NULL) OR "
+        "(method = 'model' AND model_version IS NOT NULL AND confidence IS NOT NULL "
+        "AND confidence BETWEEN 0 AND 1)",
+        name="ck_tags_rule_versions",
+    ),
+    CheckConstraint(
+        "validation_result IN ('confirmed', 'proposed', 'rejected')",
+        name="ck_tags_validation_result",
     ),
     CheckConstraint(
         "(validation_result = 'confirmed' AND reason IS NULL) OR "
-        "(validation_result = 'rejected' AND reason IS NOT NULL)",
+        "(validation_result IN ('proposed', 'rejected') AND reason IS NOT NULL)",
         name="ck_tags_reason_required",
     ),
     CheckConstraint(
@@ -485,7 +492,9 @@ tags = Table(
         "('quote_mismatch', 'role_mismatch', 'actor_mismatch', 'seller_unknown', "
         "'no_eligible_evidence', 'ambiguous_model', 'unknown_model', 'ambiguous_vram', "
         "'vram_not_valid_for_model', 'model_unknown', 'ambiguous_condition', "
-        "'ambiguous_warranty', 'ambiguous_warranty_until', 'warranty_date_invalid')",
+        "'ambiguous_warranty', 'ambiguous_warranty_until', 'warranty_date_invalid', "
+        "'unknown_reference', 'quote_not_found', 'value_out_of_vocabulary', "
+        "'rule_not_confirmed')",
         name="ck_tags_reason",
     ),
     CheckConstraint(

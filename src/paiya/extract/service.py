@@ -5,11 +5,13 @@ from datetime import date, datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, Engine, select, update
+from sqlalchemy import Connection, Engine, and_, case, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from paiya.enrich import ENRICH_RULE_VERSION
 from paiya.extract.rules import (
     RULE_VERSION,
+    RuleResult,
     extract_condition,
     extract_model,
     extract_vram,
@@ -117,18 +119,31 @@ def _quote_matches(
     *,
     model_text: str,
     base_date: date,
+    confirmed_model_key: str | None = None,
+    use_confirmed_model: bool = False,
+    confirmed_warranty: str | None = None,
+    use_confirmed_warranty: bool = False,
 ) -> bool:
     if key == "model_key":
         candidate = extract_model(quote)
     elif key == "vram_gb":
-        model_result = extract_model(model_text)
+        model_result = (
+            (RuleResult(confirmed_model_key) if confirmed_model_key is not None else None)
+            if use_confirmed_model
+            else extract_model(model_text)
+        )
         candidate = extract_vram(quote, model_result)
     elif key == "warranty":
         candidate, _until = extract_warranty_state(quote, base_date)
     elif key == "warranty_until":
         candidate = extract_warranty_until(quote, base_date)
     elif key == "condition":
-        candidate = extract_condition(quote, warranty_none=expected == "new_no_warranty")
+        warranty_none = (
+            confirmed_warranty == "none"
+            if use_confirmed_warranty
+            else expected == "new_no_warranty"
+        )
+        candidate = extract_condition(quote, warranty_none=warranty_none)
     else:
         raise ValueError(f"Unsupported extraction key: {key}")
     return candidate is not None and candidate.reason is None and candidate.value == expected
@@ -308,16 +323,26 @@ def _projection_for_item(conn: Connection, item_id: UUID) -> dict[str, Any]:
                 tags.c.key,
                 tags.c.value,
                 tags.c.observation_id,
+                tags.c.method,
                 observations.c.observed_at,
             )
             .select_from(tags.join(observations, tags.c.observation_id == observations.c.id))
             .where(
                 tags.c.item_id == item_id,
-                tags.c.method == "rule",
-                tags.c.rule_version == RULE_VERSION,
+                or_(
+                    and_(tags.c.method == "rule", tags.c.rule_version == RULE_VERSION),
+                    and_(
+                        tags.c.method == "model",
+                        tags.c.rule_version == ENRICH_RULE_VERSION,
+                    ),
+                ),
                 tags.c.validation_result == "confirmed",
             )
-            .order_by(observations.c.observed_at.desc(), observations.c.id.desc())
+            .order_by(
+                observations.c.observed_at.desc(),
+                observations.c.id.desc(),
+                case((tags.c.method == "rule", 0), else_=1),
+            )
         )
         .mappings()
         .all()
@@ -393,6 +418,16 @@ def _recompute_item(conn: Connection, item_id: UUID, *, already_locked: bool = F
         return False
     conn.execute(update(listing_items).where(listing_items.c.id == item_id).values(**projection))
     return True
+
+
+def recompute_listing_item_projection(
+    conn: Connection,
+    item_id: UUID,
+    *,
+    already_locked: bool = False,
+) -> bool:
+    """Rebuild one derived listing-item value set from all confirmed tag methods."""
+    return _recompute_item(conn, item_id, already_locked=already_locked)
 
 
 def create_tags_and_rebuild_listing_items(

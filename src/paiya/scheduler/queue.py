@@ -1,6 +1,6 @@
 """PostgreSQL-backed discovery slot scheduling and lease ownership."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -9,7 +9,7 @@ from sqlalchemy import Connection, func, insert, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from paiya.scheduler.errors import QueueError
-from paiya.scheduler.models import JobClaim
+from paiya.scheduler.models import EnrichJobClaim, JobClaim
 from paiya.scheduler.settings import SchedulerSettings
 from paiya.store.tables import (
     capture_gaps,
@@ -27,7 +27,11 @@ from paiya.store.tables import (
 from paiya.store.transactions import atomic
 
 _CLAIM_LOCK = 0x5041495941434C4D
+_ENRICH_CLAIM_LOCK = 0x5041495941454E52
 BROWSER_JOB_KINDS = ("discover", "revisit")
+ENRICH_MAX_RETRIES = 2
+ENRICH_BACKOFF_MINUTES = (1, 5)
+ENRICH_LEASE_MINUTES = 5
 ERROR_CODES = {
     "session_required",
     "challenge_required",
@@ -557,6 +561,293 @@ def _grant_is_available(conn: Connection, job: dict[str, Any], now: datetime) ->
         and (row["valid_until"] is None or row["valid_until"] > now)
         and "capture" in row["scopes"]
     )
+
+
+def grant_is_readable(
+    conn: Connection,
+    *,
+    group_id: UUID,
+    grant_id: UUID,
+    now: datetime,
+) -> bool:
+    row = (
+        conn.execute(
+            select(
+                groups.c.source,
+                source_grants.c.source_kind,
+                source_grants.c.scopes,
+                source_grants.c.valid_from,
+                source_grants.c.valid_until,
+                source_grants.c.revoked_at,
+            )
+            .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
+            .where(source_grants.c.id == grant_id, source_grants.c.group_id == group_id)
+            .with_for_update(read=True)
+        )
+        .mappings()
+        .one_or_none()
+    )
+    return bool(
+        row is not None
+        and row["source"] == "fixture"
+        and row["source_kind"] == "fixture"
+        and row["revoked_at"] is None
+        and row["valid_from"] <= now
+        and (row["valid_until"] is None or row["valid_until"] > now)
+        and "read" in row["scopes"]
+    )
+
+
+def enqueue_enrich_job(
+    conn: Connection,
+    *,
+    now: datetime,
+    group_id: UUID,
+    grant_id: UUID,
+    observation_id: UUID,
+) -> UUID | None:
+    """Create one deduplicated enrichment job inside the ingest transaction."""
+    normalized_now = _utc(now)
+    logical_key = f"enrich:{observation_id}:enrich-v1.0"
+    result = conn.execute(
+        pg_insert(jobs)
+        .values(
+            id=uuid4(),
+            group_id=group_id,
+            grant_id=grant_id,
+            kind="enrich",
+            target_key=str(observation_id),
+            logical_key=logical_key,
+            result=None,
+            due_at=normalized_now,
+            state="queued",
+            retry_count=0,
+        )
+        .on_conflict_do_nothing(index_elements=[jobs.c.logical_key])
+        .returning(jobs.c.id)
+    )
+    return cast(UUID | None, result.scalar_one_or_none())
+
+
+def _reclaim_expired_enrich(conn: Connection, now: datetime) -> None:
+    expired = (
+        conn.execute(
+            select(jobs)
+            .where(
+                jobs.c.kind == "enrich",
+                jobs.c.state == "leased",
+                jobs.c.lease_until <= now,
+            )
+            .order_by(jobs.c.lease_until, jobs.c.id)
+            .with_for_update(skip_locked=True)
+        )
+        .mappings()
+        .all()
+    )
+    for row in expired:
+        job = dict(row)
+        retry_count = cast(int, job["retry_count"])
+        attempt = retry_count + 1
+        if retry_count < ENRICH_MAX_RETRIES:
+            due_at = now + timedelta(minutes=ENRICH_BACKOFF_MINUTES[retry_count])
+            conn.execute(
+                update(jobs)
+                .where(jobs.c.id == job["id"], jobs.c.state == "leased")
+                .values(
+                    state="queued",
+                    retry_count=retry_count + 1,
+                    due_at=due_at,
+                    lease_token=None,
+                    lease_until=None,
+                    result={"status": "retrying", "attempt": attempt, "error": "lease_expired"},
+                )
+            )
+        else:
+            conn.execute(
+                update(jobs)
+                .where(jobs.c.id == job["id"], jobs.c.state == "leased")
+                .values(
+                    state="failed",
+                    lease_token=None,
+                    lease_until=None,
+                    result={"status": "failed", "attempt": attempt, "error": "lease_expired"},
+                )
+            )
+
+
+def claim_enrich_next(
+    conn: Connection,
+    now: datetime,
+    *,
+    lease_minutes: int = ENRICH_LEASE_MINUTES,
+) -> EnrichJobClaim | None:
+    """Lease one due enrich job after checking that its grant still allows reads."""
+    normalized_now = _utc(now)
+    if lease_minutes <= 0:
+        raise ValueError("lease_minutes must be positive")
+    if conn.in_transaction():
+        raise RuntimeError("claim_enrich_next requires a Connection with no active transaction")
+    with conn.begin():
+        lock_acquired: bool = conn.execute(
+            text("SELECT pg_try_advisory_xact_lock(:lock_key)"),
+            {"lock_key": _ENRICH_CLAIM_LOCK},
+        ).scalar_one()
+        if not lock_acquired:
+            return None
+        _reclaim_expired_enrich(conn, normalized_now)
+        while True:
+            row = (
+                conn.execute(
+                    select(jobs)
+                    .where(
+                        jobs.c.kind == "enrich",
+                        jobs.c.state == "queued",
+                        jobs.c.due_at <= normalized_now,
+                    )
+                    .order_by(jobs.c.due_at, jobs.c.id)
+                    .with_for_update(skip_locked=True)
+                    .limit(1)
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                return None
+            job = dict(row)
+            group_id = cast(UUID, job["group_id"])
+            grant_id = cast(UUID, job["grant_id"])
+            if not grant_is_readable(
+                conn,
+                group_id=group_id,
+                grant_id=grant_id,
+                now=normalized_now,
+            ):
+                conn.execute(
+                    update(jobs)
+                    .where(jobs.c.id == job["id"], jobs.c.state == "queued")
+                    .values(
+                        state="cancelled",
+                        lease_token=None,
+                        lease_until=None,
+                        result={"status": "cancelled", "error": "grant_unavailable"},
+                    )
+                )
+                continue
+
+            token = uuid4()
+            lease_until = normalized_now + timedelta(minutes=lease_minutes)
+            conn.execute(
+                update(jobs)
+                .where(jobs.c.id == job["id"], jobs.c.state == "queued")
+                .values(state="leased", lease_token=token, lease_until=lease_until)
+            )
+            return EnrichJobClaim(
+                job_id=cast(UUID, job["id"]),
+                group_id=group_id,
+                grant_id=grant_id,
+                target_key=cast(str, job["target_key"]),
+                lease_token=token,
+                lease_until=lease_until,
+            )
+
+
+def complete_enrich(
+    conn: Connection,
+    claim: EnrichJobClaim,
+    now: datetime,
+    result: Mapping[str, Any],
+) -> None:
+    normalized_now = _utc(now)
+    with atomic(conn):
+        _owned_job(conn, claim.job_id, claim.lease_token, normalized_now)
+        conn.execute(
+            update(jobs)
+            .where(jobs.c.id == claim.job_id, jobs.c.lease_token == claim.lease_token)
+            .values(state="succeeded", lease_token=None, lease_until=None, result=dict(result))
+        )
+
+
+def cancel_enrich(
+    conn: Connection,
+    claim: EnrichJobClaim,
+    now: datetime,
+    error_code: str = "grant_unavailable",
+) -> None:
+    normalized_now = _utc(now)
+    with atomic(conn):
+        _owned_job(conn, claim.job_id, claim.lease_token, normalized_now)
+        conn.execute(
+            update(jobs)
+            .where(jobs.c.id == claim.job_id, jobs.c.lease_token == claim.lease_token)
+            .values(
+                state="cancelled",
+                lease_token=None,
+                lease_until=None,
+                result={"status": "cancelled", "error": error_code},
+            )
+        )
+
+
+def fail_enrich(
+    conn: Connection,
+    claim: EnrichJobClaim,
+    now: datetime,
+    error_code: str,
+) -> None:
+    normalized_now = _utc(now)
+    with atomic(conn):
+        _owned_job(conn, claim.job_id, claim.lease_token, normalized_now)
+        conn.execute(
+            update(jobs)
+            .where(jobs.c.id == claim.job_id, jobs.c.lease_token == claim.lease_token)
+            .values(
+                state="failed",
+                lease_token=None,
+                lease_until=None,
+                result={"status": "failed", "attempt": None, "error": error_code},
+            )
+        )
+
+
+def retry_enrich(
+    conn: Connection,
+    claim: EnrichJobClaim,
+    now: datetime,
+    error_code: str,
+) -> str:
+    """Retry an owned enrichment attempt or fail it after three total attempts."""
+    normalized_now = _utc(now)
+    with atomic(conn):
+        job = _owned_job(conn, claim.job_id, claim.lease_token, normalized_now)
+        retry_count = cast(int, job["retry_count"])
+        attempt = retry_count + 1
+        if retry_count < ENRICH_MAX_RETRIES:
+            due_at = normalized_now + timedelta(minutes=ENRICH_BACKOFF_MINUTES[retry_count])
+            conn.execute(
+                update(jobs)
+                .where(jobs.c.id == claim.job_id, jobs.c.lease_token == claim.lease_token)
+                .values(
+                    state="queued",
+                    retry_count=retry_count + 1,
+                    due_at=due_at,
+                    lease_token=None,
+                    lease_until=None,
+                    result={"status": "retrying", "attempt": attempt, "error": error_code},
+                )
+            )
+            return "queued"
+
+        conn.execute(
+            update(jobs)
+            .where(jobs.c.id == claim.job_id, jobs.c.lease_token == claim.lease_token)
+            .values(
+                state="failed",
+                lease_token=None,
+                lease_until=None,
+                result={"status": "failed", "attempt": attempt, "error": error_code},
+            )
+        )
+        return "failed"
 
 
 def _run_failed_gap(conn: Connection, job: dict[str, Any], now: datetime) -> None:
