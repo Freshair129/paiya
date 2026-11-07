@@ -5,9 +5,10 @@ import binascii
 import hashlib
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -31,6 +32,7 @@ from paiya.store.tables import (
     comments,
     current_items,
     evidence,
+    groups,
     jobs,
     listing_items,
     media_assets,
@@ -419,6 +421,337 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
     }
 
 
+def _encode_post_cursor(last_success_at: datetime | None, post_id: UUID) -> str:
+    content = json.dumps(
+        {
+            "last_success_at": (
+                last_success_at.astimezone(UTC).isoformat() if last_success_at is not None else None
+            ),
+            "post_id": str(post_id),
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(content).decode("ascii").rstrip("=")
+
+
+def _decode_post_cursor(cursor: str) -> tuple[datetime | None, UUID]:
+    if len(cursor) > 4096:
+        raise ValueError("Invalid cursor")
+    try:
+        decoded = json.loads(
+            base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("utf-8")
+        )
+        if not isinstance(decoded, dict):
+            raise ValueError("Invalid cursor")
+        raw_timestamp = decoded.get("last_success_at")
+        if raw_timestamp is None:
+            timestamp = None
+        elif isinstance(raw_timestamp, str):
+            timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                raise ValueError("Invalid cursor")
+            timestamp = timestamp.astimezone(UTC)
+        else:
+            raise ValueError("Invalid cursor")
+        post_id = UUID(str(decoded["post_id"]))
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise ValueError("Invalid cursor") from error
+    except ValueError as error:
+        raise ValueError("Invalid cursor") from error
+    return timestamp, post_id
+
+
+def _post_card(
+    conn: Connection,
+    context: ReadContext,
+    post_id: UUID,
+    *,
+    watched: bool,
+    last_success_at: datetime | None = None,
+) -> dict[str, Any]:
+    detail = read_post(conn, context, post_id)
+    observations_in_scope = cast(list[Mapping[str, Any]], detail["observations"])
+    if not observations_in_scope:
+        raise NotFound()
+
+    latest_observation = observations_in_scope[-1]
+    latest_observation_id = cast(UUID, latest_observation["id"])
+    normalized = cast(
+        Mapping[str, Any],
+        conn.execute(
+            select(observations.c.normalized_json).where(
+                observations.c.id == latest_observation_id,
+                observations.c.group_id == context.group_id,
+                observations.c.grant_id == context.grant_id,
+            )
+        ).scalar_one(),
+    )
+    payload = cast(Mapping[str, Any], normalized["payload"])
+    latest_items = cast(list[Mapping[str, Any]], payload.get("items", []))
+    models_by_key = {
+        cast(str, item["source_item_key"]): item.get("model")
+        for item in latest_items
+        if item.get("source_item_key") is not None
+    }
+
+    evidence_rows = (
+        conn.execute(
+            select(evidence.c.local_key, evidence.c.id).where(
+                evidence.c.observation_id == latest_observation_id,
+                evidence.c.grant_id == context.grant_id,
+                evidence.c.media_state == "captured",
+            )
+        )
+        .mappings()
+        .all()
+    )
+    evidence_by_key = {cast(str, row["local_key"]): cast(UUID, row["id"]) for row in evidence_rows}
+    thumbnail_evidence_id = None
+    latest_evidence = cast(list[Mapping[str, Any]], payload.get("evidence", []))
+    for evidence_entry in latest_evidence:
+        if evidence_entry.get("media_state") == "captured":
+            thumbnail_evidence_id = evidence_by_key.get(cast(str, evidence_entry["local_key"]))
+            if thumbnail_evidence_id is not None:
+                break
+
+    current_items = cast(list[Mapping[str, Any]], detail["current_items"])
+    items: list[dict[str, Any]] = []
+    for item in current_items:
+        source_item_key = cast(str, item["source_item_key"])
+        ask_value = item["ask"]
+        ask = None
+        if ask_value is not None:
+            ask_data = cast(Mapping[str, Any], ask_value)
+            ask = {
+                "amount": ask_data["amount"],
+                "currency": ask_data["currency"],
+                "unit": ask_data["unit"],
+            }
+        items.append(
+            {
+                "item_id": item["item_id"],
+                "source_item_key": source_item_key,
+                "model": models_by_key.get(source_item_key),
+                "sale_status": item["sale_status"],
+                "status_since": item["status_since"],
+                "needs_review": item["needs_review"],
+                "ask": ask,
+            }
+        )
+
+    if last_success_at is None:
+        successful_times = [
+            cast(datetime, row["observed_at"])
+            for row in observations_in_scope
+            if row["access"] == "ok"
+        ]
+        last_success_at = max(successful_times, default=None)
+
+    return {
+        "post_id": detail["id"],
+        "group_id": detail["group_id"],
+        "permalink": detail["permalink"],
+        "posted_at": detail["posted_at"],
+        "last_success_at": last_success_at,
+        "has_unresolved_items": detail["has_unresolved_items"],
+        "watched": watched,
+        "thumbnail_evidence_id": thumbnail_evidence_id,
+        "items": items,
+    }
+
+
+def _post_card_matches(
+    card: Mapping[str, Any],
+    *,
+    sale_status: str | None,
+    min_price: Decimal | None,
+    max_price: Decimal | None,
+) -> bool:
+    items = cast(list[Mapping[str, Any]], card["items"])
+    if sale_status is not None and not any(item["sale_status"] == sale_status for item in items):
+        return False
+    if min_price is None and max_price is None:
+        return True
+
+    for item in items:
+        ask_value = item["ask"]
+        if ask_value is None:
+            continue
+        ask = cast(Mapping[str, Any], ask_value)
+        if ask["currency"] != "THB":
+            continue
+        amount = Decimal(cast(str, ask["amount"]))
+        if min_price is not None and amount < min_price:
+            continue
+        if max_price is not None and amount > max_price:
+            continue
+        return True
+    return False
+
+
+def read_posts(
+    conn: Connection,
+    context: ReadContext,
+    *,
+    sale_status: str | None = None,
+    min_price: Decimal | None = None,
+    max_price: Decimal | None = None,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """List scoped post cards in last-success order with an opaque continuation cursor."""
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+    _authorize(conn, context, "read")
+    cursor_key = _decode_post_cursor(cursor) if cursor is not None else None
+
+    successful_observations = (
+        select(
+            observations.c.post_id,
+            func.max(observations.c.observed_at).label("last_success_at"),
+        )
+        .where(
+            observations.c.group_id == context.group_id,
+            observations.c.grant_id == context.grant_id,
+            observations.c.access == "ok",
+        )
+        .group_by(observations.c.post_id)
+        .subquery()
+    )
+    visible_observation = (
+        select(observations.c.id)
+        .where(
+            observations.c.post_id == posts.c.id,
+            observations.c.group_id == context.group_id,
+            observations.c.grant_id == context.grant_id,
+        )
+        .exists()
+    )
+    post_rows = (
+        conn.execute(
+            select(posts.c.id, successful_observations.c.last_success_at)
+            .select_from(
+                posts.outerjoin(
+                    successful_observations,
+                    successful_observations.c.post_id == posts.c.id,
+                )
+            )
+            .where(posts.c.group_id == context.group_id, visible_observation)
+            .order_by(successful_observations.c.last_success_at.desc().nullslast(), posts.c.id)
+        )
+        .mappings()
+        .all()
+    )
+    watched_rows: Sequence[UUID] = (
+        conn.execute(
+            select(watches.c.post_id)
+            .select_from(watches.join(posts, watches.c.post_id == posts.c.id))
+            .where(
+                posts.c.group_id == context.group_id,
+                watches.c.item_id.is_(None),
+                select(observations.c.id)
+                .where(
+                    observations.c.post_id == posts.c.id,
+                    observations.c.group_id == context.group_id,
+                    observations.c.grant_id == context.grant_id,
+                )
+                .exists(),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    watched_post_ids = set(watched_rows)
+
+    cards: list[dict[str, Any]] = []
+    last_returned_key: tuple[datetime | None, UUID] | None = None
+    has_more = False
+    for row in post_rows:
+        post_id = cast(UUID, row["id"])
+        last_success_at = cast(datetime | None, row["last_success_at"])
+        if cursor_key is not None:
+            cursor_time, cursor_post_id = cursor_key
+            if cursor_time is None:
+                if last_success_at is not None or post_id <= cursor_post_id:
+                    continue
+            elif last_success_at is not None and (
+                last_success_at > cursor_time
+                or (last_success_at == cursor_time and post_id <= cursor_post_id)
+            ):
+                continue
+
+        card = _post_card(
+            conn,
+            context,
+            post_id,
+            watched=post_id in watched_post_ids,
+            last_success_at=last_success_at,
+        )
+        if not _post_card_matches(
+            card,
+            sale_status=sale_status,
+            min_price=min_price,
+            max_price=max_price,
+        ):
+            continue
+        if len(cards) == limit:
+            has_more = True
+            break
+        cards.append(card)
+        last_returned_key = (last_success_at, post_id)
+
+    next_cursor = (
+        _encode_post_cursor(*last_returned_key)
+        if has_more and last_returned_key is not None
+        else None
+    )
+    return {"posts": cards, "next_cursor": next_cursor}
+
+
+def read_groups(conn: Connection, context: ReadContext) -> dict[str, Any]:
+    """Return the one group selected by this read context and its latest run."""
+    _authorize(conn, context, "read")
+    group = (
+        conn.execute(
+            select(
+                groups.c.id,
+                groups.c.group_key,
+                groups.c.enabled,
+                groups.c.poll_minutes,
+            ).where(groups.c.id == context.group_id, groups.c.source == "fixture")
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if group is None:
+        raise NotFound()
+
+    last_success_at = cast(
+        datetime | None,
+        conn.execute(
+            select(func.max(observations.c.observed_at)).where(
+                observations.c.group_id == context.group_id,
+                observations.c.grant_id == context.grant_id,
+                observations.c.access == "ok",
+            )
+        ).scalar_one(),
+    )
+    run_result = read_group_runs(conn, context, context.group_id, limit=1)
+    latest_runs = cast(list[Mapping[str, Any]], run_result["runs"])
+    return {
+        "groups": [
+            {
+                "group_id": group["id"],
+                "group_key": group["group_key"],
+                "enabled": group["enabled"],
+                "poll_minutes": group["poll_minutes"],
+                "last_success_at": last_success_at,
+                "last_run": latest_runs[0] if latest_runs else None,
+            }
+        ]
+    }
+
+
 def read_seller(conn: Connection, context: ReadContext, seller_id: UUID) -> dict[str, Any]:
     """Return a seller's posts observed by the active group and grant only."""
     _authorize(conn, context, "read")
@@ -457,6 +790,30 @@ def read_seller(conn: Connection, context: ReadContext, seller_id: UUID) -> dict
     )
     if not seller_posts:
         raise NotFound()
+
+    display_name_rows: Sequence[Any] = (
+        conn.execute(
+            select(observations.c.normalized_json)
+            .select_from(observations.join(posts, observations.c.post_id == posts.c.id))
+            .where(
+                posts.c.seller_id == seller_id,
+                posts.c.group_id == context.group_id,
+                observations.c.group_id == context.group_id,
+                observations.c.grant_id == context.grant_id,
+            )
+            .order_by(observations.c.observed_at.desc(), observations.c.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    display_name = None
+    for normalized_value in display_name_rows:
+        normalized = cast(Mapping[str, Any], normalized_value)
+        payload = cast(Mapping[str, Any], normalized["payload"])
+        seller = payload.get("seller")
+        if isinstance(seller, Mapping) and seller.get("display_name") is not None:
+            display_name = seller["display_name"]
+            break
 
     post_ids = [cast(UUID, row["post_id"]) for row in seller_posts]
     sold_post_rows = (
@@ -519,6 +876,7 @@ def read_seller(conn: Connection, context: ReadContext, seller_id: UUID) -> dict
     return {
         "id": seller_id,
         "identity_scope": seller_posts[0]["identity_scope"],
+        "display_name": display_name,
         "first_seen_at": min(cast(datetime, row["first_seen_at"]) for row in seller_posts),
         "group_ids": [context.group_id],
         "post_count": len(result_posts),
@@ -1140,6 +1498,7 @@ def read_watches(conn: Connection, context: ReadContext, now: datetime) -> dict[
                     if overdue and next_due_at is not None
                     else None
                 ),
+                "post": _post_card(conn, context, post_id, watched=True),
             }
         )
     return {"watches": result}

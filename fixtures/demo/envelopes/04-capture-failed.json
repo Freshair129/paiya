@@ -1,0 +1,53 @@
+{
+  "run_id": "a5370004-0000-4000-8000-000000000004",
+  "capture_id": "demo/capture-failed/capture-1",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {"session": "ok", "sort": "verified_latest"},
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-demo",
+    "source_post_key": "demo-capture-failed",
+    "permalink": "https://example.invalid/paiya/demo/capture-failed",
+    "observed_at": "2026-11-07T02:45:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T02:35:00Z",
+      "value": "2026-11-07T02:35:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-demo",
+      "external_actor_key": "seller-beta",
+      "display_name": "ร้านสมมติเมฆ"
+    },
+    "items": [
+      {
+        "source_item_key": "gpu-synthetic-2060",
+        "model": "RTX 2060 6GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {"kind": "ask", "unit": "each", "amount": "3200", "currency": "THB"},
+        "evidence_keys": ["demo-photo-failed"]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "demo-photo-failed",
+        "role": "seller",
+        "source_span": {"field": "post_text", "quote": "ภาพประกอบสังเคราะห์"},
+        "media_state": "capture_failed",
+        "media_reason": "synthetic demo capture failed"
+      }
+    ]
+  }
+}

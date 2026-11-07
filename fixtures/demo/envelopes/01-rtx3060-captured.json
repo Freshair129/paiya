@@ -1,0 +1,61 @@
+{
+  "run_id": "a5370001-0000-4000-8000-000000000001",
+  "capture_id": "demo/rtx3060/capture-1",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {"session": "ok", "sort": "verified_latest"},
+  "assets": {
+    "demo-rtx3060-photo": {
+      "staging_key": "demo-rtx3060",
+      "sha256": "38d5fdcd36cdcd37566c2986092bebf4e9a9b5970cc7816d7c7c7873219d8707",
+      "mime": "image/webp",
+      "width": 480,
+      "height": 360,
+      "bytes": 4686
+    }
+  },
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-demo",
+    "source_post_key": "demo-rtx3060",
+    "permalink": "https://example.invalid/paiya/demo/rtx3060",
+    "observed_at": "2026-11-07T02:00:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T01:45:00Z",
+      "value": "2026-11-07T01:45:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-demo",
+      "external_actor_key": "seller-alpha",
+      "display_name": "ร้านสมมติตะวัน"
+    },
+    "items": [
+      {
+        "source_item_key": "gpu-rtx3060",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {"kind": "ask", "unit": "each", "amount": "5500", "currency": "THB"},
+        "evidence_keys": ["demo-rtx3060-photo"]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "demo-rtx3060-photo",
+        "role": "seller",
+        "source_span": {"field": "post_text", "quote": "RTX 3060 12GB ราคา 5,500 บาท"},
+        "media_state": "captured"
+      }
+    ]
+  }
+}
