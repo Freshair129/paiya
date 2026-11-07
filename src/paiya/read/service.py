@@ -1536,11 +1536,18 @@ def _decode_timeline_cursor(cursor: str) -> tuple[datetime, str, str]:
         raise ValueError("cursor is invalid") from error
 
 
-def read_evidence(conn: Connection, context: ReadContext, evidence_id: UUID) -> dict[str, Any]:
-    """Return scoped evidence metadata and its media descriptor, if captured."""
+def _read_evidence(
+    conn: Connection,
+    context: ReadContext,
+    evidence_id: UUID,
+    *,
+    tolerate_unavailable_media: bool,
+) -> dict[str, Any]:
+    """Build scoped evidence metadata, optionally representing bad media as unavailable."""
     _authorize(conn, context, "read")
     row = _evidence_row(conn, context, evidence_id)
     media = None
+    media_reason = row["media_reason"]
     if row["media_state"] == "captured":
         required_media_values = (
             row["sha256"],
@@ -1550,15 +1557,18 @@ def read_evidence(conn: Connection, context: ReadContext, evidence_id: UUID) -> 
             row["height"],
         )
         if row["media_asset_id"] is None or any(value is None for value in required_media_values):
-            raise MediaIntegrityFailure()
-        media = {
-            "mime": row["mime"],
-            "width": row["width"],
-            "height": row["height"],
-            "bytes": row["bytes"],
-            "sha256": row["sha256"],
-            "href": f"/v1/evidence/{row['id']}/media",
-        }
+            if not tolerate_unavailable_media:
+                raise MediaIntegrityFailure()
+            media_reason = "file_unavailable"
+        else:
+            media = {
+                "mime": row["mime"],
+                "width": row["width"],
+                "height": row["height"],
+                "bytes": row["bytes"],
+                "sha256": row["sha256"],
+                "href": f"/v1/evidence/{row['id']}/media",
+            }
     return {
         "id": row["id"],
         "post_id": row["post_id"],
@@ -1571,9 +1581,21 @@ def read_evidence(conn: Connection, context: ReadContext, evidence_id: UUID) -> 
         "captured_at": row["captured_at"],
         "permalink": row["permalink"],
         "media_state": row["media_state"],
-        "media_reason": row["media_reason"],
+        "media_reason": media_reason,
         "media": media,
     }
+
+
+def read_evidence(conn: Connection, context: ReadContext, evidence_id: UUID) -> dict[str, Any]:
+    """Return scoped evidence metadata and its media descriptor, if captured."""
+    return _read_evidence(conn, context, evidence_id, tolerate_unavailable_media=False)
+
+
+def read_evidence_for_mcp(
+    conn: Connection, context: ReadContext, evidence_id: UUID
+) -> dict[str, Any]:
+    """Return evidence metadata while allowing MCP to report unusable media in-band."""
+    return _read_evidence(conn, context, evidence_id, tolerate_unavailable_media=True)
 
 
 def read_evidence_media(conn: Connection, context: ReadContext, evidence_id: UUID) -> MediaContent:
