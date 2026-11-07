@@ -52,7 +52,7 @@ Adapter รับกลุ่ม งบ และ overlap แล้วคืน 
 | `stop_reason` | `overlap_reached`, `feed_end`, `time_budget_exhausted`, `scroll_budget_exhausted`, `access_blocked` |
 | `coverage` | `complete`, `partial`, `none` เป็น NULL ระหว่างทำงาน |
 | `partial_reasons` | อาร์เรย์ของ `sort_unverified`, `budget_before_overlap`, `feed_stopped_before_overlap`, `parse_failures` ว่างเมื่อ `coverage` ไม่ใช่ `partial` |
-| `error_code` | `session_required`, `challenge_required`, `permission_denied`, `grant_unavailable`, `adapter_error` หรือ NULL |
+| `error_code` | `session_required`, `challenge_required`, `permission_denied`, `grant_unavailable`, `adapter_error`, `post_unavailable` (งาน revisit ที่ต้นทางรายงาน `access = unavailable`) หรือ NULL |
 
 **Overlap** ถึงเมื่อพบการ์ดที่ไม่ปักหมุดและไม่ใช่โพสต์แนะนำติดกันตามจำนวน overlap ซึ่ง `source_post_key` มีอยู่แล้วใน `posts` ของกลุ่มก่อนรอบนี้เริ่ม การ์ดปักหมุดและแนะนำยังนำเข้าได้แต่ไม่นับต่อเนื่องและไม่ตัดลำดับ
 
