@@ -14,6 +14,7 @@
 | [architecture/contracts/mobile-read-path.md](architecture/contracts/mobile-read-path.md) | read context เมื่อรัน server ระยะ A, endpoint ของหน้าจอมือถือ ข้อความไทย การนับแตะ AT-05 และ fixture สาธิต | เจ้าของ PWA + API |
 | [architecture/contracts/price-trends.md](architecture/contracts/price-trends.md) | ask ที่ยืนยันได้ ชุดตัวอย่างที่เทียบกันได้ ช่วงเวลา ค่ากลาง เกณฑ์ข้อมูลไม่พอ และ `GET /v1/prices/trends` | เจ้าของ API และฐานข้อมูล |
 | [architecture/contracts/extraction-and-tags.md](architecture/contracts/extraction-and-tags.md) | กฎสกัดรุ่น หน่วยความจำ สภาพ และประกัน `extract-v1.0` ตาราง tags ค่าใน listing_items และตัวกรองรุ่นของ `GET /v1/posts` | เจ้าของ Worker, API และฐานข้อมูล |
+| [architecture/contracts/local-model-enrichment.md](architecture/contracts/local-model-enrichment.md) | คิว enrich การเรียก Ollama ผ่าน loopback การตรวจข้อเสนอของโมเดล และผลต่อ listing_items | เจ้าของ Worker และฐานข้อมูล |
 | [architecture/views/erd.md](architecture/views/erd.md) | ERD ของต้นทาง การสังเกต หลักฐาน ราคา และการติดตาม อ่านคู่กับข้อบังคับของแต่ละความสัมพันธ์ | Tech lead + เจ้าของฐานข้อมูล |
 | [architecture/data-model.md](architecture/data-model.md) | พจนานุกรมข้อมูล PostgreSQL ระดับตรรกะ หน่วยข้อมูล คีย์ ข้อบังคับ ดัชนี และวงจรลบ/สร้างใหม่ | เจ้าของฐานข้อมูล + API |
 | [architecture/contracts/buyer-workflows.md](architecture/contracts/buyer-workflows.md) | แบบสัญญาใหม่สำหรับนำเข้าด้วยมือ ประเมินกฎ แจ้งเตือน ติดตามรายชิ้น และเทียบราคาพร้อมหลักฐาน | เจ้าของ PWA + API + Worker |

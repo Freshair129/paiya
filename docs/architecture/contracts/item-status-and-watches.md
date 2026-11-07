@@ -6,7 +6,7 @@
 
 ## 1. ข้อเท็จจริงราคา
 
-ทุก item ที่มี `source_item_key` และ `price` สร้าง `price_facts` หนึ่งแถวต่อ observation `fact_key = price:<source_item_key>:<kind>:<unit>` (รวมชิ้นตามที่ data-model ข้อ 4 กำหนด เพื่อให้ไม่ซ้ำภายใน observation ที่มีหลายชิ้น) ใช้หลักฐานตัวแรกใน `evidence_keys` ถ้า item ไม่มี `evidence_keys` ไม่สร้าง price fact เพราะ `evidence_id` บังคับมีค่า ค่าดิบยังอยู่ใน `normalized_json` (A4 ไม่แยกค่าส่งหรือมัดจำจากข้อความ ซึ่งเป็นงาน A6/A7)
+ทุก item ที่มี `source_item_key` และ `price` สร้าง `price_facts` หนึ่งแถวต่อ observation `fact_key = price:<source_item_key>:<kind>:<unit>` (รวมชิ้นตามที่ data-model ข้อ 4 กำหนด เพื่อให้ไม่ซ้ำภายใน observation ที่มีหลายชิ้น) ใช้หลักฐานตัวแรกใน `evidence_keys` ถ้า item ไม่มี `evidence_keys` ไม่สร้าง price fact เพราะ `evidence_id` บังคับมีค่า ค่าดิบยังอยู่ใน `normalized_json` (ชนิดราคามาจาก parser ของ adapter ตามคำตัดสิน E2 ใน [Issue #48](https://github.com/Freshair129/paiya/issues/48) ระบบหลังบ้านไม่จัดชนิดใหม่จากข้อความ)
 
 ## 2. ข้อเท็จจริงสถานะ
 
