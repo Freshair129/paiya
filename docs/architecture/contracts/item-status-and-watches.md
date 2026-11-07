@@ -86,7 +86,7 @@
  "posts": [{"post_id": "…", "permalink": "…", "first_seen_at": "…", "has_sold_item": true}]}
 ```
 
-`first_seen_at` คือ `observed_at` แรกของโพสต์ใด ๆ ของผู้ขายใน context `sold_post_count` นับโพสต์ที่มีชิ้นใดมีสถานะปัจจุบัน `sold` ชื่อแสดงผลไม่ใช้รวมตัวตน ผู้ขายสอง key ที่ชื่อเหมือนกันเป็นสองแถว ยังไม่มี offer cluster และการรวมข้ามกลุ่ม
+`first_seen_at` คือ `observed_at` แรกของโพสต์ใด ๆ ของผู้ขายใน context `sold_post_count` นับโพสต์ที่มีชิ้นใดมีสถานะปัจจุบัน `sold` ชื่อแสดงผลไม่ใช้รวมตัวตน ผู้ขายสอง key ที่ชื่อเหมือนกันเป็นสองแถว ยังไม่มี offer cluster และการรวมข้ามกลุ่ม คำว่า “coverage” ของ `GET /v1/sellers/{id}` ในตาราง HTTP API ของสัญญา Collector ในระยะ A แสดงด้วย `group_ids` และ `post_count` ที่อ่านได้ใน context ส่วนสถิติ coverage ของผู้ขายที่มี stable ID ตาม SRS ข้อ 7 เป็นรายงานของ A9 การนับ `has_sold_item` ใช้เฉพาะสถานะที่ตัดสินจาก observation ของ grant ใน context เช่นเดียวกับ `GET /v1/posts/{id}`
 
 ## 6. Watch และงานตรวจ permalink
 
