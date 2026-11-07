@@ -71,7 +71,7 @@ Worker ห่อ payload ด้วย envelope ที่มี run_id, capture_i
 | ส่งออก | GET /v1/posts/{id}/export?format=json หรือ format=md คืนข้อมูลตามสิทธิ์พร้อม schema_version, permalink, เวลาสังเกตและ evidence_id Markdown สร้างจากผล JSON ครั้งเดียวกัน |
 | ผู้ขายและหลักฐาน | GET /v1/sellers/{id} พร้อม coverage และรายการต้นทาง · GET /v1/evidence/{id} คืน metadata และ GET /v1/evidence/{id}/media คืนรูปเมื่อ grant ที่ผูกยังใช้ได้ |
 | Watch และราคา | PUT หรือ DELETE /v1/watches/{post_id} เป็น idempotent (เลื่อนไปงาน session ตาม E5 ระยะ A ใช้ CLI ดู [สัญญาเส้นทางมือถือ](mobile-read-path.md)), GET /v1/prices/trends คืน sample count, window, ตัวกรอง, percentiles ที่รองรับ และสถานะข้อมูลไม่พอ |
-| MCP local stdio | search_posts, get_post, get_seller, get_evidence, get_price_trend ใช้ backend service เดียวกับ API get_evidence ส่ง MCP image content หลังตรวจสิทธิ์ ห้ามรับ arbitrary SQL, URL หรือ path |
+| MCP local stdio | search_posts, get_post, get_seller, get_evidence, get_price_trend ใช้ backend service เดียวกับ API get_evidence ส่ง MCP image content หลังตรวจสิทธิ์ ห้ามรับ arbitrary SQL, URL หรือ path รายละเอียดใน [สัญญา MCP](mcp-read.md) |
 
 ผลการค้นใช้ cursor และ limit แบบมีเพดาน client ต้องโหลดเพิ่มได้ API แยก unauthenticated, invalid input และ not-found ตามมาตรฐาน HTTP ส่วนการพยายามอ่าน ID นอก scope ให้ผลเหมือนหาไม่พบเพื่อไม่เปิดเผยตัวตนของระเบียน โพสต์และ OCR เป็นข้อมูลภายนอกเสมอ ห้ามป้อนคำสั่งจากแหล่งข้อมูลเข้าระบบเครื่องมือของ Agent
 

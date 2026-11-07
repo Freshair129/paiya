@@ -4,7 +4,7 @@
 
 หน้านี้กำหนดวิธีแปลง `items[].model` และ `items[].condition_text` ของ observation v1 เป็น `model_key`, `vram_gb`, `condition`, `warranty` และ `warranty_until` ที่ย้อนถึงหลักฐานได้ การเก็บผลในตาราง `tags` การสร้างค่าใน `listing_items` และตัวกรองของ `GET /v1/posts` ใช้คู่กับ [SRS](../../requirements/SRS.md) ข้อ 1 (Enrichment), FR-09, FR-10, FR-17 (ข้อความประกัน), AT-06, AT-12, AT-14, [SPEC](../SPEC.md) ข้อ 4–5, [แบบจำลองข้อมูล](../data-model.md) และ [สัญญาสถานะรายชิ้น](item-status-and-watches.md) ข้อ 2
 
-งานเสริมด้วยโมเดลในเครื่อง (A6b) อยู่ใน [สัญญางานเสริมข้อมูล](local-model-enrichment.md) และ MCP (A6c) จะมีสัญญาเมื่อเริ่มงานนั้น ผลจากโมเดลต้องไม่เปลี่ยนค่าที่สร้างตามหน้านี้จนกว่าจะผ่านกฎยืนยัน
+งานเสริมด้วยโมเดลในเครื่อง (A6b) อยู่ใน [สัญญางานเสริมข้อมูล](local-model-enrichment.md) และ MCP (A6c) อยู่ใน [สัญญา MCP](mcp-read.md) ผลจากโมเดลต้องไม่เปลี่ยนค่าที่สร้างตามหน้านี้จนกว่าจะผ่านกฎยืนยัน
 
 ## 1. ขอบเขตของกฎ `extract-v1.0`
 
