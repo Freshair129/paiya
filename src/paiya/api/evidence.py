@@ -10,7 +10,13 @@ from sqlalchemy import Connection
 
 from paiya.read.context import ReadContext
 from paiya.read.errors import ReadContextRequired
-from paiya.read.service import read_evidence, read_evidence_media, read_group_runs, read_post
+from paiya.read.service import (
+    read_evidence,
+    read_evidence_media,
+    read_group_runs,
+    read_post,
+    read_post_timeline,
+)
 from paiya.settings import get_database_engine
 
 router = APIRouter(prefix="/v1")
@@ -38,6 +44,20 @@ Db = Annotated[Connection, Depends(get_db_connection)]
 @router.get("/posts/{post_id}")
 def get_post(post_id: UUID, scope: Scope, conn: Db) -> dict[str, object]:
     return read_post(conn, scope, post_id)
+
+
+@router.get("/posts/{post_id}/timeline")
+def get_post_timeline(
+    post_id: UUID,
+    scope: Scope,
+    conn: Db,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+) -> dict[str, object]:
+    try:
+        return read_post_timeline(conn, scope, post_id, limit=limit, cursor=cursor)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Invalid cursor") from error
 
 
 @router.get("/evidence/{evidence_id}")

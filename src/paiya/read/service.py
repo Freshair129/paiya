@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import Connection, and_, case, func, select
 
@@ -27,6 +27,8 @@ from paiya.store.media import media_path
 from paiya.store.tables import (
     capture_gaps,
     capture_runs,
+    comment_versions,
+    comments,
     current_items,
     evidence,
     jobs,
@@ -413,6 +415,340 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
         "current_items": current_item_results,
         "observations": result_observations,
     }
+
+
+def read_post_timeline(
+    conn: Connection,
+    context: ReadContext,
+    post_id: UUID,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Return a read-context-scoped timeline computed from a post's evidence rows."""
+    if not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100")
+    _authorize(conn, context, "read")
+
+    post = conn.execute(
+        select(posts.c.id).where(posts.c.id == post_id, posts.c.group_id == context.group_id)
+    ).scalar_one_or_none()
+    if post is None:
+        raise NotFound()
+
+    observed = (
+        conn.execute(
+            select(
+                observations.c.id,
+                observations.c.observed_at,
+                observations.c.access,
+                observations.c.source_reported_comment_count,
+            )
+            .where(
+                observations.c.post_id == post_id,
+                observations.c.group_id == context.group_id,
+                observations.c.grant_id == context.grant_id,
+            )
+            .order_by(observations.c.observed_at, observations.c.id)
+        )
+        .mappings()
+        .all()
+    )
+    if not observed:
+        raise NotFound()
+
+    events: list[dict[str, Any]] = []
+
+    status_rows = (
+        conn.execute(
+            select(
+                sale_events.c.id,
+                sale_events.c.item_id,
+                sale_events.c.sale_status,
+                sale_events.c.effective_at,
+                status_facts.c.observation_id,
+                status_facts.c.evidence_id,
+                observations.c.observed_at,
+            )
+            .select_from(
+                sale_events.join(
+                    status_facts, sale_events.c.status_fact_id == status_facts.c.id
+                ).join(observations, status_facts.c.observation_id == observations.c.id)
+            )
+            .where(
+                sale_events.c.post_id == post_id,
+                status_facts.c.post_id == post_id,
+                observations.c.post_id == post_id,
+                observations.c.group_id == context.group_id,
+                observations.c.grant_id == context.grant_id,
+            )
+            .order_by(sale_events.c.item_id, sale_events.c.seq)
+        )
+        .mappings()
+        .all()
+    )
+    previous_status_by_item: dict[UUID, str] = {}
+    for row in status_rows:
+        item_id = cast(UUID, row["item_id"])
+        status = cast(str, row["sale_status"])
+        observation_id = cast(UUID, row["observation_id"])
+        observed_at = cast(datetime, row["observed_at"])
+        effective_at = cast(datetime | None, row["effective_at"])
+        events.append(
+            _timeline_event(
+                "status_changed",
+                (cast(UUID, row["id"]),),
+                effective_at or observed_at,
+                observation_id,
+                {
+                    "item_id": item_id,
+                    "from": previous_status_by_item.get(item_id),
+                    "to": status,
+                    "evidence_id": row["evidence_id"],
+                },
+            )
+        )
+        previous_status_by_item[item_id] = status
+
+    price_rows = (
+        conn.execute(
+            select(
+                price_facts.c.id,
+                price_facts.c.item_id,
+                price_facts.c.observation_id,
+                price_facts.c.evidence_id,
+                price_facts.c.amount,
+                observations.c.observed_at,
+            )
+            .select_from(
+                price_facts.join(observations, price_facts.c.observation_id == observations.c.id)
+            )
+            .where(
+                price_facts.c.post_id == post_id,
+                price_facts.c.item_id.is_not(None),
+                price_facts.c.price_kind == "ask",
+                observations.c.post_id == post_id,
+                observations.c.group_id == context.group_id,
+                observations.c.grant_id == context.grant_id,
+            )
+            .order_by(
+                price_facts.c.item_id,
+                observations.c.observed_at,
+                observations.c.id,
+                price_facts.c.id,
+            )
+        )
+        .mappings()
+        .all()
+    )
+    previous_price_by_item: dict[UUID, Mapping[str, Any]] = {}
+    for row in price_rows:
+        item_id = cast(UUID, row["item_id"])
+        previous = previous_price_by_item.get(item_id)
+        if previous is not None and previous["amount"] != row["amount"]:
+            events.append(
+                _timeline_event(
+                    "price_changed",
+                    (cast(UUID, row["id"]),),
+                    cast(datetime, row["observed_at"]),
+                    cast(UUID, row["observation_id"]),
+                    {
+                        "item_id": item_id,
+                        "from": str(previous["amount"]),
+                        "to": str(row["amount"]),
+                        "evidence_id": row["evidence_id"],
+                    },
+                )
+            )
+        previous_price_by_item[item_id] = cast(Mapping[str, Any], row)
+
+    comment_rows = (
+        conn.execute(
+            select(
+                comments.c.id.label("comment_id"),
+                comment_versions.c.id.label("version_id"),
+                comment_versions.c.observation_id,
+                comment_versions.c.role,
+                comment_versions.c.body_hash,
+                observations.c.observed_at,
+            )
+            .select_from(
+                comments.join(
+                    comment_versions, comments.c.id == comment_versions.c.comment_id
+                ).join(observations, comment_versions.c.observation_id == observations.c.id)
+            )
+            .where(
+                comments.c.post_id == post_id,
+                comments.c.source_comment_key.is_not(None),
+                comment_versions.c.post_id == post_id,
+                observations.c.post_id == post_id,
+                observations.c.group_id == context.group_id,
+                observations.c.grant_id == context.grant_id,
+            )
+            .order_by(
+                observations.c.observed_at,
+                observations.c.id,
+                comments.c.id,
+                comment_versions.c.id,
+            )
+        )
+        .mappings()
+        .all()
+    )
+    previous_body_hash_by_comment: dict[UUID, str] = {}
+    observations_with_new_comments: set[UUID] = set()
+    for row in comment_rows:
+        comment_id = cast(UUID, row["comment_id"])
+        version_id = cast(UUID, row["version_id"])
+        observation_id = cast(UUID, row["observation_id"])
+        body_hash = cast(str, row["body_hash"])
+        previous_body_hash = previous_body_hash_by_comment.get(comment_id)
+        if previous_body_hash is None:
+            events.append(
+                _timeline_event(
+                    "comment_added",
+                    (comment_id, version_id),
+                    cast(datetime, row["observed_at"]),
+                    observation_id,
+                    {"comment_id": comment_id, "role": row["role"]},
+                )
+            )
+            observations_with_new_comments.add(observation_id)
+        elif previous_body_hash != body_hash:
+            events.append(
+                _timeline_event(
+                    "comment_edited",
+                    (comment_id, version_id),
+                    cast(datetime, row["observed_at"]),
+                    observation_id,
+                    {"comment_id": comment_id},
+                )
+            )
+        previous_body_hash_by_comment[comment_id] = body_hash
+
+    previous_count: int | None = None
+    previous_observation_id: UUID | None = None
+    previous_access: str | None = None
+    for row in observed:
+        observation_id = cast(UUID, row["id"])
+        observed_at = cast(datetime, row["observed_at"])
+        access = cast(str, row["access"])
+        if previous_observation_id is not None and access != previous_access:
+            events.append(
+                _timeline_event(
+                    "access_changed",
+                    (observation_id,),
+                    observed_at,
+                    observation_id,
+                    {"from": previous_access, "to": access},
+                )
+            )
+        previous_access = access
+        previous_observation_id = observation_id
+
+        count = cast(int | None, row["source_reported_comment_count"])
+        if count is None:
+            continue
+        if (
+            previous_count is not None
+            and count != previous_count
+            and observation_id not in observations_with_new_comments
+        ):
+            events.append(
+                _timeline_event(
+                    "comment_count_changed",
+                    (observation_id,),
+                    observed_at,
+                    observation_id,
+                    {"from": previous_count, "to": count},
+                )
+            )
+        previous_count = count
+
+    if cursor is not None:
+        cursor_key = _decode_timeline_cursor(cursor)
+        events = [event for event in events if _timeline_event_key(event) > cursor_key]
+
+    events.sort(key=_timeline_event_key)
+    has_more = len(events) > limit
+    page = events[:limit]
+    next_cursor = (
+        _encode_timeline_cursor(_timeline_event_key(page[-1])) if has_more and page else None
+    )
+    page_rows: list[dict[str, Any]] = []
+    for event in page:
+        page_row = {key: value for key, value in event.items() if key != "_at"}
+        page_row["at"] = _timeline_timestamp(cast(datetime, event["_at"]))
+        page_rows.append(page_row)
+    return {"post_id": post_id, "events": page_rows, "next_cursor": next_cursor}
+
+
+def _timeline_event(
+    kind: str,
+    source_ids: tuple[UUID, ...],
+    at: datetime,
+    observation_id: UUID,
+    fields: Mapping[str, Any],
+) -> dict[str, Any]:
+    source_key = ":".join(str(source_id) for source_id in source_ids)
+    event_id = uuid5(NAMESPACE_URL, f"paiya:post-timeline:{kind}:{source_key}")
+    return {
+        "id": event_id,
+        "kind": kind,
+        "_at": at.astimezone(UTC),
+        "observation_id": observation_id,
+        **fields,
+    }
+
+
+def _timeline_event_key(event: Mapping[str, Any]) -> tuple[datetime, str, str]:
+    return (
+        cast(datetime, event["_at"]),
+        cast(str, event["kind"]),
+        str(event["id"]),
+    )
+
+
+def _timeline_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _encode_timeline_cursor(key: tuple[datetime, str, str]) -> str:
+    at, kind, event_id = key
+    content = json.dumps(
+        {"at": _timeline_timestamp(at), "kind": kind, "id": event_id},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(content).decode("ascii").rstrip("=")
+
+
+def _decode_timeline_cursor(cursor: str) -> tuple[datetime, str, str]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        content = base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
+        value = json.loads(content)
+        if not isinstance(value, dict) or set(value) != {"at", "kind", "id"}:
+            raise ValueError
+        at_value = value["at"]
+        kind = value["kind"]
+        event_id = value["id"]
+        if (
+            not isinstance(at_value, str)
+            or not isinstance(kind, str)
+            or not isinstance(event_id, str)
+        ):
+            raise ValueError
+        at = datetime.fromisoformat(at_value.replace("Z", "+00:00"))
+        if at.tzinfo is None or at.utcoffset() is None:
+            raise ValueError
+        return at.astimezone(UTC), kind, str(UUID(event_id))
+    except (
+        ValueError,
+        TypeError,
+        UnicodeError,
+        binascii.Error,
+        json.JSONDecodeError,
+    ) as error:
+        raise ValueError("cursor is invalid") from error
 
 
 def read_evidence(conn: Connection, context: ReadContext, evidence_id: UUID) -> dict[str, Any]:
