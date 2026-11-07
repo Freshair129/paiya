@@ -1,0 +1,65 @@
+{
+  "scenario_id": "S05",
+  "group_key": "synthetic-feed-s05",
+  "runs": [
+    {
+      "label": "r1",
+      "expect": {
+        "coverage": "complete",
+        "stop_reason": "feed_end",
+        "partial_reasons": [],
+        "cards_seen": 7,
+        "cards_parsed": 7,
+        "checkpoint_advanced": true,
+        "labelled_visible_keys": [
+          "s05-pin",
+          "s05-p1",
+          "s05-p2",
+          "s05-p3",
+          "s05-p4",
+          "s05-p5",
+          "s05-p6"
+        ],
+        "ingested_keys": [
+          "s05-pin",
+          "s05-p1",
+          "s05-p2",
+          "s05-p3",
+          "s05-p4",
+          "s05-p5",
+          "s05-p6"
+        ]
+      }
+    },
+    {
+      "label": "r2",
+      "expect": {
+        "coverage": "complete",
+        "stop_reason": "overlap_reached",
+        "partial_reasons": [],
+        "cards_seen": 9,
+        "cards_parsed": 9,
+        "checkpoint_advanced": true,
+        "labelled_visible_keys": [
+          "s05-pin",
+          "s05-n1",
+          "s05-n2",
+          "s05-p1",
+          "s05-p2",
+          "s05-p3"
+        ],
+        "ingested_keys": [
+          "s05-pin",
+          "s05-n1",
+          "s05-n2",
+          "s05-p1",
+          "s05-p2",
+          "s05-p3",
+          "s05-p4",
+          "s05-p5",
+          "s05-p6"
+        ]
+      }
+    }
+  ]
+}
