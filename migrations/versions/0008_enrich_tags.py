@@ -67,19 +67,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    count = (
+    tag_count, result_count = (
         op.get_bind()
         .execute(
             sa.text(
-                "SELECT count(*) FROM tags WHERE method = 'model' OR validation_result = 'proposed'"
+                "SELECT (SELECT count(*) FROM tags "
+                "WHERE method = 'model' OR validation_result = 'proposed'), "
+                "(SELECT count(*) FROM jobs WHERE result IS NOT NULL)"
             )
         )
-        .scalar_one()
+        .one()
     )
-    if count:
+    if tag_count or result_count:
         raise RuntimeError(
-            f"Cannot downgrade: {count} incompatible tags; remove those rows deliberately "
-            "before downgrading"
+            f"Cannot downgrade: {tag_count} incompatible tags, {result_count} jobs with result; "
+            "remove those values deliberately before downgrading"
         )
 
     op.drop_constraint("ck_tags_reason", "tags", type_="check")

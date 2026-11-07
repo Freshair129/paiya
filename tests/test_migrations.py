@@ -175,6 +175,37 @@ def test_upgrade_and_downgrade_on_postgres17(
         admin.dispose()
 
 
+def test_downgrade_preserves_job_result(pg_engine, tmp_path):
+    scope = seed_fixture_scope(pg_engine, "synthetic-result-downgrade")
+    ingest_fixture(pg_engine, scope, envelope(scope, "result"), {}, tmp_path)
+    with pg_engine.begin() as connection:
+        assert (
+            connection.execute(text("UPDATE jobs SET result = '{\"processed\": 1}'")).rowcount == 1
+        )
+
+    with pytest.raises(RuntimeError, match=r"0 incompatible tags.*1.*result"):
+        command.downgrade(Config(str(ROOT / "alembic.ini")), "0007_tags")
+    with pg_engine.connect() as connection:
+        assert connection.execute(text("SELECT result FROM jobs")).scalar_one() == {"processed": 1}
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            "0008_enrich_tags"
+        )
+
+
+def test_downgrade_allows_null_job_results(pg_engine, tmp_path):
+    scope = seed_fixture_scope(pg_engine, "synthetic-null-result-downgrade")
+    ingest_fixture(pg_engine, scope, envelope(scope, "null-result"), {}, tmp_path)
+    with pg_engine.connect() as connection:
+        assert connection.execute(text("SELECT result FROM jobs")).scalar_one() is None
+
+    command.downgrade(Config(str(ROOT / "alembic.ini")), "0007_tags")
+    with pg_engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM jobs")).scalar_one() == 1
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            "0007_tags"
+        )
+
+
 def test_downgrade_preserves_model_tags(pg_engine, tmp_path):
     scope = seed_fixture_scope(pg_engine, "synthetic-downgrade")
     doc = envelope(scope, "model-tag")
@@ -189,7 +220,9 @@ def test_downgrade_preserves_model_tags(pg_engine, tmp_path):
         """)
         ).rowcount
         assert count == 1
-    with pytest.raises(RuntimeError, match=r"1.*remove.*deliberately"):
+    with pytest.raises(
+        RuntimeError, match=r"1 incompatible tags.*0 jobs with result.*deliberately"
+    ):
         command.downgrade(Config(str(ROOT / "alembic.ini")), "0007_tags")
     with pg_engine.connect() as connection:
         assert (
@@ -200,6 +233,13 @@ def test_downgrade_preserves_model_tags(pg_engine, tmp_path):
         )
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
             "0008_enrich_tags"
+        )
+    with pg_engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("UPDATE tags SET model_version = 'still-accepted' WHERE method = 'model'")
+            ).rowcount
+            == 1
         )
 
 
@@ -219,7 +259,9 @@ def test_downgrade_preserves_proposed_rule_tags(pg_engine, tmp_path):
             ).rowcount
             == 1
         )
-    with pytest.raises(RuntimeError, match=r"1.*remove.*deliberately"):
+    with pytest.raises(
+        RuntimeError, match=r"1 incompatible tags.*0 jobs with result.*deliberately"
+    ):
         command.downgrade(Config(str(ROOT / "alembic.ini")), "0007_tags")
     with pg_engine.connect() as connection:
         assert (
