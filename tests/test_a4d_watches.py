@@ -24,6 +24,7 @@ from paiya.store.tables import (
     current_items,
     groups,
     jobs,
+    listing_items,
     observations,
     price_facts,
     sale_events,
@@ -56,6 +57,196 @@ def make_posts(engine, tmp_path, count, name="service"):
                 ).scalar_one()
             )
     return scope, ids
+
+
+@pytest.mark.parametrize("reason", ["new", "slow"])
+def test_keyless_post_remains_eligible_for_revisit(pg_engine, tmp_path, reason):
+    from test_a2_ingest import SAMPLE
+
+    scope = seed_fixture_scope(pg_engine, f"synthetic-keyless-{reason}")
+    document = json.loads(SAMPLE.read_text(encoding="utf-8"))
+    document["run_id"] = str(uuid4())
+    document["capture_id"] = f"synthetic-keyless-{reason}"
+    document["payload"].update(group_key=scope.group_key, source_post_key="keyless")
+    document["payload"]["items"][0]["source_item_key"] = None
+    oid = ingest_fixture(pg_engine, scope, document, {}, tmp_path)
+    with pg_engine.begin() as conn:
+        post_id = conn.execute(
+            select(observations.c.post_id).where(observations.c.id == oid)
+        ).scalar_one()
+        conn.execute(update(groups).where(groups.c.id == scope.group_id).values(poll_minutes=30))
+        conn.execute(
+            update(observations)
+            .where(observations.c.id == oid)
+            .values(observed_at=NOW - timedelta(hours=1 if reason == "new" else 48))
+        )
+    if reason == "slow":
+        with pg_engine.connect() as conn:
+            add_watch(conn, NOW - timedelta(days=2), post_id)
+    finish_discovery(pg_engine, NOW)
+    with pg_engine.connect() as conn:
+        schedule_due(conn, NOW)
+        assert conn.execute(
+            select(jobs.c.target_key).where(jobs.c.kind == "revisit", jobs.c.state == "queued")
+        ).scalar_one() == str(post_id)
+    if reason == "new":
+        with pg_engine.connect() as conn:
+            add_watch(conn, NOW, post_id)
+            assert remove_watch(conn, NOW, post_id)["cancelled_revisit"] is False
+        with pg_engine.connect() as conn:
+            assert (
+                conn.execute(select(jobs.c.state).where(jobs.c.kind == "revisit")).scalar_one()
+                == "queued"
+            )
+
+
+def test_removing_watch_preserves_keyless_new_post_revisit(pg_engine, tmp_path):
+    from test_a2_ingest import SAMPLE
+
+    scope = seed_fixture_scope(pg_engine, "synthetic-keyless-remove")
+    document = json.loads(SAMPLE.read_text(encoding="utf-8"))
+    document["run_id"] = str(uuid4())
+    document["capture_id"] = "synthetic-keyless-remove"
+    document["payload"].update(group_key=scope.group_key, source_post_key="keyless")
+    document["payload"]["items"][0]["source_item_key"] = None
+    oid = ingest_fixture(pg_engine, scope, document, {}, tmp_path)
+    with pg_engine.begin() as conn:
+        post_id = conn.execute(
+            select(observations.c.post_id).where(observations.c.id == oid)
+        ).scalar_one()
+        conn.execute(update(observations).where(observations.c.id == oid).values(observed_at=NOW))
+        conn.execute(
+            insert(jobs).values(
+                id=uuid4(),
+                group_id=scope.group_id,
+                grant_id=scope.grant_id,
+                kind="revisit",
+                target_key=str(post_id),
+                logical_key="synthetic-keyless-revisit",
+                due_at=NOW,
+                state="queued",
+            )
+        )
+    with pg_engine.connect() as conn:
+        add_watch(conn, NOW, post_id)
+        assert remove_watch(conn, NOW, post_id)["cancelled_revisit"] is False
+    with pg_engine.connect() as conn:
+        assert (
+            conn.execute(select(jobs.c.state).where(jobs.c.kind == "revisit")).scalar_one()
+            == "queued"
+        )
+
+
+@pytest.mark.parametrize("reason", ["new", "slow"])
+def test_partially_sold_post_revisits_until_all_items_closed(pg_engine, tmp_path, reason):
+    from test_a2_ingest import SAMPLE
+
+    scope = seed_fixture_scope(pg_engine, f"synthetic-partial-{reason}")
+    document = json.loads(SAMPLE.read_text(encoding="utf-8"))
+    document["run_id"] = str(uuid4())
+    document["capture_id"] = f"synthetic-partial-{reason}"
+    document["payload"].update(group_key=scope.group_key, source_post_key="partial")
+    document["payload"]["items"].append(
+        dict(document["payload"]["items"][0], source_item_key="second")
+    )
+    oid = ingest_fixture(pg_engine, scope, document, {}, tmp_path)
+    with pg_engine.begin() as conn:
+        post_id = conn.execute(
+            select(observations.c.post_id).where(observations.c.id == oid)
+        ).scalar_one()
+        conn.execute(update(groups).where(groups.c.id == scope.group_id).values(poll_minutes=30))
+        conn.execute(
+            update(observations)
+            .where(observations.c.id == oid)
+            .values(observed_at=NOW - timedelta(hours=1 if reason == "new" else 48))
+        )
+        item_ids = dict(
+            conn.execute(
+                select(listing_items.c.source_item_key, listing_items.c.id).where(
+                    listing_items.c.post_id == post_id
+                )
+            ).all()
+        )
+        conn.execute(
+            update(sale_events)
+            .where(sale_events.c.item_id == item_ids["sku3060"])
+            .values(sale_status="sold")
+        )
+        states = set(
+            conn.execute(
+                select(sale_events.c.sale_status)
+                .join(current_items, current_items.c.status_event_id == sale_events.c.id)
+                .where(current_items.c.post_id == post_id)
+            ).scalars()
+        )
+        assert states == {"sold", "open"}
+    with pg_engine.connect() as conn:
+        add_watch(conn, NOW - timedelta(days=2), post_id)
+    finish_discovery(pg_engine, NOW)
+    with pg_engine.connect() as conn:
+        schedule_due(conn, NOW)
+        assert conn.execute(
+            select(jobs.c.target_key).where(jobs.c.kind == "revisit", jobs.c.state == "queued")
+        ).scalar_one() == str(post_id)
+    with pg_engine.connect() as conn:
+        claim = claim_next(conn, NOW)
+    assert claim is not None and claim.kind == "revisit"
+    with pg_engine.connect() as conn:
+        complete(conn, claim.job_id, claim.lease_token, NOW)
+    later = NOW + timedelta(days=2)
+    with pg_engine.begin() as conn:
+        # Synthetic projection: A4a does not yet map a withdrawn source label.
+        conn.execute(
+            update(sale_events)
+            .where(sale_events.c.item_id == item_ids["second"])
+            .values(sale_status="withdrawn")
+        )
+        conn.execute(update(watches).where(watches.c.post_id == post_id).values(next_due_at=later))
+    finish_discovery(pg_engine, later)
+    with pg_engine.connect() as conn:
+        schedule_due(conn, later)
+        assert (
+            conn.execute(
+                select(jobs.c.id).where(jobs.c.kind == "revisit", jobs.c.state == "queued")
+            ).first()
+            is None
+        )
+
+
+def test_hot_and_new_post_share_one_revisit_per_slot(pg_engine, tmp_path):
+    scope, ids = make_posts(pg_engine, tmp_path, 1)
+    with pg_engine.begin() as conn:
+        conn.execute(update(groups).where(groups.c.id == scope.group_id).values(poll_minutes=30))
+        conn.execute(
+            update(observations)
+            .where(observations.c.post_id == ids[0])
+            .values(observed_at=NOW - timedelta(hours=1))
+        )
+    with pg_engine.connect() as conn:
+        add_watch(conn, NOW, ids[0])
+        set_watch_hot(conn, NOW, ids[0])
+    finish_discovery(pg_engine, NOW)
+    for clock in (NOW, NOW + timedelta(minutes=10)):
+        with pg_engine.connect() as conn:
+            schedule_due(conn, clock)
+            rows = conn.execute(
+                select(jobs.c.id, jobs.c.target_key, jobs.c.due_at).where(
+                    jobs.c.kind == "revisit", jobs.c.state == "queued"
+                )
+            ).all()
+            assert (
+                len(rows) == 1 and rows[0].target_key == str(ids[0]) and rows[0].due_at == clock
+            ), clock
+        with pg_engine.connect() as conn:
+            claim = claim_next(conn, clock)
+        assert claim is not None and claim.kind == "revisit"
+        with pg_engine.begin() as conn:
+            conn.execute(
+                update(capture_runs)
+                .where(capture_runs.c.id == claim.run_id)
+                .values(coverage="complete", ended_at=clock)
+            )
+            complete(conn, claim.job_id, claim.lease_token, clock)
 
 
 def test_watch_idempotency_hot_cap_and_expiry(pg_engine, tmp_path):

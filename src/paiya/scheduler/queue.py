@@ -230,14 +230,14 @@ def _next_slot(value: datetime, poll_minutes: int) -> datetime:
 def _open_post_ids(conn: Connection, group_id: UUID) -> set[UUID]:
     return set(
         conn.execute(
-            select(listing_items.c.post_id)
+            select(posts.c.id)
             .select_from(
-                listing_items.outerjoin(
-                    current_items, current_items.c.item_id == listing_items.c.id
-                ).outerjoin(sale_events, sale_events.c.id == current_items.c.status_event_id)
+                posts.outerjoin(listing_items, listing_items.c.post_id == posts.c.id)
+                .outerjoin(current_items, current_items.c.item_id == listing_items.c.id)
+                .outerjoin(sale_events, sale_events.c.id == current_items.c.status_event_id)
             )
             .where(
-                listing_items.c.post_id.in_(select(posts.c.id).where(posts.c.group_id == group_id)),
+                posts.c.group_id == group_id,
                 or_(
                     sale_events.c.sale_status.is_(None),
                     sale_events.c.sale_status.not_in(("sold", "withdrawn")),
@@ -316,7 +316,7 @@ def _schedule_revisits_for_group(
     )
     watch_by_post = {cast(UUID, row["post_id"]): dict(row) for row in watch_rows}
     last_success_by_post = {
-        cast(UUID, row["target_key"]): cast(datetime, row["last_success_at"])
+        UUID(row["target_key"]): cast(datetime, row["last_success_at"])
         for row in conn.execute(
             select(jobs.c.target_key, func.max(capture_runs.c.ended_at).label("last_success_at"))
             .select_from(jobs.join(capture_runs, capture_runs.c.job_id == jobs.c.id))

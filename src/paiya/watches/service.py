@@ -135,14 +135,14 @@ def _post_first_seen(conn: Connection, post_id: UUID) -> datetime | None:
 def _has_open_item(conn: Connection, post_id: UUID) -> bool:
     return (
         conn.execute(
-            select(listing_items.c.id)
+            select(posts.c.id)
             .select_from(
-                listing_items.outerjoin(
-                    current_items, current_items.c.item_id == listing_items.c.id
-                ).outerjoin(sale_events, sale_events.c.id == current_items.c.status_event_id)
+                posts.outerjoin(listing_items, listing_items.c.post_id == posts.c.id)
+                .outerjoin(current_items, current_items.c.item_id == listing_items.c.id)
+                .outerjoin(sale_events, sale_events.c.id == current_items.c.status_event_id)
             )
             .where(
-                listing_items.c.post_id == post_id,
+                posts.c.id == post_id,
                 or_(
                     sale_events.c.sale_status.is_(None),
                     sale_events.c.sale_status.not_in(("sold", "withdrawn")),
