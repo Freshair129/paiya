@@ -1,14 +1,14 @@
-# สัญญากฎสกัดรุ่น หน่วยความจำ และสภาพ (A6a)
+# สัญญากฎสกัดรุ่น หน่วยความจำ สภาพ และประกัน (A6a)
 
 **สถานะ** แบบที่ใช้อ้างอิงสำหรับงาน A6a ตาม [Issue #48](https://github.com/Freshair129/paiya/issues/48) · **ผู้ดูแล** เจ้าของ Worker, API และฐานข้อมูล
 
-หน้านี้กำหนดวิธีแปลง `items[].model` และ `items[].condition_text` ของ observation v1 เป็น `model_key`, `vram_gb` และ `condition` ที่ย้อนถึงหลักฐานได้ การเก็บผลในตาราง `tags` การสร้างค่าใน `listing_items` และตัวกรองของ `GET /v1/posts` ใช้คู่กับ [SRS](../../requirements/SRS.md) ข้อ 1 (Enrichment), FR-09, FR-10, AT-06, AT-12, [SPEC](../SPEC.md) ข้อ 4–5, [แบบจำลองข้อมูล](../data-model.md) และ [สัญญาสถานะรายชิ้น](item-status-and-watches.md) ข้อ 2
+หน้านี้กำหนดวิธีแปลง `items[].model` และ `items[].condition_text` ของ observation v1 เป็น `model_key`, `vram_gb`, `condition`, `warranty` และ `warranty_until` ที่ย้อนถึงหลักฐานได้ การเก็บผลในตาราง `tags` การสร้างค่าใน `listing_items` และตัวกรองของ `GET /v1/posts` ใช้คู่กับ [SRS](../../requirements/SRS.md) ข้อ 1 (Enrichment), FR-09, FR-10, FR-17 (ข้อความประกัน), AT-06, AT-12, AT-14, [SPEC](../SPEC.md) ข้อ 4–5, [แบบจำลองข้อมูล](../data-model.md) และ [สัญญาสถานะรายชิ้น](item-status-and-watches.md) ข้อ 2
 
 งานเสริมด้วยโมเดลในเครื่อง (A6b) และ MCP (A6c) จะเพิ่มหัวข้อในหน้านี้หรือสัญญาใหม่เมื่อเริ่มงานนั้น ผลจากโมเดลต้องไม่เปลี่ยนค่าที่สร้างตามหน้านี้จนกว่าจะผ่านกฎยืนยัน
 
 ## 1. ขอบเขตของกฎ `extract-v1.0`
 
-- อ่านเฉพาะ `items[].model` (หา `model_key` และ `vram_gb`) และ `items[].condition_text` (หา `condition`) ของ item ที่มี `source_item_key` ไม่อ่านข้อความอิสระในโพสต์หรือคอมเมนต์ ซึ่งเป็นงานเสนอของ A6b
+- อ่านเฉพาะ `items[].model` (หา `model_key` และ `vram_gb`) และ `items[].condition_text` (หา `condition`, `warranty` และ `warranty_until`) ของ item ที่มี `source_item_key` ไม่อ่านข้อความอิสระในโพสต์หรือคอมเมนต์ ซึ่งเป็นงานเสนอของ A6b
 - ไม่จัดชนิดราคาใหม่ `price_kind` มาจาก adapter ตาม observation v1 (ดู Issue #48 ข้อ E2)
 - `variant` ยังไม่สกัดในรุ่นนี้และคงเป็น NULL รุ่นย่อยอย่าง Ti, Super, XT และ XTX เป็นส่วนของ `model_key` เพราะเป็นคนละชิป
 - ค่าที่ไม่พบในข้อความเป็น NULL ไม่ใช่ศูนย์หรือค่าเดา
@@ -35,7 +35,23 @@
 
 1. คำของ `used`: `มือ2`, `มือ 2`, `มือสอง`, `เหมือนใหม่`, `like new`, `used`, `second hand`, `ผ่านการใช้งาน` ตัดช่วงที่ตรงออกจากข้อความก่อนขั้นถัดไป เพื่อไม่ให้ `ใหม่` หรือ `new` ในคำเหล่านี้นับเป็นของใหม่
 2. คำของ `new`: `มือ1`, `มือ 1`, `มือหนึ่ง`, `ของใหม่`, `ใหม่แกะกล่อง`, `ยังไม่แกะ`, `ซีล`, `new` (ทั้งคำ)
-3. พบทั้งสองกลุ่ม ได้ `ambiguous_condition` ไม่พบกลุ่มใด ไม่สร้าง tag เช่น `ใช้งานได้`
+3. คำของ `unused` (ไม่เคยใช้งานแต่อาจเก็บไว้นาน): `ไม่เคยใช้งาน`, `ไม่เคยใช้`, `ไม่เคยลงเครื่อง`, `ไม่เคยเสียบไฟ`, `เก่าเก็บ`, `ค้างสต็อก`
+4. พบคำ `used` ร่วมกับคำ `new` หรือ `unused` ได้ `ambiguous_condition` ไม่พบกลุ่มใด ไม่สร้าง tag สภาพ เช่น `ใช้งานได้`
+5. ค่าของ tag สภาพมีสามค่า
+   - `used`: พบเฉพาะคำ `used`
+   - `new_no_warranty`: พบคำ `new` หรือ `unused` และ tag `warranty` ของ item เดียวกันใน observation เดียวกันเป็น `none` ที่ `confirmed` เช่น การ์ดที่ไม่เคยใช้หรือไม่เคยโดนไฟแต่เก็บจนหมดประกัน
+   - `new`: พบคำ `new` หรือ `unused` และไม่เข้าข้อก่อนหน้า (มีประกันหรือไม่ได้ระบุเรื่องประกัน)
+
+**ประกัน** ค้นใน `condition_text` หลังทำข้อ 2
+
+1. คำของ `none`: `ไม่มีประกัน`, `หมดประกัน`, `ประกันหมด`, `no warranty`, `out of warranty` ตัดช่วงที่ตรงออกก่อนขั้นถัดไป เพื่อไม่ให้ `ประกัน` ในคำเหล่านี้นับว่ามีประกัน
+2. คำของ `active`: `มีประกัน`, `ติดประกัน`, `ประกันเหลือ`, `ประกันถึง`, `ประกันศูนย์`, `ประกันร้าน`, `warranty`
+3. พบทั้งสองกลุ่ม ได้ `ambiguous_warranty` ไม่พบกลุ่มใด ไม่สร้าง tag ประกัน
+4. `warranty_until` (เดือนที่ประกันสิ้นสุด รูปแบบ `YYYY-MM`) หาเมื่อได้ `active` เท่านั้น จากรูปแบบใดรูปแบบหนึ่ง
+   - `เหลือ N เดือน` หรือ `เหลือ N ปี` (N เป็นจำนวนเต็ม 1–120 เดือน หรือ 1–10 ปี) นับจากเดือนของเวลาฐาน เวลาฐานคือ `posted_at` เมื่อ precision เป็น `exact` หรือ `date` นอกนั้นใช้ `observed_at` ทั้งสองแปลงเป็นวันตามเวลา Asia/Bangkok ตัวอย่าง โพสต์ 15 พ.ย. 2026 เหลือ 8 เดือน ได้ `2027-07`
+   - `ถึง MM/YYYY`, `ถึง MM/YY` หรือ `ถึง <ชื่อเดือนไทยเต็มหรือย่อ> <ปี>` ปี ≥ 2500 เป็นพุทธศักราชให้ลบ 543 ปีสองหลักหมายถึง 20YY หรือ 25YY ตามที่ได้ค่าใกล้เวลาฐานที่สุด
+   - พบหลายค่าที่ต่างกัน ได้ `ambiguous_warranty_until` เดือนที่ไม่มีจริง ได้ `warranty_date_invalid` ไม่พบรูปแบบ ไม่สร้าง tag `warranty_until` และ `warranty` ยังเป็น `active`
+   - เดือนสิ้นสุดก่อนเดือนของเวลาฐาน ให้ tag `warranty` เป็น `none` (หมดประกันแล้วตามข้อความ) และ tag `warranty_until` เก็บเดือนนั้นตามที่ระบุ
 
 ## 3. ตารางรุ่น `extract-v1.0`
 
@@ -55,15 +71,15 @@
 
 ทุกค่าที่ได้จากข้อ 2 (รวมกรณีที่ได้ผลปฏิเสธ) สร้าง tag หนึ่งแถวต่อ observation ต่อชิ้นต่อ `key` item ที่ไม่มี `evidence_keys` ไม่สร้าง tag
 
-ไล่ `evidence_keys` ของ item ตามลำดับ หลักฐานแรกที่ผ่านเกณฑ์หลักฐานของ [สัญญาสถานะรายชิ้น](item-status-and-watches.md) ข้อ 2 **และ** เมื่อใช้วิธีเทียบของข้อ 2 กับ `source_span.quote` แล้วพบค่าเดียวกัน (โทเคนที่ได้ `model_key` เดียวกัน เลขหน่วยความจำเดียวกัน หรือคำในกลุ่มสภาพเดียวกัน) เป็นหลักฐานของ tag เช่น `rtx3060` ใน item ตรงกับ `RTX 3060` ใน quote ส่วนหลักฐานที่ไม่มี `source_span` ไม่ผ่านข้อนี้
+ไล่ `evidence_keys` ของ item ตามลำดับ หลักฐานแรกที่ผ่านเกณฑ์หลักฐานของ [สัญญาสถานะรายชิ้น](item-status-and-watches.md) ข้อ 2 **และ** เมื่อใช้วิธีเทียบของข้อ 2 กับ `source_span.quote` แล้วพบค่าเดียวกัน (โทเคนที่ได้ `model_key` เดียวกัน เลขหน่วยความจำเดียวกัน คำในกลุ่มสภาพหรือประกันเดียวกัน หรือข้อความระยะเวลา/วันที่ที่ได้เดือนสิ้นสุดเดียวกัน) เป็นหลักฐานของ tag เช่น `rtx3060` ใน item ตรงกับ `RTX 3060` ใน quote ส่วนหลักฐานที่ไม่มี `source_span` ไม่ผ่านข้อนี้
 
 | ผล | `validation_result` | `value` | `reason` |
 |---|---|---|---|
 | ได้ค่าเดียวและมีหลักฐานผ่าน | `confirmed` | ค่าที่สกัด | NULL |
 | ได้ค่าเดียวแต่ไม่มีหลักฐานผ่าน | `rejected` ผูกหลักฐานตัวแรกของ item | ค่าที่สกัด | `quote_mismatch` เมื่อมีหลักฐานที่ผ่านเกณฑ์บทบาทแต่ไม่มีข้อความนั้น นอกนั้นใช้เหตุแรกที่ตรงตามลำดับ `role_mismatch`, `actor_mismatch`, `seller_unknown`, `no_eligible_evidence` เหมือนสถานะ |
-| ข้อความกำกวมหรือไม่อยู่ในตาราง | `rejected` ผูกหลักฐานตัวแรกของ item | NULL | `ambiguous_model`, `unknown_model`, `ambiguous_vram`, `vram_not_valid_for_model`, `model_unknown` หรือ `ambiguous_condition` |
+| ข้อความกำกวมหรือไม่อยู่ในตาราง | `rejected` ผูกหลักฐานตัวแรกของ item | NULL | `ambiguous_model`, `unknown_model`, `ambiguous_vram`, `vram_not_valid_for_model`, `model_unknown`, `ambiguous_condition`, `ambiguous_warranty`, `ambiguous_warranty_until` หรือ `warranty_date_invalid` |
 
-ค่าของ `key` คือ `model_key`, `vram_gb` (เก็บเป็นข้อความของเลขจำนวนเต็ม) และ `condition` (`new` หรือ `used`) ทุกแถวมี `method = rule`, `rule_version = extract-v1.0`, `model_version` และ `confidence` เป็น NULL
+ค่าของ `key` คือ `model_key`, `vram_gb` (เก็บเป็นข้อความของเลขจำนวนเต็ม), `condition` (`new`, `new_no_warranty` หรือ `used`), `warranty` (`active` หรือ `none`) และ `warranty_until` (`YYYY-MM`) สกัด `warranty` ก่อน `condition` เพราะค่า `new_no_warranty` อาศัยผลประกัน ทุกแถวมี `method = rule`, `rule_version = extract-v1.0`, `model_version` และ `confidence` เป็น NULL
 
 ## 5. ตาราง tags (migration 0007)
 
@@ -73,7 +89,7 @@
 | `observation_id`, `post_id` | อ้าง observation ของโพสต์เดียวกันแบบ composite เหมือน `price_facts` |
 | `item_id?` | อ้าง `listing_items(id, post_id)` A6a มีค่าเสมอ |
 | `evidence_id` | อ้าง evidence ของ observation และโพสต์เดียวกัน |
-| `key text` | CHECK ใน `model_key`, `vram_gb`, `condition` |
+| `key text` | CHECK ใน `model_key`, `vram_gb`, `condition`, `warranty`, `warranty_until` |
 | `value text?` | NOT NULL เมื่อ `confirmed` |
 | `method text` | CHECK ใน `rule` (A6b เพิ่มค่าเมื่อเริ่มงาน) |
 | `model_version text?`, `confidence numeric?` | NULL สำหรับ `rule` |
@@ -82,13 +98,16 @@
 | `reason text?` | NULL เมื่อ `confirmed` เท่านั้น และอยู่ในชุดเหตุของข้อ 4 |
 | `created_at` | เวลาบันทึก |
 
+migration เดียวกันเพิ่ม `listing_items.warranty text?` (CHECK ใน `active`, `none`) และ `listing_items.warranty_until date?` (วันที่ 1 ของเดือน) ขยาย CHECK ของ `listing_items.condition` ถ้ามี ให้รับ `new_no_warranty`
+
 UNIQUE(`observation_id`, `item_id`, `key`, `method`, `rule_version`) ทำให้ ingest หรือ rebuild ซ้ำไม่เพิ่มแถว migration ไม่สกัดข้อมูลเดิมเพราะ migration เป็น snapshot ที่ไม่ import โค้ดกฎ ข้อมูลเดิมเติมด้วยคำสั่งในข้อ 6
 
 ## 6. ค่าใน listing_items และการสร้างใหม่
 
 ทำในธุรกรรมเดียวกับ ingest หลังบันทึก price/status facts ล็อกแถว `listing_items` ของชิ้นที่ได้ tag ใหม่ แล้วคำนวณจาก tag `confirmed` ของทุก observation ของชิ้นนั้น เรียง `(observed_at, observation_id)`
 
-- `model_key` และ `condition` ใช้ค่าจาก observation ล่าสุดที่มี tag `confirmed` ของ key นั้น
+- `model_key`, `condition` และ `warranty` ใช้ค่าจาก observation ล่าสุดที่มี tag `confirmed` ของ key นั้น
+- `warranty_until` ใช้ค่าจาก observation ล่าสุดที่มี tag `confirmed` ของ `warranty_until` **และ** tag `warranty` ที่ `confirmed` ใน observation เดียวกันเท่ากับ `warranty` ที่เลือก ไม่มีให้เป็น NULL
 - `vram_gb` ใช้ค่าจาก observation ล่าสุดที่มี tag `confirmed` ของ `vram_gb` **และ** tag `model_key` ที่ `confirmed` ใน observation เดียวกันเท่ากับ `model_key` ที่เลือก ไม่มีให้เป็น NULL
 - observation ใหม่ที่ไม่ระบุค่าหรือได้ผลปฏิเสธไม่ล้างค่าเดิม observation เก่าที่มาถึงทีหลังเติมได้เพียงประวัติ ไม่ทับค่าจาก observation ที่ใหม่กว่า
 - ค่าที่สร้างนี้เป็นข้อมูลอนุพันธ์ งานลบของ A8 ต้องคำนวณใหม่จาก tag ที่เหลือ
@@ -97,9 +116,9 @@ UNIQUE(`observation_id`, `item_id`, `key`, `method`, `rule_version`) ทำใ�
 
 ## 7. ตัวกรองและผลของ GET /v1/posts
 
-เพิ่มพารามิเตอร์ `model_key` (ข้อความไม่ว่าง), `vram_gb` (จำนวนเต็ม 1–99) และ `condition` (`new` หรือ `used`) ต่อจาก [สัญญาเส้นทางมือถือ](mobile-read-path.md) ข้อ 2 ค่าที่ผิดรูปตอบ 422 โพสต์ตรงเมื่อมีชิ้นใดชิ้นหนึ่งตรงทุกพารามิเตอร์ที่ส่ง รวมกับ `sale_status` และราคาบนชิ้นเดียวกัน พารามิเตอร์ที่ไม่ส่งไม่กรอง
+เพิ่มพารามิเตอร์ `model_key` (ข้อความไม่ว่าง), `vram_gb` (จำนวนเต็ม 1–99) `condition` (`new`, `new_no_warranty` หรือ `used`) และ `warranty` (`active` หรือ `none`) ต่อจาก [สัญญาเส้นทางมือถือ](mobile-read-path.md) ข้อ 2 ค่าที่ผิดรูปตอบ 422 โพสต์ตรงเมื่อมีชิ้นใดชิ้นหนึ่งตรงทุกพารามิเตอร์ที่ส่ง รวมกับ `sale_status` และราคาบนชิ้นเดียวกัน พารามิเตอร์ที่ไม่ส่งไม่กรอง
 
-ทุกชิ้นใน `GET /v1/posts` และ `GET /v1/posts/{id}` เพิ่มฟิลด์ `model_key`, `vram_gb` (number หรือ null) และ `condition` จาก `listing_items` ฟิลด์เดิม `model` (ข้อความดิบ) คงอยู่ ข้อมูลที่อ่านได้ยังอยู่ใน read context เดิม
+ทุกชิ้นใน `GET /v1/posts` และ `GET /v1/posts/{id}` เพิ่มฟิลด์ `model_key`, `vram_gb` (number หรือ null), `condition`, `warranty`, `warranty_until` (`YYYY-MM` หรือ null) และ `warranty_months_left` จาก `listing_items` โดย `warranty_months_left` คำนวณตอนอ่านเป็นจำนวนเดือนจากเดือนปัจจุบันตามเวลา Asia/Bangkok ถึง `warranty_until` (เดือนเดียวกันได้ 0) เป็น null เมื่อ `warranty_until` เป็น null และไม่ติดลบ เมื่อเลยเดือนสิ้นสุดแล้วให้เป็น 0 ส่วน `warranty` คงค่าตามหลักฐาน ฟิลด์เดิม `model` (ข้อความดิบ) คงอยู่ ข้อมูลที่อ่านได้ยังอยู่ใน read context เดิม
 
 ## 8. ตัวอย่างสำหรับเทสต์
 
@@ -112,3 +131,9 @@ UNIQUE(`observation_id`, `item_id`, `key`, `method`, `rule_version`) ทำใ�
 | `RTX 3070 8GB` | `การ์ดจอสภาพดี` | model และ vram rejected `quote_mismatch` |
 | `RTX 3070 8GB` หลักฐานเป็นคอมเมนต์ผู้ซื้อ | `3070 8GB` | rejected ด้วยเหตุตามเกณฑ์สถานะ เช่น `role_mismatch` |
 | `สภาพเหมือนใหม่` เป็น `condition_text` | มีคำนั้น | `used` confirmed |
+| `มือ1 ประกันเหลือ 8 เดือน` โพสต์ 2026-11-15 (exact) | มีข้อความนั้น | `warranty` `active`, `warranty_until` `2027-07`, `condition` `new` |
+| `ไม่เคยใช้งาน เก่าเก็บ หมดประกัน` | มีข้อความนั้น | `warranty` `none`, `condition` `new_no_warranty` |
+| `ซีล ไม่ได้บอกประกัน` | `ซีล` | `condition` `new` ไม่มี tag ประกัน |
+| `มือสอง ประกันถึง 03/2570` โพสต์ 2026-11-15 | มีข้อความนั้น | `warranty` `active`, `warranty_until` `2027-03`, `condition` `used` |
+| `มือสอง ประกันถึง 01/2026` โพสต์ 2026-11-15 | มีข้อความนั้น | `warranty` `none`, `warranty_until` `2026-01`, `condition` `used` |
+| `มีประกัน ไม่มีประกัน` | มีข้อความนั้น | `warranty` rejected `ambiguous_warranty` |
