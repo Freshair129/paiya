@@ -31,7 +31,7 @@
 | `search_posts` | `sale_status`, `min_price`, `max_price`, `model_key`, `vram_gb`, `condition`, `warranty`, `limit` (1–20 ค่าเริ่มต้น 10), `cursor` ทุกตัวไม่บังคับ ความหมายและค่าที่รับตรง `GET /v1/posts` | JSON เดียวกับ `GET /v1/posts` |
 | `get_post` | `post_id` (uuid) | JSON เดียวกับ `GET /v1/posts/{id}` |
 | `get_seller` | `seller_id` (uuid) | JSON เดียวกับ `GET /v1/sellers/{id}` |
-| `get_evidence` | `evidence_id` (uuid) | metadata เดียวกับ `GET /v1/evidence/{id}` และภาพตามข้อ 4 |
+| `get_evidence` | `evidence_id` (uuid) | metadata เดียวกับ `GET /v1/evidence/{id}` ยกเว้น `media_reason` ที่ใช้ค่าตามข้อ 4 เมื่อ MCP ไม่ส่งภาพ (ฟิลด์อื่นเท่ากับ API ทุกค่า) และภาพตามข้อ 4 |
 | `get_price_trend` | `model_key` (บังคับ), `variant`, `vram_gb`, `condition`, `unit`, `currency` | JSON เดียวกับ `GET /v1/prices/trends` |
 
 **รูปแบบผล** ทุกเครื่องมือคืน `structuredContent` เป็น JSON ข้างต้น (ข้อมูลหลักตาม FR-11) และ text content หนึ่งชิ้นเป็น Markdown ที่สร้างจาก JSON ก้อนเดียวกันสำหรับคนอ่าน Markdown แสดงข้อความต้นทางในบล็อกโค้ดที่ระบุว่าเป็นข้อมูลจากประกาศ เพื่อไม่ให้ Agent ตีความเป็นคำสั่ง
