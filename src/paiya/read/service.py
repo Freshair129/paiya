@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, and_, case, func, select
 
 from paiya.read.context import ReadContext
 from paiya.read.errors import (
@@ -27,12 +27,16 @@ from paiya.store.media import media_path
 from paiya.store.tables import (
     capture_gaps,
     capture_runs,
+    current_items,
     evidence,
     jobs,
     listing_items,
     media_assets,
     observations,
     posts,
+    price_facts,
+    sale_events,
+    status_facts,
 )
 
 
@@ -227,6 +231,177 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
             }
         )
 
+    latest_payload = cast(Mapping[str, Any], observed[-1]["normalized_json"]["payload"])
+    has_unresolved_items = any(
+        item.get("source_item_key") is None
+        for item in cast(list[Mapping[str, Any]], latest_payload.get("items", []))
+    )
+
+    last_observation = observations.alias("current_item_last_observation")
+    status_event = sale_events.alias("current_item_status_event")
+    status_event_fact = status_facts.alias("current_item_status_event_fact")
+    status_event_observation = observations.alias("current_item_status_event_observation")
+    current_status_fact = status_facts.alias("current_item_status_fact")
+    current_status_observation = observations.alias("current_item_status_observation")
+    current_status_evidence = evidence.alias("current_item_status_evidence")
+    ask_fact = price_facts.alias("current_item_ask_fact")
+    ask_observation = observations.alias("current_item_ask_observation")
+    ask_evidence = evidence.alias("current_item_ask_evidence")
+
+    current_rows = (
+        conn.execute(
+            select(
+                listing_items.c.id.label("item_id"),
+                listing_items.c.source_item_key,
+                case(
+                    (status_event_observation.c.id.is_not(None), status_event.c.sale_status),
+                    else_=None,
+                ).label("sale_status"),
+                case(
+                    (
+                        status_event_observation.c.id.is_not(None),
+                        func.coalesce(
+                            status_event.c.effective_at,
+                            status_event_observation.c.observed_at,
+                        ),
+                    ),
+                    else_=None,
+                ).label("status_since"),
+                current_status_evidence.c.id.label("status_evidence_id"),
+                current_items.c.last_success_at,
+                current_items.c.needs_review,
+                ask_fact.c.amount.label("ask_amount"),
+                ask_fact.c.currency.label("ask_currency"),
+                ask_fact.c.unit.label("ask_unit"),
+                ask_evidence.c.id.label("ask_evidence_id"),
+            )
+            .select_from(
+                current_items.join(
+                    listing_items,
+                    and_(
+                        current_items.c.item_id == listing_items.c.id,
+                        current_items.c.post_id == listing_items.c.post_id,
+                    ),
+                )
+                .join(
+                    last_observation,
+                    and_(
+                        current_items.c.last_observation_id == last_observation.c.id,
+                        current_items.c.post_id == last_observation.c.post_id,
+                    ),
+                )
+                .outerjoin(
+                    status_event,
+                    and_(
+                        current_items.c.status_event_id == status_event.c.id,
+                        current_items.c.item_id == status_event.c.item_id,
+                        current_items.c.post_id == status_event.c.post_id,
+                    ),
+                )
+                .outerjoin(
+                    status_event_fact,
+                    and_(
+                        status_event.c.status_fact_id == status_event_fact.c.id,
+                        status_event.c.item_id == status_event_fact.c.item_id,
+                        status_event.c.post_id == status_event_fact.c.post_id,
+                        status_event_fact.c.validation_result == "confirmed",
+                    ),
+                )
+                .outerjoin(
+                    status_event_observation,
+                    and_(
+                        status_event_fact.c.observation_id == status_event_observation.c.id,
+                        status_event_observation.c.group_id == context.group_id,
+                        status_event_observation.c.grant_id == context.grant_id,
+                    ),
+                )
+                .outerjoin(
+                    current_status_fact,
+                    and_(
+                        current_items.c.status_fact_id == current_status_fact.c.id,
+                        current_items.c.item_id == current_status_fact.c.item_id,
+                        current_items.c.post_id == current_status_fact.c.post_id,
+                        current_status_fact.c.validation_result == "confirmed",
+                    ),
+                )
+                .outerjoin(
+                    current_status_observation,
+                    and_(
+                        current_status_fact.c.observation_id == current_status_observation.c.id,
+                        current_status_observation.c.group_id == context.group_id,
+                        current_status_observation.c.grant_id == context.grant_id,
+                    ),
+                )
+                .outerjoin(
+                    current_status_evidence,
+                    and_(
+                        current_status_fact.c.evidence_id == current_status_evidence.c.id,
+                        current_status_fact.c.observation_id
+                        == current_status_evidence.c.observation_id,
+                        current_status_evidence.c.grant_id == context.grant_id,
+                    ),
+                )
+                .outerjoin(
+                    ask_fact,
+                    and_(
+                        current_items.c.ask_fact_id == ask_fact.c.id,
+                        current_items.c.item_id == ask_fact.c.item_id,
+                        current_items.c.post_id == ask_fact.c.post_id,
+                        ask_fact.c.price_kind == "ask",
+                    ),
+                )
+                .outerjoin(
+                    ask_observation,
+                    and_(
+                        ask_fact.c.observation_id == ask_observation.c.id,
+                        ask_observation.c.group_id == context.group_id,
+                        ask_observation.c.grant_id == context.grant_id,
+                    ),
+                )
+                .outerjoin(
+                    ask_evidence,
+                    and_(
+                        ask_fact.c.evidence_id == ask_evidence.c.id,
+                        ask_fact.c.observation_id == ask_evidence.c.observation_id,
+                        ask_evidence.c.grant_id == context.grant_id,
+                    ),
+                )
+            )
+            .where(
+                current_items.c.post_id == post_id,
+                listing_items.c.source_item_key.is_not(None),
+                last_observation.c.group_id == context.group_id,
+                last_observation.c.grant_id == context.grant_id,
+            )
+            .order_by(listing_items.c.source_item_key)
+        )
+        .mappings()
+        .all()
+    )
+
+    current_item_results: list[dict[str, Any]] = []
+    for row in current_rows:
+        ask = None
+        if row["ask_amount"] is not None and row["ask_evidence_id"] is not None:
+            ask = {
+                "amount": str(row["ask_amount"]),
+                "currency": row["ask_currency"],
+                "unit": row["ask_unit"],
+                "evidence_id": row["ask_evidence_id"],
+            }
+        current_item_results.append(
+            {
+                "item_id": row["item_id"],
+                "source_item_key": row["source_item_key"],
+                "sale_status": row["sale_status"] or "unknown",
+                "status_since": row["status_since"],
+                "status_evidence_id": row["status_evidence_id"],
+                "last_success_at": row["last_success_at"],
+                "needs_review": row["needs_review"],
+                "ask": ask,
+            }
+        )
+
     return {
         "id": post["id"],
         "group_id": post["group_id"],
@@ -234,6 +409,8 @@ def read_post(conn: Connection, context: ReadContext, post_id: UUID) -> dict[str
         "permalink": post["permalink"],
         "seller_id": post["seller_id"],
         "posted_at": post["posted_at"],
+        "has_unresolved_items": has_unresolved_items,
+        "current_items": current_item_results,
         "observations": result_observations,
     }
 
