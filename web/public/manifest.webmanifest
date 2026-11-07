@@ -1,0 +1,10 @@
+{
+  "name": "ป้ายยา",
+  "short_name": "ป้ายยา",
+  "description": "ดูสินค้าและหลักฐานจากกลุ่มสังเคราะห์ที่เปิดอ่านได้",
+  "lang": "th",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f3",
+  "theme_color": "#f4f6f3"
+}
