@@ -62,7 +62,7 @@ Request เป็น `POST /api/chat` แบบ `stream: false`, `options.temper
 
 ## 7. การเก็บและผลต่อ listing_items
 
-- เก็บใน `tags` แถวละข้อเสนอ `method = model`, `rule_version = enrich-v1.0`, `model_version` = ชื่อโมเดลที่ Ollama ตอบ, `confidence` ตามผล ผูก `evidence_id` กับหลักฐานที่อ้างเมื่อผ่านข้อ 1 นอกนั้นผูกหลักฐานตัวแรกของ item `value` เก็บค่าที่เสนอเมื่ออยู่ในชุดค่า นอกนั้น NULL
+- เก็บใน `tags` แถวละข้อเสนอ `method = model`, `rule_version = enrich-v1.0`, `model_version` = ชื่อโมเดลที่ Ollama ตอบ, `confidence` ตามผล ผูก `evidence_id` กับหลักฐานที่อ้างเมื่อผ่านข้อ 1 นอกนั้นผูกหลักฐานตัวแรกของ item ข้อเสนอที่ `source_item_key` ไม่มีใน observation (หรือ item นั้นไม่มีหลักฐาน) ไม่มีชิ้นให้ผูก จึงไม่บันทึกเป็น tag และนับใน `unknown_reference` ของผลงานเท่านั้น `value` เก็บค่าที่เสนอเมื่ออยู่ในชุดค่า นอกนั้น NULL
 - migration ใหม่ขยาย CHECK ของ `tags`: `method` รับ `model`, `validation_result` รับ `proposed`, `reason` รับเหตุในข้อ 6 และ `proposed` ต้องมี reason
 - ค่าใน `listing_items` ตาม [สัญญากฎสกัด](extraction-and-tags.md) ข้อ 6 นับ tag `confirmed` ทั้ง `method = rule` และ `model` ภายใน observation เดียวกัน key เดียวกัน tag จากกฎชนะ ข้าม observation ใช้ล่าสุดตามเดิม กติกาการอ่านตาม grant ของข้อ 7 ใช้กับทั้งสองชนิด
 - tag `proposed` และ `rejected` ไม่ใช้กรองและยังไม่แสดงในแอปรุ่นนี้
