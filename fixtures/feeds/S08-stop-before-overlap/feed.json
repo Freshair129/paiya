@@ -1,0 +1,117 @@
+{
+  "feed_version": 1,
+  "group_key": "synthetic-feed-s08",
+  "runs": [
+    {
+      "label": "r1",
+      "started_at": "2026-11-06T05:00:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "s08-e1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e1.json"
+        },
+        {
+          "source_post_key": "s08-e2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e2.json"
+        },
+        {
+          "source_post_key": "s08-e3",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e3.json"
+        },
+        {
+          "source_post_key": "s08-e4",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e4.json"
+        },
+        {
+          "source_post_key": "s08-e5",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e5.json"
+        }
+      ]
+    },
+    {
+      "label": "r2",
+      "started_at": "2026-11-06T05:30:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": 3,
+      "cards": [
+        {
+          "source_post_key": "s08-f1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-f1.json"
+        },
+        {
+          "source_post_key": "s08-f2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-f2.json"
+        },
+        {
+          "source_post_key": "s08-f3",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-f3.json"
+        },
+        {
+          "source_post_key": "s08-e1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e1.json"
+        },
+        {
+          "source_post_key": "s08-e2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e2.json"
+        },
+        {
+          "source_post_key": "s08-e3",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e3.json"
+        },
+        {
+          "source_post_key": "s08-e4",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e4.json"
+        },
+        {
+          "source_post_key": "s08-e5",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s08-e5.json"
+        }
+      ]
+    }
+  ]
+}

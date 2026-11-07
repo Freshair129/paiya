@@ -1,0 +1,55 @@
+{
+  "scenario_id": "S07",
+  "group_key": "synthetic-feed-s07",
+  "runs": [
+    {
+      "label": "r1",
+      "expect": {
+        "coverage": "complete",
+        "stop_reason": "feed_end",
+        "partial_reasons": [],
+        "cards_seen": 4,
+        "cards_parsed": 4,
+        "checkpoint_advanced": true,
+        "labelled_visible_keys": [
+          "s07-c1",
+          "s07-c2",
+          "s07-c3",
+          "s07-c4"
+        ],
+        "ingested_keys": [
+          "s07-c1",
+          "s07-c2",
+          "s07-c3",
+          "s07-c4"
+        ]
+      }
+    },
+    {
+      "label": "r2",
+      "expect": {
+        "coverage": "partial",
+        "stop_reason": "overlap_reached",
+        "partial_reasons": [
+          "sort_unverified"
+        ],
+        "cards_seen": 5,
+        "cards_parsed": 5,
+        "checkpoint_advanced": false,
+        "labelled_visible_keys": [
+          "s07-d1",
+          "s07-c1",
+          "s07-c2",
+          "s07-c3"
+        ],
+        "ingested_keys": [
+          "s07-d1",
+          "s07-c1",
+          "s07-c2",
+          "s07-c3",
+          "s07-c4"
+        ]
+      }
+    }
+  ]
+}

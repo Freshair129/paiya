@@ -1,0 +1,65 @@
+{
+  "run_id": "00000000-0000-4000-8000-000000000000",
+  "capture_id": "synthetic-feed-s06/s06-a4/template",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {
+    "session": "ok",
+    "sort": "verified_latest"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-feed-s06",
+    "source_post_key": "s06-a4",
+    "permalink": "https://example.invalid/paiya/synthetic-feed-s06/s06-a4",
+    "observed_at": "2026-11-07T09:00:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T08:00:00Z",
+      "value": "2026-11-07T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-feed-s06",
+      "external_actor_key": "seller-s06-a4",
+      "display_name": "ผู้ขายสมมติ"
+    },
+    "items": [
+      {
+        "source_item_key": "sku1",
+        "model": "RTX 3060 Ti 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "4750",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "s06-a4-text"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "s06-a4-text",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "RTX 3060 Ti 8GB ขาย 4,750 บาท"
+        },
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}
