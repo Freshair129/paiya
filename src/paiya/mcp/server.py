@@ -13,7 +13,6 @@ from decimal import Decimal
 from typing import Any, Literal, cast
 from uuid import UUID
 
-from fastapi.encoders import jsonable_encoder
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
@@ -27,7 +26,7 @@ from mcp_types import (
     Tool,
     ToolAnnotations,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from sqlalchemy import Connection, select
 
 from paiya.prices.trends import PriceTrendFilters, compute_price_trend
@@ -235,7 +234,7 @@ def _result(
     payload: dict[str, Any], *, is_error: bool = False, images: tuple[ImageContent, ...] = ()
 ) -> CallToolResult:
     """Render one markdown block and structured content from the same JSON object."""
-    encoded = cast(dict[str, Any], jsonable_encoder(payload))
+    encoded = TypeAdapter(dict[str, Any]).dump_python(payload, mode="json")
     serialized = json.dumps(encoded, ensure_ascii=False, indent=2)
     fence = _fence(serialized)
     if is_error:
