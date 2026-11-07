@@ -1,0 +1,54 @@
+{
+  "scenario_id": "S08",
+  "group_key": "synthetic-feed-s08",
+  "runs": [
+    {
+      "label": "r1",
+      "expect": {
+        "coverage": "complete",
+        "stop_reason": "feed_end",
+        "partial_reasons": [],
+        "cards_seen": 5,
+        "cards_parsed": 5,
+        "checkpoint_advanced": true,
+        "labelled_visible_keys": [
+          "s08-e1",
+          "s08-e2",
+          "s08-e3",
+          "s08-e4",
+          "s08-e5"
+        ],
+        "ingested_keys": [
+          "s08-e1",
+          "s08-e2",
+          "s08-e3",
+          "s08-e4",
+          "s08-e5"
+        ]
+      }
+    },
+    {
+      "label": "r2",
+      "expect": {
+        "coverage": "partial",
+        "stop_reason": "feed_end",
+        "partial_reasons": [
+          "feed_stopped_before_overlap"
+        ],
+        "cards_seen": 3,
+        "cards_parsed": 3,
+        "checkpoint_advanced": false,
+        "labelled_visible_keys": [
+          "s08-f1",
+          "s08-f2",
+          "s08-f3"
+        ],
+        "ingested_keys": [
+          "s08-f1",
+          "s08-f2",
+          "s08-f3"
+        ]
+      }
+    }
+  ]
+}

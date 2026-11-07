@@ -1,0 +1,89 @@
+{
+  "feed_version": 1,
+  "group_key": "synthetic-feed-s07",
+  "runs": [
+    {
+      "label": "r1",
+      "started_at": "2026-11-06T04:00:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "s07-c1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c1.json"
+        },
+        {
+          "source_post_key": "s07-c2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c2.json"
+        },
+        {
+          "source_post_key": "s07-c3",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c3.json"
+        },
+        {
+          "source_post_key": "s07-c4",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c4.json"
+        }
+      ]
+    },
+    {
+      "label": "r2",
+      "started_at": "2026-11-06T04:30:00Z",
+      "session": "ok",
+      "sort": "unverified",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "s07-d1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-d1.json"
+        },
+        {
+          "source_post_key": "s07-c1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c1.json"
+        },
+        {
+          "source_post_key": "s07-c2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c2.json"
+        },
+        {
+          "source_post_key": "s07-c3",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c3.json"
+        },
+        {
+          "source_post_key": "s07-c4",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s07-c4.json"
+        }
+      ]
+    }
+  ]
+}

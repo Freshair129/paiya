@@ -1,0 +1,103 @@
+{
+  "feed_version": 1,
+  "group_key": "synthetic-feed-s06",
+  "runs": [
+    {
+      "label": "r1",
+      "started_at": "2026-11-06T03:00:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "s06-a1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a1.json"
+        },
+        {
+          "source_post_key": "s06-a2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a2.json"
+        },
+        {
+          "source_post_key": "s06-a3",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a3.json"
+        },
+        {
+          "source_post_key": "s06-a4",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a4.json"
+        },
+        {
+          "source_post_key": "s06-a5",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a5.json"
+        }
+      ]
+    },
+    {
+      "label": "r2",
+      "started_at": "2026-11-06T03:30:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "s06-b1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-b1.json"
+        },
+        {
+          "source_post_key": "s06-a3",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a3.json"
+        },
+        {
+          "source_post_key": "s06-a1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a1.json"
+        },
+        {
+          "source_post_key": "s06-a2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a2.json"
+        },
+        {
+          "source_post_key": "s06-a5",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a5.json"
+        },
+        {
+          "source_post_key": "s06-a4",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/s06-a4.json"
+        }
+      ]
+    }
+  ]
+}
