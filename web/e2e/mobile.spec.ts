@@ -53,6 +53,30 @@ test('filter narrows feed and exposes active filters on empty results', async ({
   await expect(page.locator('.post-card-link')).toHaveCount(3)
 })
 
+test('filter sheet controls meet mobile touch target and overflow requirements', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /ตัวกรอง/ }).click()
+  const sheet = page.getByRole('dialog', { name: 'กรองสินค้า' })
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'ปิดตัวกรอง' })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'ล้างทั้งหมด' })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'แสดงผล' })).toBeVisible()
+  const controls = sheet.locator('a, button, input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])')
+  const count = await controls.count()
+  expect(count).toBeGreaterThanOrEqual(6)
+  for (let i = 0; i < count; i++) {
+    const control = controls.nth(i)
+    if (await control.isVisible()) {
+      const box = await control.boundingBox()
+      expect(box, `control ${i} has a bounding box`).not.toBeNull()
+      expect(box!.width, `control ${i} width`).toBeGreaterThanOrEqual(44)
+      expect(box!.height, `control ${i} height`).toBeGreaterThanOrEqual(44)
+    }
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360)
+  expect(await sheet.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+})
+
 test('no service worker and API responses are no-store', async ({ page }) => {
   const apiResponses: string[] = []
   page.on('response', (response) => { if (new URL(response.url()).pathname.startsWith('/v1/')) apiResponses.push(response.headers()['cache-control'] ?? '') })
