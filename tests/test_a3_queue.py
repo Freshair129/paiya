@@ -213,7 +213,9 @@ def test_runs_api_pagination_and_scope(pg_engine):
         with pg_engine.connect() as conn:
             complete(conn, claim.job_id, claim.lease_token, clock)
 
-    from sqlalchemy import insert, inspect
+    from sqlalchemy import insert
+
+    from paiya.store.tables import sale_events
 
     with pg_engine.begin() as conn:
         conn.execute(
@@ -226,8 +228,7 @@ def test_runs_api_pagination_and_scope(pg_engine):
                 detected_at=now,
             )
         )
-        names = inspect(conn).get_table_names()
-        assert not any(name in names for name in ("sale_events", "status_events", "events"))
+        assert conn.execute(select(func.count()).select_from(sale_events)).scalar_one() == 0
 
     def db() -> Iterator[Connection]:
         with pg_engine.connect() as conn:

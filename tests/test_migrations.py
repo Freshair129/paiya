@@ -45,12 +45,14 @@ def test_upgrade_and_downgrade_on_postgres17(
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0003_discovery_queue"
+        assert revision == "0004_item_status"
         scope = seed_fixture_scope(engine, "synthetic-migration")
         sample = ROOT / "fixtures/scenarios/S01-reserve-reopen/rounds/01-open.json"
         envelope = json.loads(sample.read_text(encoding="utf-8"))
         envelope["payload"]["group_key"] = scope.group_key
         ingest_fixture(engine, scope, envelope, {}, tmp_path)
+        command.downgrade(alembic, "0003_discovery_queue")
+        command.upgrade(alembic, "head")
         command.downgrade(alembic, "0002_fixture_ingest")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM observations")).scalar_one() == 1
@@ -69,7 +71,7 @@ def test_upgrade_and_downgrade_on_postgres17(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "0003_discovery_queue"
+                == "0004_item_status"
             )
     finally:
         engine.dispose()

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    Numeric,
     SmallInteger,
     String,
     Table,
@@ -322,4 +323,185 @@ evidence = Table(
         name="ck_evidence_captured_has_asset",
     ),
     UniqueConstraint("observation_id", "local_key", name="uq_evidence_local_key"),
+    UniqueConstraint("id", "observation_id", "post_id", name="uq_evidence_scope"),
+)
+
+price_facts = Table(
+    "price_facts",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("observation_id", UUID(as_uuid=True), nullable=False),
+    Column("post_id", UUID(as_uuid=True), nullable=False),
+    Column("item_id", UUID(as_uuid=True), nullable=True),
+    Column("evidence_id", UUID(as_uuid=True), nullable=False),
+    Column("fact_key", Text, nullable=False),
+    Column("price_kind", Text, nullable=False),
+    Column("unit", Text, nullable=False),
+    Column("amount", Numeric(14, 2), nullable=False),
+    Column("amount_max", Numeric(14, 2), nullable=True),
+    Column("currency", Text, nullable=False),
+    ForeignKeyConstraint(
+        ["observation_id", "post_id"],
+        ["observations.id", "observations.post_id"],
+        name="fk_price_facts_observation_post",
+    ),
+    ForeignKeyConstraint(
+        ["item_id", "post_id"],
+        ["listing_items.id", "listing_items.post_id"],
+        name="fk_price_facts_item_post",
+    ),
+    ForeignKeyConstraint(
+        ["evidence_id", "observation_id", "post_id"],
+        ["evidence.id", "evidence.observation_id", "evidence.post_id"],
+        name="fk_price_facts_evidence_scope",
+    ),
+    CheckConstraint(
+        "amount >= 0 AND (amount_max IS NULL OR amount_max >= amount)",
+        name="ck_price_facts_amount_range",
+    ),
+    UniqueConstraint("observation_id", "fact_key", name="uq_price_facts_observation_fact"),
+    UniqueConstraint("id", "item_id", "post_id", name="uq_price_facts_id_item_post"),
+)
+Index(
+    "ix_price_facts_item_kind_observation",
+    price_facts.c.item_id,
+    price_facts.c.price_kind,
+    price_facts.c.observation_id,
+)
+
+status_facts = Table(
+    "status_facts",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("observation_id", UUID(as_uuid=True), nullable=False),
+    Column("post_id", UUID(as_uuid=True), nullable=False),
+    Column("item_id", UUID(as_uuid=True), nullable=False),
+    Column("evidence_id", UUID(as_uuid=True), nullable=False),
+    Column("fact_key", Text, nullable=False),
+    Column("sale_status", Text, nullable=False),
+    Column("effective_at", DateTime(timezone=True), nullable=True),
+    Column("precision", Text, nullable=False),
+    Column("rule_version", Text, nullable=False),
+    Column("validation_result", Text, nullable=False),
+    Column("reason", Text, nullable=True),
+    ForeignKeyConstraint(
+        ["observation_id", "post_id"],
+        ["observations.id", "observations.post_id"],
+        name="fk_status_facts_observation_post",
+    ),
+    ForeignKeyConstraint(
+        ["item_id", "post_id"],
+        ["listing_items.id", "listing_items.post_id"],
+        name="fk_status_facts_item_post",
+    ),
+    ForeignKeyConstraint(
+        ["evidence_id", "observation_id", "post_id"],
+        ["evidence.id", "evidence.observation_id", "evidence.post_id"],
+        name="fk_status_facts_evidence_scope",
+    ),
+    CheckConstraint(
+        "sale_status IN ('unknown', 'open', 'reserved', 'sold', 'withdrawn')",
+        name="ck_status_facts_sale_status",
+    ),
+    CheckConstraint(
+        "validation_result IN ('confirmed', 'rejected')",
+        name="ck_status_facts_validation_result",
+    ),
+    CheckConstraint(
+        "(validation_result = 'confirmed' AND reason IS NULL) OR "
+        "(validation_result = 'rejected' AND reason IS NOT NULL)",
+        name="ck_status_facts_reason_required",
+    ),
+    CheckConstraint(
+        "reason IS NULL OR reason IN "
+        "('role_mismatch', 'actor_mismatch', 'seller_unknown', 'no_eligible_evidence')",
+        name="ck_status_facts_reason",
+    ),
+    UniqueConstraint(
+        "observation_id", "item_id", "fact_key", name="uq_status_facts_observation_item_fact"
+    ),
+    UniqueConstraint("id", "item_id", "post_id", name="uq_status_facts_id_item_post"),
+)
+Index(
+    "ix_status_facts_item_effective",
+    status_facts.c.item_id,
+    status_facts.c.effective_at,
+    status_facts.c.observation_id,
+)
+
+sale_events = Table(
+    "sale_events",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("item_id", UUID(as_uuid=True), nullable=False),
+    Column("post_id", UUID(as_uuid=True), nullable=False),
+    Column("status_fact_id", UUID(as_uuid=True), nullable=False),
+    Column("seq", Integer, nullable=False),
+    Column("sale_status", Text, nullable=False),
+    Column("cause_key", Text, nullable=False),
+    Column("effective_at", DateTime(timezone=True), nullable=True),
+    Column("precision", Text, nullable=False),
+    ForeignKeyConstraint(
+        ["item_id", "post_id"],
+        ["listing_items.id", "listing_items.post_id"],
+        name="fk_sale_events_item_post",
+    ),
+    ForeignKeyConstraint(
+        ["status_fact_id", "item_id", "post_id"],
+        ["status_facts.id", "status_facts.item_id", "status_facts.post_id"],
+        name="fk_sale_events_status_fact_scope",
+    ),
+    CheckConstraint(
+        "sale_status IN ('unknown', 'open', 'reserved', 'sold', 'withdrawn')",
+        name="ck_sale_events_sale_status",
+    ),
+    CheckConstraint("seq > 0", name="ck_sale_events_seq_positive"),
+    UniqueConstraint("item_id", "seq", name="uq_sale_events_item_seq"),
+    UniqueConstraint("item_id", "cause_key", name="uq_sale_events_item_cause"),
+    UniqueConstraint("id", "item_id", "post_id", name="uq_sale_events_id_item_post"),
+)
+
+current_items = Table(
+    "current_items",
+    metadata,
+    Column("item_id", UUID(as_uuid=True), primary_key=True),
+    # Keep post_id so every projection pointer can use a same-post composite FK.
+    Column("post_id", UUID(as_uuid=True), nullable=False),
+    Column("status_event_id", UUID(as_uuid=True), nullable=True),
+    Column("status_fact_id", UUID(as_uuid=True), nullable=True),
+    Column("ask_fact_id", UUID(as_uuid=True), nullable=True),
+    Column("shipping_fact_id", UUID(as_uuid=True), nullable=True),
+    Column("last_observation_id", UUID(as_uuid=True), nullable=False),
+    Column("last_success_at", DateTime(timezone=True), nullable=True),
+    Column("needs_review", Boolean, nullable=False, server_default=text("false")),
+    ForeignKeyConstraint(
+        ["item_id", "post_id"],
+        ["listing_items.id", "listing_items.post_id"],
+        name="fk_current_items_item_post",
+    ),
+    ForeignKeyConstraint(
+        ["last_observation_id", "post_id"],
+        ["observations.id", "observations.post_id"],
+        name="fk_current_items_last_observation_post",
+    ),
+    ForeignKeyConstraint(
+        ["status_event_id", "item_id", "post_id"],
+        ["sale_events.id", "sale_events.item_id", "sale_events.post_id"],
+        name="fk_current_items_status_event_scope",
+    ),
+    ForeignKeyConstraint(
+        ["status_fact_id", "item_id", "post_id"],
+        ["status_facts.id", "status_facts.item_id", "status_facts.post_id"],
+        name="fk_current_items_status_fact_scope",
+    ),
+    ForeignKeyConstraint(
+        ["ask_fact_id", "item_id", "post_id"],
+        ["price_facts.id", "price_facts.item_id", "price_facts.post_id"],
+        name="fk_current_items_ask_fact_scope",
+    ),
+    ForeignKeyConstraint(
+        ["shipping_fact_id", "item_id", "post_id"],
+        ["price_facts.id", "price_facts.item_id", "price_facts.post_id"],
+        name="fk_current_items_shipping_fact_scope",
+    ),
 )

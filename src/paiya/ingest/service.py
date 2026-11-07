@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from sqlalchemy import Connection, Engine, insert, select, text, update
 
 from paiya.ingest.validation import validate_observation
+from paiya.status.service import create_facts_and_rebuild_current_items
 from paiya.store.fixture_scope import (
     FixtureScope,
     verify_fixture_scope,
@@ -382,9 +383,10 @@ def ingest_fixture(
                 if span is not None and span["field"] == "comment_text"
                 else None
             )
+            evidence_id = uuid4()
             conn.execute(
                 insert(evidence).values(
-                    id=uuid4(),
+                    id=evidence_id,
                     observation_id=observation_id,
                     post_id=post_id,
                     grant_id=scope.grant_id,
@@ -398,6 +400,15 @@ def ingest_fixture(
                     media_reason=entry.get("media_reason"),
                     captured_at=observed_at,
                 )
+            )
+        if payload["access"] == "ok":
+            create_facts_and_rebuild_current_items(
+                conn,
+                observation_id=observation_id,
+                post_id=post_id,
+                observed_at=observed_at,
+                payload=payload,
+                item_ids=item_ids,
             )
 
         # This is deliberately the final DB operation before transaction commit.

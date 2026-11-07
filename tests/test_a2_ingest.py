@@ -150,6 +150,8 @@ def test_ingest_captured_image_and_read_through_scoped_api(
                 "seller_id",
                 "posted_at",
                 "observations",
+                "current_items",
+                "has_unresolved_items",
             }
             observation = post.json()["observations"][0]
             assert set(observation) == {
