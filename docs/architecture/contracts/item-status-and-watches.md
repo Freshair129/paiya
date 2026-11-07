@@ -6,7 +6,7 @@
 
 ## 1. ข้อเท็จจริงราคา
 
-ทุก item ที่มี `source_item_key` และ `price` สร้าง `price_facts` หนึ่งแถวต่อ observation `fact_key = price:<kind>:<unit>` ใช้หลักฐานตัวแรกใน `evidence_keys` ถ้า item ไม่มี `evidence_keys` ไม่สร้าง price fact เพราะ `evidence_id` บังคับมีค่า ค่าดิบยังอยู่ใน `normalized_json` (A4 ไม่แยกค่าส่งหรือมัดจำจากข้อความ ซึ่งเป็นงาน A6/A7)
+ทุก item ที่มี `source_item_key` และ `price` สร้าง `price_facts` หนึ่งแถวต่อ observation `fact_key = price:<source_item_key>:<kind>:<unit>` (รวมชิ้นตามที่ data-model ข้อ 4 กำหนด เพื่อให้ไม่ซ้ำภายใน observation ที่มีหลายชิ้น) ใช้หลักฐานตัวแรกใน `evidence_keys` ถ้า item ไม่มี `evidence_keys` ไม่สร้าง price fact เพราะ `evidence_id` บังคับมีค่า ค่าดิบยังอยู่ใน `normalized_json` (A4 ไม่แยกค่าส่งหรือมัดจำจากข้อความ ซึ่งเป็นงาน A6/A7)
 
 ## 2. ข้อเท็จจริงสถานะ
 
@@ -32,7 +32,7 @@
 | มีป้ายในตารางแต่ไม่มีหลักฐานผ่าน | `rejected` ผูกหลักฐานตัวแรกของ item | `role_mismatch` (role ของหลักฐานต่างจากคอมเมนต์), `actor_mismatch` (ผู้พูดไม่ใช่ผู้ขายของโพสต์), `seller_unknown` (โพสต์ไม่มีผู้ขายที่มี key) หรือ `no_eligible_evidence` เลือกเหตุแรกตามลำดับนี้ที่ตรง |
 | item ไม่มี `evidence_keys` | ไม่สร้าง fact | — |
 
-`fact_key = status:label` จึงมีหนึ่ง fact ต่อชิ้นต่อ observation `effective_at`/`precision` มาจาก `source_time` ของคอมเมนต์เมื่อหลักฐานเป็น `comment_text` นอกนั้นเป็น NULL กับ `unknown` envelope ที่ `access` ไม่ใช่ `ok` ไม่มี item จึงไม่สร้าง fact และไม่เปลี่ยนสถานะเดิม
+`fact_key = status:label` ซึ่งไม่ซ้ำเพราะ UNIQUE ของ status_facts รวม `item_id` อยู่แล้ว จึงมีหนึ่ง fact ต่อชิ้นต่อ observation `effective_at`/`precision` มาจาก `source_time` ของคอมเมนต์เมื่อหลักฐานเป็น `comment_text` นอกนั้นเป็น NULL กับ `unknown` envelope ที่ `access` ไม่ใช่ `ok` ไม่มี item จึงไม่สร้าง fact และไม่เปลี่ยนสถานะเดิม
 
 ## 3. การสร้าง sale_events และ current_items
 
