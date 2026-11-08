@@ -44,12 +44,16 @@
 |---|---|
 | `tags`, `price_facts`, `status_facts`, `evidence`, `comment_versions` ของ observation ในขอบเขต | ลบ |
 | `observations` ในขอบเขต | ลบ |
-| `jobs`, `capture_runs`, `capture_gaps` ของ grant (ขอบเขต grant) | ลบ ส่วนแถว `source_grants` คงไว้เป็นบันทึกสิทธิ์ที่เพิกถอนแล้ว |
+| `jobs` และ `capture_runs` ของ grant (ขอบเขต grant) | ลบ ส่วนแถว `source_grants` คงไว้เป็นบันทึกสิทธิ์ที่เพิกถอนแล้ว |
+| `capture_gaps` | ไม่ลบ เพราะเป็นข้อมูลระดับกลุ่มที่ไม่มี `grant_id` และเก็บแค่ช่วงเวลา ไม่มีเนื้อหาประกาศ ถ้า `compensated_by_job_id` ชี้งานที่ถูกลบ ให้ตั้งเป็น NULL |
+| งาน `revisit` ที่ `target_key = <post_id>` ของโพสต์ที่ถูกลบ (ขอบเขต post) | งาน queued/leased ตั้งเป็น `cancelled` และล้าง lease ส่วนงานที่จบแล้วคงไว้ เพราะเก็บแค่คีย์และผลรวม |
 | `comments` ที่ไม่เหลือ version | ลบ |
 | `listing_items` ที่ไม่ปรากฏใน observation ที่เหลือของโพสต์ | ลบพร้อม `sale_events`, `current_items` และ `watches` ของชิ้นนั้น |
 | `posts` ที่ไม่เหลือ observation | ลบพร้อมชิ้น คอมเมนต์ และ watch ของโพสต์ |
 | `sellers` ที่ไม่เหลือโพสต์ | ลบ |
 | `media_assets` ที่ไม่เหลือ evidence อ้างถึง | ลบแถวใน transaction แล้วลบไฟล์หลัง commit |
+
+**ลำดับภายใน transaction** ทำตามข้อบังคับ FK: ลบหรือแก้ `current_items`, `sale_events` และ `watches` ที่อ้างแถวที่กำลังจะลบก่อน จากนั้นลบ facts, tags, evidence, comment_versions, observations, runs, jobs แล้วจึงลบระเบียนแม่ที่ไม่เหลือการอ้างถึง ถ้า `current_items.last_observation_id` ชี้ observation ที่ถูกลบ ให้คำนวณใหม่จาก observation ที่เหลือ ถ้าไม่เหลือให้ลบแถวนั้น
 
 **สร้างใหม่ใน transaction เดียวกัน** สำหรับทุกชิ้นที่ยังเหลือในโพสต์ที่กระทบ:
 - สร้าง `sale_events` ใหม่ทั้งชุดจาก `status_facts` ที่เหลือ
