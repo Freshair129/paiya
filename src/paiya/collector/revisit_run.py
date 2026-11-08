@@ -5,14 +5,17 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
 from sqlalchemy import Engine, func, or_, select, update
 
+from paiya.collector.adapter import ADAPTER_VERSION
 from paiya.collector.errors import AdapterError
 from paiya.collector.revisit_script import RevisitScriptAdapter
 from paiya.ingest.service import ingest_fixture
+from paiya.logging import emit_event, safe_token
 from paiya.scheduler.errors import QueueError
 from paiya.scheduler.models import JobClaim
 from paiya.scheduler.queue import cancel_claim, complete, fail
@@ -64,10 +67,21 @@ def execute_revisit(
         raise ValueError("A4 collector only executes revisit jobs")
     if claim.group_id != scope.group_id or claim.grant_id != scope.grant_id:
         raise PermissionError("The claimed job does not match the trusted fixture scope")
+    log_started_at = datetime.now(UTC)
+    log_started_clock = perf_counter()
     try:
         post_id = UUID(claim.target_key)
     except ValueError as error:
         _record_failure(engine, claim, end_time, "adapter_error")
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result="none",
+            reason="adapter_error",
+            cards_seen=0,
+            cards_parsed=0,
+        )
         raise AdapterError("adapter_error", "Revisit target_key must be a post UUID") from error
 
     with engine.connect() as conn:
@@ -92,6 +106,15 @@ def execute_revisit(
         )
     if post is None:
         _record_failure(engine, claim, end_time, "adapter_error")
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result="none",
+            reason="adapter_error",
+            cards_seen=0,
+            cards_parsed=0,
+        )
         raise AdapterError(
             "adapter_error", "Revisit target post was not found in the claimed group"
         )
@@ -111,14 +134,43 @@ def execute_revisit(
     except PermissionError:
         if _grant_currently_available(engine, scope):
             _record_failure(engine, claim, end_time, "adapter_error")
+            reason = "adapter_error"
         else:
             _record_cancellation(engine, claim, end_time)
+            reason = "grant_unavailable"
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result="none",
+            reason=reason,
+            cards_seen=1,
+            cards_parsed=0,
+        )
         raise
     except AdapterError as error:
         _record_failure(engine, claim, end_time, error.code)
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result="none",
+            reason=error.code,
+            cards_seen=0,
+            cards_parsed=0,
+        )
         raise
     except Exception:
         _record_failure(engine, claim, end_time, "adapter_error")
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result="none",
+            reason="adapter_error",
+            cards_seen=0,
+            cards_parsed=0,
+        )
         raise
 
     error_code = ACCESS_ERRORS.get(visit.access)
@@ -147,14 +199,58 @@ def execute_revisit(
             complete(conn, claim.job_id, claim.lease_token, end_time)
     except PermissionError:
         _record_cancellation(engine, claim, end_time)
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result=coverage,
+            reason="grant_unavailable",
+            cards_seen=1,
+            cards_parsed=1 if visit.access == "ok" else 0,
+        )
         raise
 
+    _log_capture_finished(
+        claim,
+        started_at=log_started_at,
+        started_clock=log_started_clock,
+        result=coverage,
+        reason=error_code or "completed",
+        cards_seen=1,
+        cards_parsed=1 if visit.access == "ok" else 0,
+    )
     return RevisitResult(
         run_id=claim.run_id,
         post_id=post_id,
         coverage=coverage,
         error_code=error_code,
         observation_id=observation_id,
+    )
+
+
+def _log_capture_finished(
+    claim: JobClaim,
+    *,
+    started_at: datetime,
+    started_clock: float,
+    result: str,
+    reason: str,
+    cards_seen: int,
+    cards_parsed: int,
+) -> None:
+    queue_wait_ms = max(0, int((started_at - _utc(claim.due_at)).total_seconds() * 1000))
+    emit_event(
+        "capture_run_finished",
+        run_id=str(claim.run_id),
+        group_id=str(claim.group_id),
+        job_kind=claim.kind,
+        adapter_version=ADAPTER_VERSION,
+        result=result,
+        reason=safe_token(reason, "unknown"),
+        duration_ms=max(0, int((perf_counter() - started_clock) * 1000)),
+        queue_wait_ms=queue_wait_ms,
+        cards_seen=cards_seen,
+        cards_parsed=cards_parsed,
     )
 
 

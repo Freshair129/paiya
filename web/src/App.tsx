@@ -12,6 +12,7 @@ import {
 import {
   ApiError,
   getEvidence,
+  getHealth,
   getGroupRuns,
   getGroups,
   getModels,
@@ -25,6 +26,10 @@ import {
   type Group,
   type GroupRun,
   type GroupRunsResponse,
+  type HealthCoverage,
+  type HealthDiskStatus,
+  type HealthJobKind,
+  type SystemHealth,
   type ItemCondition,
   type ModelOption,
   type PostCard,
@@ -54,6 +59,7 @@ import {
 
 type Route =
   | { name: 'feed' }
+  | { name: 'admin-health' }
   | { name: 'post'; id: string }
   | { name: 'evidence'; id: string }
   | { name: 'seller'; id: string }
@@ -69,6 +75,7 @@ const RouterContext = createContext<RouterValue | null>(null)
 
 function parseRoute(path: string): Route {
   if (path === '/') return { name: 'feed' }
+  if (path === '/admin/health') return { name: 'admin-health' }
   if (path === '/watches') return { name: 'watches' }
   if (path === '/groups') return { name: 'groups' }
   const match = path.match(/^\/(posts|evidence|sellers)\/([^/]+)$/)
@@ -1141,6 +1148,208 @@ function GroupsPage() {
   )
 }
 
+const HEALTH_JOB_LABELS: Record<HealthJobKind, string> = {
+  discover: 'ค้นหารอบใหม่',
+  revisit: 'กลับไปตรวจประกาศ',
+  manual_import: 'นำเข้าด้วยมือ',
+  enrich: 'เสริมข้อมูลด้วย AI',
+  purge: 'ลบข้อมูลตามคำขอ',
+}
+const HEALTH_COVERAGE_LABELS = {
+  complete: 'อ่านครบ',
+  partial: 'อ่านได้บางส่วน',
+  none: 'อ่านไม่ได้',
+} as const
+const HEALTH_ENRICH_LABELS: Record<keyof SystemHealth['ai_backlog']['states'], string> = {
+  queued: 'รอทำงาน',
+  leased: 'กำลังทำงาน',
+  succeeded: 'สำเร็จ',
+  failed: 'ล้มเหลว',
+  cancelled: 'ยกเลิก',
+}
+
+function formatHealthBytes(value: number): string {
+  const gib = value / 1024 ** 3
+  return `${new Intl.NumberFormat('th-TH', { maximumFractionDigits: 2 }).format(gib)} GiB`
+}
+
+function HealthWarning({ children }: { children: ReactNode }) {
+  return <p className="health-warning" role="alert">{children}</p>
+}
+
+function HealthDiskCard({ title, disk }: { title: string; disk: HealthDiskStatus }) {
+  return (
+    <article className="health-card">
+      <h3>{title}</h3>
+      {disk.state === 'low' ? (
+        <HealthWarning>พื้นที่ว่างต่ำกว่าเกณฑ์ที่ตั้งไว้</HealthWarning>
+      ) : <p className="health-ok">พื้นที่ว่างอยู่ในเกณฑ์</p>}
+      <dl className="health-values">
+        <div><dt>พื้นที่ว่าง</dt><dd>{formatHealthBytes(disk.free_bytes)}</dd></div>
+        <div><dt>พื้นที่ทั้งหมด</dt><dd>{formatHealthBytes(disk.total_bytes)}</dd></div>
+        <div><dt>เกณฑ์ขั้นต่ำ</dt><dd>{formatHealthBytes(disk.min_free_bytes)}</dd></div>
+      </dl>
+    </article>
+  )
+}
+
+function HealthCoverageCard({ group }: { group: HealthCoverage }) {
+  return (
+    <article className="health-card">
+      <h3>กลุ่ม {group.group_id.slice(0, 8)}</h3>
+      <dl className="health-values">
+        <div><dt>ตรวจสำเร็จล่าสุด</dt><dd>{formatBangkokTime(group.last_successful_at)}</dd></div>
+        <div>
+          <dt>ผลรอบล่าสุด</dt>
+          <dd>{group.latest_coverage ? HEALTH_COVERAGE_LABELS[group.latest_coverage] : 'ยังไม่มีผลรอบตรวจ'}</dd>
+        </div>
+        <div><dt>ช่วงขาดทั้งหมด</dt><dd>{group.capture_gap_count} ช่วง</dd></div>
+      </dl>
+      {group.latest_gap_7d ? (
+        <p className="health-detail">
+          ช่วงขาดใน 7 วัน: {formatBangkokTime(group.latest_gap_7d.gap_from)} –{' '}
+          {formatBangkokTime(group.latest_gap_7d.gap_to)}
+        </p>
+      ) : <p className="muted-text">ไม่มีช่วงขาดใน 7 วันล่าสุด</p>}
+    </article>
+  )
+}
+
+function AdminHealthPage() {
+  const [health, setHealth] = useState<SystemHealth | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError('')
+    getHealth(controller.signal)
+      .then(setHealth)
+      .catch((cause: unknown) => {
+        const message = errorMessage(cause)
+        if (message) setError(message)
+      })
+      .finally(() => setLoading(false))
+    return () => controller.abort()
+  }, [refreshKey])
+
+  if (loading) return <LoadingState label="กำลังตรวจสุขภาพระบบ…" />
+  if (error || !health) {
+    return (
+      <ErrorState
+        message={error || 'โหลดข้อมูลสุขภาพระบบไม่ได้'}
+        retry={() => setRefreshKey((value) => value + 1)}
+      />
+    )
+  }
+
+  const queueEntries = Object.entries(health.queue) as [HealthJobKind, SystemHealth['queue'][HealthJobKind]][]
+  const diskEntries: { title: string; disk: HealthDiskStatus }[] = [
+    { title: 'คลังภาพ', disk: health.disk.media },
+  ]
+  if (health.disk.backup) diskEntries.push({ title: 'พื้นที่สำรอง', disk: health.disk.backup })
+
+  return (
+    <section className="page-section admin-health" aria-labelledby="health-title">
+      <div className="page-heading-row">
+        <div>
+          <p className="eyebrow">สำหรับผู้ดูแล</p>
+          <h1 id="health-title">สุขภาพระบบ</h1>
+        </div>
+        <button className="button button-secondary health-refresh" type="button" onClick={() => setRefreshKey((value) => value + 1)}>
+          ตรวจอีกครั้ง
+        </button>
+      </div>
+      <p className="health-checked-at">ตรวจข้อมูลเมื่อ {formatBangkokTime(health.checked_at)}</p>
+
+      <section className="health-section" aria-labelledby="health-queue-title">
+        <h2 id="health-queue-title">คิวงาน</h2>
+        <div className="health-grid">
+          {queueEntries.map(([kind, status]) => (
+            <article className="health-card" key={kind}>
+              <h3>{HEALTH_JOB_LABELS[kind]}</h3>
+              <strong className="health-count">{status.overdue_count} งาน</strong>
+              {status.overdue_count > 0 ? (
+                <HealthWarning>
+                  มีงานเกินกำหนด · งานที่ค้างนานที่สุด {status.oldest_overdue_age_minutes ?? 0} นาที
+                </HealthWarning>
+              ) : <p className="health-ok">ไม่มีงานเกินกำหนด</p>}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="health-section" aria-labelledby="health-coverage-title">
+        <h2 id="health-coverage-title">รอบตรวจและช่วงขาด</h2>
+        {health.coverage.length ? (
+          <div className="health-grid">
+            {health.coverage.map((group) => <HealthCoverageCard group={group} key={group.group_id} />)}
+          </div>
+        ) : <p className="muted-text">ยังไม่มีกลุ่มที่ตรวจได้</p>}
+      </section>
+
+      <section className="health-section" aria-labelledby="health-media-title">
+        <h2 id="health-media-title">ภาพใน 24 ชั่วโมง</h2>
+        <article className="health-card">
+          <dl className="health-values">
+            <div><dt>เก็บภาพสำเร็จ</dt><dd>{health.media.captured}</dd></div>
+            <div><dt>เก็บภาพไม่สำเร็จ</dt><dd>{health.media.capture_failed}</dd></div>
+            <div>
+              <dt>อัตราสำเร็จ</dt>
+              <dd>{health.media.success_rate === null ? 'ไม่มีข้อมูลภาพ' : `${(health.media.success_rate * 100).toFixed(1)}%`}</dd>
+            </div>
+            <div><dt>เหตุพื้นที่ต่ำ</dt><dd>{health.media.disk_low}</dd></div>
+          </dl>
+        </article>
+      </section>
+
+      <section className="health-section" aria-labelledby="health-disk-title">
+        <h2 id="health-disk-title">พื้นที่จัดเก็บ</h2>
+        <div className="health-grid">
+          {diskEntries.map(({ title, disk }) => <HealthDiskCard key={title} title={title} disk={disk} />)}
+        </div>
+      </section>
+
+      <section className="health-section" aria-labelledby="health-backup-title">
+        <h2 id="health-backup-title">ข้อมูลสำรอง</h2>
+        <article className="health-card">
+          {health.backup.state === 'never' ? (
+            <HealthWarning>ยังไม่เคยสำรองข้อมูล</HealthWarning>
+          ) : health.backup.state === 'stale' ? (
+            <HealthWarning>ข้อมูลสำรองเก่ากว่า 26 ชั่วโมง</HealthWarning>
+          ) : <p className="health-ok">ข้อมูลสำรองยังใหม่</p>}
+          <dl className="health-values">
+            <div><dt>สำเร็จล่าสุดจริง</dt><dd>{formatBangkokTime(health.backup.last_success_at)}</dd></div>
+            <div><dt>อายุ</dt><dd>{health.backup.age_hours === null ? '—' : `${health.backup.age_hours} ชั่วโมง`}</dd></div>
+            <div><dt>ล้มเหลวล่าสุด</dt><dd>{formatBangkokTime(health.backup.last_failure_at)}</dd></div>
+          </dl>
+        </article>
+      </section>
+
+      <section className="health-section" aria-labelledby="health-ai-title">
+        <h2 id="health-ai-title">คิวเสริมข้อมูลด้วย AI</h2>
+        <article className="health-card">
+          <dl className="health-values">
+            {Object.entries(health.ai_backlog.states).map(([state, count]) => (
+              <div key={state}><dt>{HEALTH_ENRICH_LABELS[state as keyof SystemHealth['ai_backlog']['states']]}</dt><dd>{count}</dd></div>
+            ))}
+            <div>
+              <dt>งานรอนานที่สุด</dt>
+              <dd>
+                {health.ai_backlog.oldest_queued_age_seconds === null
+                  ? 'ไม่มีงานรอ'
+                  : `${Math.floor(health.ai_backlog.oldest_queued_age_seconds / 60)} นาที`}
+              </dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+    </section>
+  )
+}
+
 function NotFoundPage() {
   return (
     <section className="page-section empty-state" aria-labelledby="not-found-title">
@@ -1191,6 +1400,7 @@ export default function App() {
   let page: ReactNode
   switch (route.name) {
     case 'feed': page = <FeedPage />; break
+    case 'admin-health': page = <AdminHealthPage />; break
     case 'post': page = <PostPage id={route.id} />; break
     case 'evidence': page = <EvidencePage id={route.id} />; break
     case 'seller': page = <SellerPage id={route.id} />; break

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from paiya.api.evidence import router as fixture_read_router
+from paiya.api.health import router as health_router
 from paiya.api.prices import router as price_router
 from paiya.read.context import read_context_group_key_from_env
 from paiya.read.errors import ReadError
@@ -26,6 +27,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Paiya", version="0.1.0", lifespan=lifespan)
 app.include_router(fixture_read_router)
 app.include_router(price_router)
+app.include_router(health_router)
 
 
 @app.exception_handler(ReadError)

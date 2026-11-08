@@ -18,6 +18,7 @@ from paiya.grants.errors import GrantError
 from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
+from paiya.health.service import get_health_report
 from paiya.purge.errors import PurgeError
 from paiya.purge.service import replay_purge_log, run_purge, validate_scope_format
 from paiya.purge.startup import check_purge_log
@@ -107,6 +108,8 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("--target-media-root", required=True)
     backup_actions.add_parser("status", help="show the latest successful backup and latest failure")
 
+    commands.add_parser("health", help="show system health as JSON")
+
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
@@ -127,6 +130,8 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _execute(args: argparse.Namespace) -> object:
+    if args.resource == "health":
+        return get_health_report(get_database_engine())
     if args.resource == "backup":
         if args.action == "verify":
             return verify_backup(Path(args.set_path))
@@ -231,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         replay_result = cast(dict[str, object], result)
         return 0 if replay_result.get("pending_count") == 0 else 1
+    if args.resource == "health":
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+        return 0
     if args.resource == "purge":
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         purge_result = cast(dict[str, object], result)
