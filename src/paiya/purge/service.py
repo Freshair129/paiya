@@ -66,6 +66,9 @@ from paiya.store.tables import (
 _UUID_TEXT = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _SCOPE = re.compile(rf"(?P<kind>grant|post):(?P<key>{_UUID_TEXT})")
 _PENDING_FILE_KEY = re.compile(r"(?P<storage_key>[0-9a-f]{64})\.(?P<extension>webp|jpg)")
+_BACKUP_MEDIA_COPY_LOCK_KEY = int.from_bytes(
+    hashlib.sha256(b"paiya:backup:media-copy").digest()[:8], byteorder="big", signed=True
+)
 _ITEM_REFERENCE_SQL = text(
     """
     SELECT o.post_id, o.id AS observation_id, o.observed_at,
@@ -155,6 +158,34 @@ def _latest_success(conn: Connection, scope_kind: str, scope_key: str) -> Mappin
         .one_or_none()
     )
     return cast(Mapping[str, Any] | None, row)
+
+
+def lock_backup_media_copy_exclusive_for_session(conn: Connection) -> None:
+    conn.execute(
+        text("SELECT pg_advisory_lock(:lock_key)"),
+        {"lock_key": _BACKUP_MEDIA_COPY_LOCK_KEY},
+    )
+
+
+def unlock_backup_media_copy_exclusive_for_session(conn: Connection) -> None:
+    conn.execute(
+        text("SELECT pg_advisory_unlock(:lock_key)"),
+        {"lock_key": _BACKUP_MEDIA_COPY_LOCK_KEY},
+    )
+
+
+def lock_backup_media_copy_shared_for_session(conn: Connection) -> None:
+    conn.execute(
+        text("SELECT pg_advisory_lock_shared(:lock_key)"),
+        {"lock_key": _BACKUP_MEDIA_COPY_LOCK_KEY},
+    )
+
+
+def unlock_backup_media_copy_shared_for_session(conn: Connection) -> None:
+    conn.execute(
+        text("SELECT pg_advisory_unlock_shared(:lock_key)"),
+        {"lock_key": _BACKUP_MEDIA_COPY_LOCK_KEY},
+    )
 
 
 def _validate_scope(conn: Connection, scope_kind: str, scope_id: UUID, scope_key: str) -> None:
@@ -1055,6 +1086,22 @@ def _execute_purge_command(
 
 
 def _retry_file_deletes(
+    conn: Connection, media_root: Path, pending_keys: Sequence[str]
+) -> tuple[int, list[str]]:
+    if conn.in_transaction():
+        conn.commit()
+    lock_backup_media_copy_shared_for_session(conn)
+    conn.commit()
+    try:
+        return _retry_file_deletes_with_asset_locks(conn, media_root, pending_keys)
+    finally:
+        if conn.in_transaction():
+            conn.rollback()
+        unlock_backup_media_copy_shared_for_session(conn)
+        conn.commit()
+
+
+def _retry_file_deletes_with_asset_locks(
     conn: Connection, media_root: Path, pending_keys: Sequence[str]
 ) -> tuple[int, list[str]]:
     files_deleted = 0
