@@ -40,6 +40,7 @@ from paiya.store.tables import (
     posts,
     sellers,
 )
+from paiya.worker.faults import maybe_fault
 
 PARSER_VERSION = "ingest-v1.0"
 
@@ -408,6 +409,7 @@ def ingest_fixture(
                     continue
 
             write_media(media_root, meta, staged_assets[staging_key], staging_key)
+            maybe_fault("after_media_write")
             if existing_media:
                 media_id = cast(UUID, existing_media["id"])
             else:

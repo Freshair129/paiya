@@ -25,6 +25,7 @@ from paiya.store.tables import (
     watches,
 )
 from paiya.store.transactions import atomic
+from paiya.worker.faults import maybe_fault
 
 _CLAIM_LOCK = 0x5041495941434C4D
 _ENRICH_CLAIM_LOCK = 0x5041495941454E52
@@ -1178,6 +1179,7 @@ def complete(conn: Connection, job_id: UUID, lease_token: UUID, now: datetime) -
     normalized_now = _utc(now)
     with atomic(conn):
         _owned_job(conn, job_id, lease_token, normalized_now)
+        maybe_fault("before_job_complete")
         conn.execute(
             update(jobs)
             .where(jobs.c.id == job_id, jobs.c.lease_token == lease_token)
