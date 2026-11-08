@@ -111,6 +111,7 @@ def test_o2_low_disk_keeps_observation_and_facts_without_writing_media(
 ) -> None:
     monkeypatch.setenv("PAIYA_DISK_MIN_FREE_BYTES", "10")
     document = _new_document(document, now=datetime.now(UTC), label="secret")
+    document["payload"]["evidence"][0]["source_span"]["quote"] = "O2 fixture text canary"
     assets = _attach_image(document, WEBP)
     digest = str(document["assets"]["s01-open"]["sha256"])
 
@@ -164,6 +165,7 @@ def test_o2_low_disk_keeps_observation_and_facts_without_writing_media(
     assert events[1]["reason"] == "disk_low"
     assert "secret-canary" not in stderr
     assert "example.invalid" not in stderr
+    assert "O2 fixture text canary" not in stderr
 
 
 def test_o2_existing_media_hash_links_without_checking_disk(
@@ -225,7 +227,7 @@ def test_o2_health_reports_overdue_coverage_media_backlog_and_real_backup_time(
     monkeypatch.setenv("PAIYA_FIXTURE_MEDIA_ROOT", str(media_root))
     monkeypatch.setenv("PAIYA_BACKUP_DIR", str(backup_root))
     monkeypatch.setenv("PAIYA_DISK_MIN_FREE_BYTES", "100")
-    monkeypatch.setenv("PAIYA_JOB_OVERDUE_MINUTES", "15")
+    monkeypatch.setenv("PAIYA_JOB_OVERDUE_MINUTES", "23")
 
     captured_doc = _new_document(document, now=now - timedelta(minutes=5), label="captured")
     ingest_fixture(
@@ -247,8 +249,12 @@ def test_o2_health_reports_overdue_coverage_media_backlog_and_real_backup_time(
         media_root,
         disk_usage_fn=lambda _path: (1_000, 901, 99),
     )
+    not_requested = _new_document(document, now=now - timedelta(minutes=3), label="no-media")
+    ingest_fixture(pg_engine, scope, not_requested, {}, media_root)
 
     with pg_engine.begin() as conn:
+        _insert_job(conn, scope, kind="revisit", state="queued", due_at=now - timedelta(minutes=23))
+        _insert_job(conn, scope, kind="revisit", state="queued", due_at=now - timedelta(minutes=20))
         _insert_job(
             conn,
             scope,
@@ -383,6 +389,67 @@ def test_o2_health_reports_overdue_coverage_media_backlog_and_real_backup_time(
         if json.loads(line)["event"] == "disk_low"
     ]
     assert {event["path_kind"] for event in disk_events} == {"media", "backup"}
+
+
+def test_o2_gap_window_includes_seven_days_but_excludes_older(
+    pg_engine: Engine, scope: FixtureScope, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
+    monkeypatch.setenv("PAIYA_FIXTURE_MEDIA_ROOT", str(tmp_path))
+    monkeypatch.delenv("PAIYA_BACKUP_DIR", raising=False)
+    monkeypatch.setenv("PAIYA_DISK_MIN_FREE_BYTES", "1")
+    with pg_engine.begin() as conn:
+        for detected_at in (now - timedelta(days=7, seconds=1), now - timedelta(days=7)):
+            conn.execute(
+                insert(capture_gaps).values(
+                    id=uuid4(),
+                    group_id=scope.group_id,
+                    gap_from=detected_at - timedelta(hours=1),
+                    gap_to=detected_at,
+                    reason="run_failed",
+                    detected_at=detected_at,
+                    compensated_by_job_id=None,
+                )
+            )
+    report = get_health_report(pg_engine, now=now, disk_usage_fn=lambda _path: (1000, 500, 500))
+    group = next(row for row in report["coverage"] if row["group_id"] == str(scope.group_id))
+    assert group["capture_gap_count"] == 2
+    assert group["latest_gap_7d"]["detected_at"] == _iso(now - timedelta(days=7))
+    later = get_health_report(
+        pg_engine, now=now + timedelta(seconds=1), disk_usage_fn=lambda _path: (1000, 500, 500)
+    )
+    assert (
+        next(row for row in later["coverage"] if row["group_id"] == str(scope.group_id))[
+            "latest_gap_7d"
+        ]
+        is None
+    )
+
+
+def test_o2_backup_at_26_hours_is_not_stale(
+    pg_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
+    completed_at = now - timedelta(hours=26)
+    monkeypatch.setenv("PAIYA_FIXTURE_MEDIA_ROOT", str(tmp_path))
+    monkeypatch.delenv("PAIYA_BACKUP_DIR", raising=False)
+    monkeypatch.setenv("PAIYA_DISK_MIN_FREE_BYTES", "1")
+    with pg_engine.begin() as conn:
+        conn.execute(
+            insert(backup_runs).values(
+                id=uuid4(),
+                started_at=completed_at - timedelta(hours=1),
+                completed_at=completed_at,
+                state="succeeded",
+            )
+        )
+    report = get_health_report(pg_engine, now=now, disk_usage_fn=lambda _path: (1000, 500, 500))
+    assert report["backup"]["state"] == "ok"
+    assert report["backup"]["age_hours"] == 26
+    assert (
+        datetime.fromisoformat(report["backup"]["last_success_at"].replace("Z", "+00:00"))
+        == completed_at
+    )
 
 
 def test_o2_zero_media_denominator_and_never_backed_up(
