@@ -75,7 +75,7 @@ def _parser() -> argparse.ArgumentParser:
         dest="action", required=True, parser_class=_JsonArgumentParser
     )
     revoke = grant_actions.add_parser("revoke", help="revoke a synthetic source grant")
-    revoke.add_argument("grant_id", type=UUID)
+    revoke.add_argument("grant_id")
 
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
@@ -105,7 +105,11 @@ def _execute(args: argparse.Namespace) -> object:
     if args.resource == "extract" and args.action == "rebuild":
         return rebuild_extractions(engine)
     if args.resource == "grant" and args.action == "revoke":
-        return revoke_grant(engine, args.grant_id)
+        try:
+            grant_id = UUID(args.grant_id)
+        except ValueError as error:
+            raise GrantError("scope_not_found", "The grant was not found") from error
+        return revoke_grant(engine, grant_id)
     if args.resource == "enrich":
         from paiya.enrich.service import enrich_status, run_enrich_once, run_enrich_worker
 
