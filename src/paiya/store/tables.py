@@ -171,6 +171,27 @@ purge_jobs = Table(
     CheckConstraint("state IN ('running', 'succeeded', 'failed')", name="ck_purge_jobs_state"),
 )
 
+backup_runs = Table(
+    "backup_runs",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("state", Text, nullable=False),
+    Column("error_code", Text, nullable=True),
+    Column("db_bytes", BigInteger, nullable=True),
+    Column("media_count", Integer, nullable=True),
+    Column("media_bytes", BigInteger, nullable=True),
+    Column("set_name", Text, nullable=True),
+    CheckConstraint("state IN ('running', 'succeeded', 'failed')", name="ck_backup_runs_state"),
+    CheckConstraint(
+        "(db_bytes IS NULL OR db_bytes >= 0) AND "
+        "(media_count IS NULL OR media_count >= 0) AND "
+        "(media_bytes IS NULL OR media_bytes >= 0)",
+        name="ck_backup_runs_nonnegative_sizes",
+    ),
+)
+
 sellers = Table(
     "sellers",
     metadata,

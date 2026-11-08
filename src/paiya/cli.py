@@ -4,11 +4,14 @@ import argparse
 import json
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import NoReturn, cast
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from paiya.backup.errors import BackupError
+from paiya.backup.service import backup_status, create_backup, restore_backup, verify_backup
 from paiya.demo import seed_demo
 from paiya.extract.service import rebuild_extractions
 from paiya.grants.errors import GrantError
@@ -29,8 +32,11 @@ class _JsonArgumentParser(argparse.ArgumentParser):
         raise SystemExit(2)
 
 
-def _print_error(code: str, message: str) -> None:
-    print(json.dumps({"ok": False, "error": {"code": code, "message": message}}))
+def _print_error(code: str, message: str, details: dict[str, object] | None = None) -> None:
+    error: dict[str, object] = {"code": code, "message": message}
+    if details:
+        error.update(details)
+    print(json.dumps({"ok": False, "error": error}))
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -88,6 +94,19 @@ def _parser() -> argparse.ArgumentParser:
     purge_run.add_argument("--scope", required=True)
     purge_actions.add_parser("replay", help="replay pending synthetic purge commands")
 
+    backup = commands.add_parser("backup", help="create, verify, restore or inspect a backup")
+    backup_actions = backup.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    backup_actions.add_parser("create", help="create a complete backup set")
+    verify = backup_actions.add_parser("verify", help="verify a backup set")
+    verify.add_argument("--set", dest="set_path", required=True)
+    restore = backup_actions.add_parser("restore", help="restore a backup set into empty targets")
+    restore.add_argument("--set", dest="set_path", required=True)
+    restore.add_argument("--target-database-url", required=True)
+    restore.add_argument("--target-media-root", required=True)
+    backup_actions.add_parser("status", help="show the latest successful backup and latest failure")
+
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
@@ -108,6 +127,21 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _execute(args: argparse.Namespace) -> object:
+    if args.resource == "backup":
+        if args.action == "verify":
+            return verify_backup(Path(args.set_path))
+        engine = get_database_engine()
+        if args.action == "create":
+            return create_backup(engine)
+        if args.action == "restore":
+            return restore_backup(
+                engine,
+                set_path=Path(args.set_path),
+                target_database_url=args.target_database_url,
+                target_media_root=Path(args.target_media_root),
+            )
+        if args.action == "status":
+            return backup_status(engine)
     if args.resource == "demo" and args.action == "seed":
         return seed_demo(get_database_engine())
     if args.resource == "purge" and args.action == "run":
@@ -166,6 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         result = _execute(args)
+    except BackupError as error:
+        _print_error(error.code, error.message, error.details)
+        return 1
     except GroupError as error:
         _print_error(error.code, error.message)
         return 1
