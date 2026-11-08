@@ -8,6 +8,7 @@ import uvicorn
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 from paiya.api.app import app
+from paiya.purge.startup import check_purge_log
 from paiya.read.context import read_context_group_key_from_env
 from paiya.settings import get_enrich_settings, get_price_trend_settings
 
@@ -64,7 +65,8 @@ def main() -> None:
         get_price_trend_settings()
         get_enrich_settings()
         port = _port_from_env()
-    except ValueError as error:
+        check_purge_log()
+    except (RuntimeError, ValueError) as error:
         print(f"paiya.serve: {error}", file=sys.stderr)
         raise SystemExit(2) from error
     uvicorn.run(app, host="127.0.0.1", port=port)
