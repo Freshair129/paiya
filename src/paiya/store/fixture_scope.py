@@ -9,6 +9,12 @@ from sqlalchemy import Connection, Engine, insert, select
 from paiya.store.tables import groups, source_grants
 
 
+class FixtureGrantUnavailable(PermissionError):
+    """A fixture grant is missing, inactive, revoked, or insufficient."""
+
+    code = "grant_unavailable"
+
+
 @dataclass(frozen=True)
 class FixtureScope:
     group_id: UUID
@@ -94,7 +100,7 @@ def _verify_fixture_scope(
         or (row["valid_until"] is not None and row["valid_until"] <= now)
         or purpose not in row["scopes"]
     ):
-        raise PermissionError("No active fixture grant for requested group and purpose")
+        raise FixtureGrantUnavailable("No active fixture grant for requested group and purpose")
 
 
 def verify_fixture_scope(conn: Connection, scope: FixtureScope, purpose: str) -> None:
