@@ -89,7 +89,7 @@
 | เปิดประวัติของโพสต์หรือผู้ขาย | `observations(post_id, observed_at DESC, id)`, `posts(seller_id, group_id)`, `evidence(observation_id, local_key)` และ lookup ที่ grant_id สำหรับปิดการอ่านและ purge |
 | หารุ่นและกราฟราคา | `listing_items(model_key, variant, vram_gb, condition)`, `price_facts(item_id, observation_id) WHERE price_kind = 'ask'` ลดจำนวนรายการก่อนตรวจสิทธิ์และคำนวณกลุ่มราคา วัดแผน query กับปริมาณใน SRS ก่อนเพิ่มดัชนี |
 | ประเมินกฎและเปิดกล่องแจ้งเตือน | ดัชนี `rule_item_states(item_id, rule_id)` สำหรับค้นกฎที่เคยประเมินชิ้นนั้น เมื่อพบชิ้นใหม่ให้ตรวจทุกกฎที่เปิดใช้ สำหรับกล่องข้อความใช้ `alerts(created_at DESC, id)` รองรับ cursor และ partial index สำหรับ `read_at IS NULL` |
-| เพิกถอน ลบ และกู้คืน | `purge_jobs` เก็บ `id`, `scope_kind`, `scope_key`, `requested_at`, `state`, `completed_at?`, `result_counts jsonb` เก็บเฉพาะคีย์ที่จำเป็นต่อการสั่งลบซ้ำและผลรวม |
+| เพิกถอน ลบ และกู้คืน | รายละเอียดใน [สัญญาการเพิกถอนและงานลบ](contracts/revocation-and-purge.md) · `purge_jobs` เก็บ `id`, `scope_kind`, `scope_key`, `requested_at`, `state`, `completed_at?`, `reason?`, `result_counts jsonb` เก็บเฉพาะคีย์ที่จำเป็นต่อการสั่งลบซ้ำและผลรวม |
 
 การอ่าน UI, API และ MCP เริ่มจาก grant ที่ยังอนุญาตให้ใช้ตามวัตถุประสงค์ ข้อมูลจากโพสต์เดียวกันอาจมาจากหลาย grant จึงตรวจถึง observation ของแต่ละ fact รวมถึงการอ่านข้อความใน alert เก่าด้วย หากถูกเพิกถอนให้ปิดการอ่านและหยุดงานใน scope ทันที จากนั้น purge หลักฐานและข้อความใน payload, facts, versions, tags, alerts และ state ที่อาศัยข้อมูลนั้น สร้าง sale_events ของชิ้นที่กระทบใหม่จาก status_facts ที่เหลือ คำนวณ current_items, ประวัติผู้ขาย และแนวโน้มใหม่จากหลักฐานที่ยังเข้าถึงได้ ถ้าโพสต์หรือชิ้นหมดหลักฐานให้นำ watch ของระเบียนนั้นออก กฎตั้งรับซึ่งผู้ซื้อสร้างเองคงอยู่ได้
 
