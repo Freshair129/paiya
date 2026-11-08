@@ -40,3 +40,9 @@
 ตรวจทุกแถวใน REVIEW.md เทียบกับ fixture และ SRS/สัญญา จากนั้นยืนยันหรือแก้ labels.json เมื่อยืนยันแล้วให้คำนวณ SHA-256 ของ fixtures/acceptance/A9b/labels.json และโพสต์ค่า hash พร้อมการยืนยันใน Issue #72 ผลต้องคงเป็น “labels pending owner review” จนกว่าจะมีการยืนยัน; ห้ามเปลี่ยน label_status จาก agent-draft ก่อนผู้ดูแลอนุมัติ
 
 บน Windows คำนวณ hash ด้วยคำสั่ง Get-FileHash fixtures/acceptance/A9b/labels.json -Algorithm SHA256
+
+## ผลวัดรอบสอง
+
+ดู [RESULTS.md](RESULTS.md) สำหรับผล fixture (A), ตัวเศษ/ตัวหาร และข้อจำกัด D05; ป้ายยังเป็น agent-draft รอเจ้าของยืนยัน ไม่ใช่ผล pilot
+
+Regenerate with PostgreSQL 17: `$env:UV_OFFLINE="1"; $env:PAIYA_WRITE_A9B_RESULTS="1"; uv run pytest tests/test_a9b_corpus.py::test_a9b_thresholds`. The test reports the failing per-run threshold.
