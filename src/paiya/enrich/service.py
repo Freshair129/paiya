@@ -150,12 +150,15 @@ def _load_context(
         return None
 
     with engine.connect() as conn, conn.begin():
-        if not grant_is_readable(
+        grant_readable = grant_is_readable(
             conn,
             group_id=claim.group_id,
             grant_id=claim.grant_id,
             now=now,
-        ):
+        )
+        if grant_readable is None:
+            return None
+        if not grant_readable:
             cancel_enrich(conn, claim, now)
             return None
 
@@ -453,12 +456,20 @@ def _validate_and_store(
     settings: EnrichSettings,
     now: datetime,
 ) -> dict[str, Any]:
-    if not grant_is_readable(
+    grant_readable = grant_is_readable(
         conn,
         group_id=claim.group_id,
         grant_id=claim.grant_id,
         now=now,
-    ):
+    )
+    if grant_readable is None:
+        return {
+            "state": "leased",
+            "status": "grant_check_deferred",
+            "tags_added": 0,
+            "items_changed": 0,
+        }
+    if not grant_readable:
         cancel_enrich(conn, claim, now)
         return {"state": "cancelled", "status": "cancelled", "tags_added": 0, "items_changed": 0}
 
@@ -560,12 +571,15 @@ def _complete_without_tags(
     result: Mapping[str, Any],
 ) -> dict[str, Any]:
     with engine.begin() as conn:
-        if not grant_is_readable(
+        grant_readable = grant_is_readable(
             conn,
             group_id=claim.group_id,
             grant_id=claim.grant_id,
             now=now,
-        ):
+        )
+        if grant_readable is None:
+            return {"state": "leased", "status": "grant_check_deferred"}
+        if not grant_readable:
             cancel_enrich(conn, claim, now)
             return {"state": "cancelled", "status": "cancelled"}
         complete_enrich(conn, claim, now, result)

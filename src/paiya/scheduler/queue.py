@@ -531,8 +531,8 @@ def _ensure_run(
     return run_id
 
 
-def _grant_is_available(conn: Connection, job: dict[str, Any], now: datetime) -> bool:
-    """Check and share-lock the grant before the caller changes the job row."""
+def _grant_is_available(conn: Connection, job: dict[str, Any], now: datetime) -> bool | None:
+    """Check the grant without waiting if revocation already holds its row lock."""
     row = (
         conn.execute(
             select(
@@ -548,14 +548,20 @@ def _grant_is_available(conn: Connection, job: dict[str, Any], now: datetime) ->
                 source_grants.c.id == job["grant_id"],
                 source_grants.c.group_id == job["group_id"],
             )
-            .with_for_update(read=True)
+            .with_for_update(read=True, skip_locked=True, of=source_grants)
         )
         .mappings()
         .one_or_none()
     )
+    if row is None:
+        grant_group_id = conn.execute(
+            select(source_grants.c.group_id).where(source_grants.c.id == job["grant_id"])
+        ).scalar_one_or_none()
+        if grant_group_id == job["group_id"]:
+            return None
+        return False
     return bool(
-        row is not None
-        and row["source"] == "fixture"
+        row["source"] == "fixture"
         and row["source_kind"] == "fixture"
         and row["revoked_at"] is None
         and row["valid_from"] <= now
@@ -570,8 +576,8 @@ def grant_is_readable(
     group_id: UUID,
     grant_id: UUID,
     now: datetime,
-) -> bool:
-    """Check and share-lock a readable grant before its job can be changed."""
+) -> bool | None:
+    """Check a readable grant without waiting on an in-progress revocation."""
     row = (
         conn.execute(
             select(
@@ -584,14 +590,20 @@ def grant_is_readable(
             )
             .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
             .where(source_grants.c.id == grant_id, source_grants.c.group_id == group_id)
-            .with_for_update(read=True)
+            .with_for_update(read=True, skip_locked=True, of=source_grants)
         )
         .mappings()
         .one_or_none()
     )
+    if row is None:
+        grant_group_id = conn.execute(
+            select(source_grants.c.group_id).where(source_grants.c.id == grant_id)
+        ).scalar_one_or_none()
+        if grant_group_id == group_id:
+            return None
+        return False
     return bool(
-        row is not None
-        and row["source"] == "fixture"
+        row["source"] == "fixture"
         and row["source_kind"] == "fixture"
         and row["revoked_at"] is None
         and row["valid_from"] <= now
@@ -641,6 +653,7 @@ def _reclaim_expired_enrich(conn: Connection, now: datetime) -> None:
                 jobs.c.lease_until <= now,
             )
             .order_by(jobs.c.lease_until, jobs.c.id)
+            .with_for_update(skip_locked=True)
         )
         .mappings()
         .all()
@@ -653,6 +666,8 @@ def _reclaim_expired_enrich(conn: Connection, now: datetime) -> None:
             grant_id=cast(UUID, job["grant_id"]),
             now=now,
         )
+        if grant_available is None:
+            continue
         if not grant_available:
             conn.execute(
                 update(jobs)
@@ -733,16 +748,19 @@ def claim_enrich_next(
         if not lock_acquired:
             return None
         _reclaim_expired_enrich(conn, normalized_now)
+        skipped_job_ids: set[UUID] = set()
         while True:
+            query = select(jobs).where(
+                jobs.c.kind == "enrich",
+                jobs.c.state == "queued",
+                jobs.c.due_at <= normalized_now,
+            )
+            if skipped_job_ids:
+                query = query.where(jobs.c.id.not_in(skipped_job_ids))
             row = (
                 conn.execute(
-                    select(jobs)
-                    .where(
-                        jobs.c.kind == "enrich",
-                        jobs.c.state == "queued",
-                        jobs.c.due_at <= normalized_now,
-                    )
-                    .order_by(jobs.c.due_at, jobs.c.id)
+                    query.order_by(jobs.c.due_at, jobs.c.id)
+                    .with_for_update(skip_locked=True)
                     .limit(1)
                 )
                 .mappings()
@@ -753,12 +771,16 @@ def claim_enrich_next(
             job = dict(row)
             group_id = cast(UUID, job["group_id"])
             grant_id = cast(UUID, job["grant_id"])
-            if not grant_is_readable(
+            grant_readable = grant_is_readable(
                 conn,
                 group_id=group_id,
                 grant_id=grant_id,
                 now=normalized_now,
-            ):
+            )
+            if grant_readable is None:
+                skipped_job_ids.add(cast(UUID, job["id"]))
+                continue
+            if not grant_readable:
                 conn.execute(
                     update(jobs)
                     .where(jobs.c.id == job["id"], jobs.c.state == "queued")
@@ -939,13 +961,17 @@ def _reclaim_expired(conn: Connection, now: datetime, settings: SchedulerSetting
                 jobs.c.lease_until <= now,
             )
             .order_by(jobs.c.lease_until, jobs.c.id)
+            .with_for_update(skip_locked=True)
         )
         .mappings()
         .all()
     )
     for row in expired:
         job = dict(row)
-        if not _grant_is_available(conn, job, now):
+        grant_available = _grant_is_available(conn, job, now)
+        if grant_available is None:
+            continue
+        if not grant_available:
             cancelled = conn.execute(
                 update(jobs)
                 .where(
@@ -1037,16 +1063,18 @@ def claim_next(
             return None
 
         for kind in ("discover", "revisit"):
+            skipped_job_ids: set[UUID] = set()
             while True:
+                query = select(jobs).where(
+                    jobs.c.kind == kind,
+                    jobs.c.state == "queued",
+                    jobs.c.due_at <= normalized_now,
+                )
+                if skipped_job_ids:
+                    query = query.where(jobs.c.id.not_in(skipped_job_ids))
                 row = (
                     conn.execute(
-                        select(jobs)
-                        .where(
-                            jobs.c.kind == kind,
-                            jobs.c.state == "queued",
-                            jobs.c.due_at <= normalized_now,
-                        )
-                        .order_by(jobs.c.due_at, jobs.c.id)
+                        query.order_by(jobs.c.due_at, jobs.c.id)
                         .with_for_update(skip_locked=True)
                         .limit(1)
                     )
@@ -1056,7 +1084,11 @@ def claim_next(
                 if row is None:
                     break
                 job = dict(row)
-                if not _grant_is_available(conn, job, normalized_now):
+                grant_available = _grant_is_available(conn, job, normalized_now)
+                if grant_available is None:
+                    skipped_job_ids.add(cast(UUID, job["id"]))
+                    continue
+                if not grant_available:
                     cancelled = conn.execute(
                         update(jobs)
                         .where(
