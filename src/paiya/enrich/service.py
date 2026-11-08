@@ -31,6 +31,7 @@ from paiya.extract.service import (
     _seller_actor_key,
     recompute_listing_item_projection,
 )
+from paiya.logging import emit_event, safe_token
 from paiya.scheduler.models import EnrichJobClaim
 from paiya.scheduler.queue import (
     ENRICH_LEASE_MINUTES,
@@ -606,6 +607,28 @@ def _job_snapshot(engine: Engine, job_id: UUID) -> dict[str, Any]:
     }
 
 
+def _log_enrich_finished(
+    claim: EnrichJobClaim, result: Mapping[str, Any], started_clock: float
+) -> None:
+    state = result.get("state")
+    if state not in {"succeeded", "failed", "cancelled"}:
+        return
+    reason: object = result.get("reason")
+    if reason is None:
+        nested = result.get("result")
+        if isinstance(nested, Mapping):
+            reason = nested.get("error") or nested.get("status")
+        elif result.get("status") not in {None, state}:
+            reason = result.get("status")
+    emit_event(
+        "enrich_job_finished",
+        job_id=str(claim.job_id),
+        result=cast(str, state),
+        reason=safe_token(reason, "unknown") if reason is not None else None,
+        duration_ms=max(0, int((time.perf_counter() - started_clock) * 1000)),
+    )
+
+
 def run_enrich_once(
     engine: Engine,
     *,
@@ -621,9 +644,12 @@ def run_enrich_once(
     if claim is None:
         return None
 
+    started_clock = time.perf_counter()
     context = _load_context(engine, claim, normalized_now)
     if context is None:
-        return _job_snapshot(engine, claim.job_id)
+        result = _job_snapshot(engine, claim.job_id)
+        _log_enrich_finished(claim, result, started_clock)
+        return result
 
     user_content = _build_user_content(context)
     try:
@@ -638,15 +664,21 @@ def run_enrich_once(
             "items_changed": 0,
         }
         result = _complete_without_tags(engine, claim, normalized_now, invalid_result)
-        return {"job_id": str(claim.job_id), **result}
+        response_result = {"job_id": str(claim.job_id), **result}
+        _log_enrich_finished(claim, response_result, started_clock)
+        return response_result
     except EnrichRetryableError as error:
         with engine.begin() as conn:
             state = retry_enrich(conn, claim, normalized_now, str(error))
-        return _job_snapshot(engine, claim.job_id) | {"state": state}
+        result = _job_snapshot(engine, claim.job_id) | {"state": state}
+        _log_enrich_finished(claim, result, started_clock)
+        return result
     except EnrichRequestError as error:
         with engine.begin() as conn:
             fail_enrich(conn, claim, normalized_now, str(error))
-        return _job_snapshot(engine, claim.job_id)
+        result = _job_snapshot(engine, claim.job_id)
+        _log_enrich_finished(claim, result, started_clock)
+        return result
 
     if response.model_version is None:
         response = EnrichmentResponse(
@@ -656,7 +688,9 @@ def run_enrich_once(
         )
     with engine.begin() as conn:
         result = _validate_and_store(conn, claim, context, response, settings, normalized_now)
-    return {"job_id": str(claim.job_id), **result}
+    response_result = {"job_id": str(claim.job_id), **result}
+    _log_enrich_finished(claim, response_result, started_clock)
+    return response_result
 
 
 def enrich_status(engine: Engine, *, now: datetime | None = None) -> dict[str, Any]:

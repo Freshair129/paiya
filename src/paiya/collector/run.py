@@ -5,15 +5,16 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from time import monotonic
+from time import monotonic, perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
 from sqlalchemy import Engine, select, update
 
-from paiya.collector.adapter import CollectorAdapter, FeedCard, FeedRunData
+from paiya.collector.adapter import ADAPTER_VERSION, CollectorAdapter, FeedCard, FeedRunData
 from paiya.collector.errors import AdapterError
 from paiya.ingest.service import ingest_fixture
+from paiya.logging import emit_event, safe_token
 from paiya.scheduler.errors import QueueError
 from paiya.scheduler.models import JobClaim
 from paiya.scheduler.queue import cancel_claim, complete, fail
@@ -60,13 +61,33 @@ def execute_discovery(
     if claim.group_id != scope.group_id or claim.grant_id != scope.grant_id:
         raise PermissionError("The claimed job does not match the trusted fixture scope")
 
+    log_started_at = datetime.now(UTC)
+    log_started_clock = perf_counter()
     try:
         feed_run = adapter.read_run(scope.group_key, run_label, settings.cards_per_step)
     except AdapterError as error:
         _record_failure(engine, claim, end_time, error.code)
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result="none",
+            reason=error.code,
+            cards_seen=0,
+            cards_parsed=0,
+        )
         raise
     except Exception:
         _record_failure(engine, claim, end_time, "adapter_error")
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result="none",
+            reason="adapter_error",
+            cards_seen=0,
+            cards_parsed=0,
+        )
         raise
 
     started_at = _utc(feed_run.started_at)
@@ -148,11 +169,31 @@ def execute_discovery(
                 except PermissionError:
                     if _grant_currently_available(engine, scope):
                         _record_failure(engine, claim, end_time, "adapter_error")
+                        reason = "adapter_error"
                     else:
                         _record_cancellation(engine, claim, end_time)
+                        reason = "grant_unavailable"
+                    _log_capture_finished(
+                        claim,
+                        started_at=log_started_at,
+                        started_clock=log_started_clock,
+                        result="none",
+                        reason=reason,
+                        cards_seen=cards_seen,
+                        cards_parsed=cards_parsed,
+                    )
                     raise
                 except Exception:
                     _record_failure(engine, claim, end_time, "adapter_error")
+                    _log_capture_finished(
+                        claim,
+                        started_at=log_started_at,
+                        started_clock=log_started_clock,
+                        result="none",
+                        reason="adapter_error",
+                        cards_seen=cards_seen,
+                        cards_parsed=cards_parsed,
+                    )
                     raise
                 ingested_keys.append(key)
 
@@ -230,8 +271,26 @@ def execute_discovery(
             complete(conn, claim.job_id, claim.lease_token, end_time)
     except PermissionError:
         _record_cancellation(engine, claim, end_time)
+        _log_capture_finished(
+            claim,
+            started_at=log_started_at,
+            started_clock=log_started_clock,
+            result=coverage,
+            reason="grant_unavailable",
+            cards_seen=cards_seen,
+            cards_parsed=cards_parsed,
+        )
         raise
 
+    _log_capture_finished(
+        claim,
+        started_at=log_started_at,
+        started_clock=log_started_clock,
+        result=coverage,
+        reason=error_code or stop_reason,
+        cards_seen=cards_seen,
+        cards_parsed=cards_parsed,
+    )
     return RunResult(
         run_id=claim.run_id,
         coverage=coverage,
@@ -243,6 +302,32 @@ def execute_discovery(
         error_code=error_code,
         checkpoint_advanced=checkpoint_advanced,
         ingested_keys=tuple(ingested_keys),
+    )
+
+
+def _log_capture_finished(
+    claim: JobClaim,
+    *,
+    started_at: datetime,
+    started_clock: float,
+    result: str,
+    reason: str,
+    cards_seen: int,
+    cards_parsed: int,
+) -> None:
+    queue_wait_ms = max(0, int((started_at - _utc(claim.due_at)).total_seconds() * 1000))
+    emit_event(
+        "capture_run_finished",
+        run_id=str(claim.run_id),
+        group_id=str(claim.group_id),
+        job_kind=claim.kind,
+        adapter_version=ADAPTER_VERSION,
+        result=result,
+        reason=safe_token(reason, "unknown"),
+        duration_ms=max(0, int((perf_counter() - started_clock) * 1000)),
+        queue_wait_ms=queue_wait_ms,
+        cards_seen=cards_seen,
+        cards_parsed=cards_parsed,
     )
 
 

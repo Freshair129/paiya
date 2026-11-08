@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from time import perf_counter
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -25,6 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
 from paiya.backup.errors import BackupError
+from paiya.logging import emit_event, safe_token
 from paiya.purge.errors import PurgeError
 from paiya.purge.service import (
     lock_backup_media_copy_exclusive_for_session,
@@ -457,6 +459,7 @@ def create_backup(engine: Engine) -> dict[str, object]:
     """Export one consistent database and media snapshot into an atomic set."""
     run_id = uuid4()
     started_at = datetime.now(UTC)
+    started_clock = perf_counter()
     _new_backup_run(engine, run_id, started_at)
     set_name = f"{started_at.strftime('%Y%m%dT%H%M%SZ')}-{run_id}"
     temporary_set: Path | None = None
@@ -538,6 +541,13 @@ def create_backup(engine: Engine) -> dict[str, object]:
             media_bytes=media_bytes,
             set_name=set_name,
         )
+        emit_event(
+            "backup_run_finished",
+            backup_run_id=str(run_id),
+            result="succeeded",
+            reason=None,
+            duration_ms=max(0, int((perf_counter() - started_clock) * 1000)),
+        )
         return {
             "state": "succeeded",
             "backup_run_id": str(run_id),
@@ -554,6 +564,13 @@ def create_backup(engine: Engine) -> dict[str, object]:
             _complete_backup_run(engine, run_id, state="failed", error_code=error.code)
         except SQLAlchemyError:
             pass
+        emit_event(
+            "backup_run_finished",
+            backup_run_id=str(run_id),
+            result="failed",
+            reason=safe_token(error.code, "backup_failed"),
+            duration_ms=max(0, int((perf_counter() - started_clock) * 1000)),
+        )
         raise
     except (OSError, SQLAlchemyError, ValueError) as error:
         _cleanup_owned_path(temporary_set)
@@ -562,6 +579,13 @@ def create_backup(engine: Engine) -> dict[str, object]:
             _complete_backup_run(engine, run_id, state="failed", error_code="backup_failed")
         except SQLAlchemyError:
             pass
+        emit_event(
+            "backup_run_finished",
+            backup_run_id=str(run_id),
+            result="failed",
+            reason="backup_failed",
+            duration_ms=max(0, int((perf_counter() - started_clock) * 1000)),
+        )
         raise BackupError("backup_failed", "The backup run did not complete") from error
 
 
@@ -1133,7 +1157,7 @@ def restore_backup(
         target_engine.dispose()
 
 
-def backup_status(engine: Engine) -> dict[str, object]:
+def backup_status(engine: Engine, *, now: datetime | None = None) -> dict[str, object]:
     """Report the latest successful and failed create runs and success age."""
     with engine.connect() as connection:
         success = (
@@ -1156,14 +1180,14 @@ def backup_status(engine: Engine) -> dict[str, object]:
             .mappings()
             .one_or_none()
         )
-    now = datetime.now(UTC)
+    normalized_now = now or datetime.now(UTC)
     last_success: dict[str, object] | None = None
     if success is not None:
         completed_at = cast(datetime, success["completed_at"])
         last_success = {
             "backup_run_id": str(success["id"]),
             "completed_at": _iso_utc(completed_at),
-            "age_hours": round(max(0.0, (now - completed_at).total_seconds() / 3600), 3),
+            "age_hours": round(max(0.0, (normalized_now - completed_at).total_seconds() / 3600), 3),
             "set_name": success["set_name"],
             "db_bytes": success["db_bytes"],
             "media_count": success["media_count"],

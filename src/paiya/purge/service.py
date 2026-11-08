@@ -30,6 +30,7 @@ from sqlalchemy.sql import ColumnElement
 from paiya.extract.service import recompute_listing_item_projection
 from paiya.grants.errors import GrantError
 from paiya.grants.service import revoke_grant
+from paiya.logging import emit_event
 from paiya.purge.errors import PurgeError
 from paiya.purge.log import PurgeLogEntry, ensure_unique_purge_ids, iter_purge_log
 from paiya.purge.startup import count_pending_purge_ids
@@ -1158,7 +1159,23 @@ def _retry_file_deletes_with_asset_locks(
 
 def run_purge(engine: Engine, scope: str) -> dict[str, object]:
     """Purge one synthetic grant or post, logging before durable database changes."""
-    return _execute_purge_command(engine, scope, append_log=True)
+    result = _execute_purge_command(engine, scope, append_log=True)
+    _log_purge_finished(result)
+    return result
+
+
+def _log_purge_finished(result: Mapping[str, object]) -> None:
+    result_counts = result.get("result_counts")
+    counts = result_counts if isinstance(result_counts, Mapping) else {}
+    pending_count = counts.get("files_pending", 0)
+    if not isinstance(pending_count, int) or isinstance(pending_count, bool):
+        pending_count = 0
+    emit_event(
+        "purge_finished",
+        purge_id=str(result["purge_id"]),
+        result=str(result["state"]),
+        pending_count=max(0, pending_count),
+    )
 
 
 def replay_purge_log(engine: Engine) -> dict[str, object]:
@@ -1184,6 +1201,7 @@ def replay_purge_log(engine: Engine) -> dict[str, object]:
             media_root=media_root,
             log_path=log_path,
         )
+        _log_purge_finished(result)
         results.append(
             {key: result[key] for key in ("purge_id", "scope", "state", "result_counts")}
         )

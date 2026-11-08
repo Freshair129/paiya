@@ -68,6 +68,16 @@ def get_enrich_enabled() -> bool:
     return _boolean("PAIYA_ENRICH_ENABLED", False)
 
 
+def get_disk_min_free_bytes() -> int:
+    """Return the configured minimum free space for media storage."""
+    return _positive_int("PAIYA_DISK_MIN_FREE_BYTES", 5 * 1024**3)
+
+
+def get_job_overdue_minutes() -> int:
+    """Return the configured queued-job overdue threshold."""
+    return _positive_int("PAIYA_JOB_OVERDUE_MINUTES", 15)
+
+
 def get_enrich_settings() -> EnrichSettings:
     """Read and validate enrichment settings before a worker or server starts."""
     enabled = get_enrich_enabled()

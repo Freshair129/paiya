@@ -229,6 +229,64 @@ export interface WatchesResponse {
   watches: Watch[]
 }
 
+export type HealthJobKind = 'discover' | 'revisit' | 'manual_import' | 'enrich' | 'purge'
+export type HealthBackupState = 'ok' | 'stale' | 'never'
+
+export interface HealthJobStatus {
+  overdue_count: number
+  oldest_overdue_age_minutes: number | null
+}
+
+export interface HealthDiskStatus {
+  free_bytes: number
+  total_bytes: number
+  min_free_bytes: number
+  state: 'ok' | 'low'
+}
+
+export interface HealthCaptureGap {
+  gap_from: string
+  gap_to: string
+  reason: 'missed_slots' | 'run_failed'
+  detected_at: string
+}
+
+export interface HealthCoverage {
+  group_id: string
+  last_successful_at: string | null
+  latest_coverage: 'complete' | 'partial' | 'none' | null
+  capture_gap_count: number
+  latest_gap_7d: HealthCaptureGap | null
+}
+
+export interface SystemHealth {
+  checked_at: string
+  queue: Record<HealthJobKind, HealthJobStatus>
+  coverage: HealthCoverage[]
+  media: {
+    captured: number
+    capture_failed: number
+    success_rate: number | null
+    disk_low: number
+  }
+  disk: {
+    media: HealthDiskStatus
+    backup?: HealthDiskStatus
+  }
+  backup: {
+    last_success_at: string | null
+    age_hours: number | null
+    state: HealthBackupState
+    last_failure_at: string | null
+    last_failure_reason: string | null
+  }
+  ai_backlog: {
+    states: Record<'queued' | 'leased' | 'succeeded' | 'failed' | 'cancelled', number>
+    oldest_queued_at: string | null
+    oldest_queued_age_seconds: number | null
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: string | null
@@ -333,6 +391,9 @@ export const getSeller = (id: string, signal?: AbortSignal): Promise<SellerDetai
 
 export const getWatches = (signal?: AbortSignal): Promise<WatchesResponse> =>
   getJson('/v1/watches', signal)
+
+export const getHealth = (signal?: AbortSignal): Promise<SystemHealth> =>
+  getJson('/v1/admin/health', signal)
 
 export function getGroupRuns(
   id: string,

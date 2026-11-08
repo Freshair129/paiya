@@ -2,7 +2,8 @@
 
 import hashlib
 import json
-from collections.abc import Mapping
+import shutil
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -12,15 +13,21 @@ from sqlalchemy import Connection, Engine, insert, select, text, update
 
 from paiya.extract.service import create_tags_and_rebuild_listing_items
 from paiya.ingest.validation import validate_observation
+from paiya.logging import emit_event, safe_token
 from paiya.scheduler.queue import enqueue_enrich_job
-from paiya.settings import get_enrich_enabled
+from paiya.settings import get_disk_min_free_bytes, get_enrich_enabled
 from paiya.status.service import create_facts_and_rebuild_current_items
 from paiya.store.fixture_scope import (
     FixtureScope,
     verify_fixture_scope,
     verify_fixture_scope_for_commit,
 )
-from paiya.store.media import lock_media_asset_for_transaction, validate_media, write_media
+from paiya.store.media import (
+    lock_media_asset_for_transaction,
+    media_path,
+    validate_media,
+    write_media,
+)
 from paiya.store.tables import (
     capture_runs,
     comment_versions,
@@ -90,12 +97,22 @@ def _comment_id_for_parent(
     )
 
 
+def _existing_usage_path(path: Path) -> Path:
+    """Resolve an existing ancestor so a not-yet-created media root can be measured."""
+    candidate = path.expanduser().resolve()
+    while not candidate.exists() and candidate.parent != candidate:
+        candidate = candidate.parent
+    return candidate
+
+
 def ingest_fixture(
     engine: Engine,
     scope: FixtureScope,
     document: dict[str, Any],
     staged_assets: Mapping[str, bytes],
     media_root: Path,
+    *,
+    disk_usage_fn: Callable[[Path], tuple[int, int, int]] | None = None,
 ) -> UUID:
     """Persist an authorized synthetic envelope, returning its observation UUID.
 
@@ -125,6 +142,10 @@ def ingest_fixture(
     posted_at = _source_time(posted_at_data)
     source_time_precision = posted_at_data["precision"] if posted_at_data is not None else "unknown"
     activity = payload.get("activity")
+    measured_disk_low: list[tuple[int, int]] = []
+    failed_media: dict[str, str] = {}
+    media_failure_logs: list[tuple[str, str, str]] = []
+    disk_usage = disk_usage_fn or shutil.disk_usage
 
     with engine.begin() as conn:
         verify_fixture_scope(conn, scope, "capture")
@@ -357,7 +378,6 @@ def ingest_fixture(
         media_by_evidence: dict[str, UUID] = {}
         for local_key, meta in document["assets"].items():
             staging_key = meta["staging_key"]
-            write_media(media_root, meta, staged_assets[staging_key], staging_key)
             existing_media = (
                 conn.execute(
                     select(
@@ -377,6 +397,18 @@ def ingest_fixture(
                     for field in ("mime", "bytes", "width", "height")
                 ):
                     raise ValueError("Conflicting metadata for content-addressed media")
+
+            destination = media_path(media_root, cast(str, meta["sha256"]), cast(str, meta["mime"]))
+            if not destination.exists():
+                _total_bytes, _used_bytes, free_bytes = disk_usage(_existing_usage_path(media_root))
+                min_free_bytes = get_disk_min_free_bytes()
+                if free_bytes < min_free_bytes:
+                    failed_media[local_key] = "disk_low"
+                    measured_disk_low.append((free_bytes, min_free_bytes))
+                    continue
+
+            write_media(media_root, meta, staged_assets[staging_key], staging_key)
+            if existing_media:
                 media_id = cast(UUID, existing_media["id"])
             else:
                 media_id = uuid4()
@@ -408,6 +440,19 @@ def ingest_fixture(
                 else None
             )
             evidence_id = uuid4()
+            media_state = entry["media_state"]
+            media_reason = entry.get("media_reason")
+            if local_key in failed_media:
+                media_state = "capture_failed"
+                media_reason = failed_media[local_key]
+            if media_state == "capture_failed":
+                media_failure_logs.append(
+                    (
+                        str(run_id),
+                        safe_token(local_key),
+                        safe_token(media_reason, "unknown"),
+                    )
+                )
             conn.execute(
                 insert(evidence).values(
                     id=evidence_id,
@@ -420,8 +465,8 @@ def ingest_fixture(
                     local_key=local_key,
                     role=entry["role"],
                     source_span=span,
-                    media_state=entry["media_state"],
-                    media_reason=entry.get("media_reason"),
+                    media_state=media_state,
+                    media_reason=media_reason,
                     captured_at=observed_at,
                 )
             )
@@ -460,4 +505,18 @@ def ingest_fixture(
 
         # This is deliberately the final DB operation before transaction commit.
         verify_fixture_scope_for_commit(conn, scope, "capture")
-        return observation_id
+    for free_bytes, min_free_bytes in measured_disk_low:
+        emit_event(
+            "disk_low",
+            path_kind="media",
+            free_bytes=free_bytes,
+            min_free_bytes=min_free_bytes,
+        )
+    for failure_run_id, local_key, reason in media_failure_logs:
+        emit_event(
+            "media_failed",
+            run_id=failure_run_id,
+            evidence_local_key=local_key,
+            reason=reason,
+        )
+    return observation_id
