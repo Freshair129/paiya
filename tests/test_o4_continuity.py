@@ -391,9 +391,9 @@ def test_crash_points_replay_without_duplicate_rows_or_events(o4_db, tmp_path, p
     assert retry.returncode == 0, retry.stderr
     assert json.loads(retry.stdout)["result"]["state"] == "succeeded"
     after_retry = _counts(pg_engine)
+    assert after_retry["observations"] == 1
     assert after_retry["jobs"] == 1
     assert after_retry["capture_runs"] == 1
-    assert after_retry["observations"] == 1
     assert after_retry["status_facts"] >= 1
     assert after_retry["sale_events"] >= 0
     assert len(_orphan_files(pg_engine, media_root)) == 0
@@ -557,3 +557,114 @@ def test_continuity_drill_end_to_end(tmp_path):
         cleanup.dispose()
     assert remaining == before
     assert schemas == schemas_before
+
+
+def test_drill_rejects_duplicate_sale_event_keys(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import continuity_drill as drill
+
+    instance = object.__new__(drill.ContinuityDrill)
+    engine = MagicMock()
+    connection = engine.connect.return_value.__enter__.return_value
+    before = MagicMock()
+    before.mappings.return_value.one.return_value = {
+        "id": 1,
+        "logical_key": "key",
+        "state": "leased",
+    }
+    after = MagicMock()
+    after.mappings.return_value.one.return_value = {
+        "id": 1,
+        "logical_key": "key",
+        "state": "succeeded",
+    }
+    statuses = MagicMock()
+    statuses.all.return_value = [(1, 1, "fact")]
+    events = MagicMock()
+    events.all.return_value = [(1, "event"), (1, "event")]
+    connection.execute.side_effect = [before, after, statuses, events]
+    instance._create_database = MagicMock(return_value=("db", None, engine))
+    instance._step_paths = MagicMock(return_value=SimpleNamespace(feed=tmp_path, media=tmp_path))
+    instance._env = MagicMock(return_value={})
+    instance._group = MagicMock()
+    instance._worker = MagicMock(side_effect=[None, {"state": "idle"}, {"state": "succeeded"}])
+    monkeypatch.setattr(drill, "_write_feed", lambda *args, **kwargs: None)
+    monkeypatch.setattr(drill, "_orphan_files", lambda *args: [])
+    monkeypatch.setattr(drill, "_table_count", lambda *args: 1)
+
+    with pytest.raises(drill.DrillFailure, match="replay_not_idempotent"):
+        instance._run_crash_step("after_ingest_commit")
+
+
+def test_drill_cleanup_failure_makes_run_fail(monkeypatch, capsys):
+    from unittest.mock import MagicMock
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import continuity_drill as drill
+
+    instance = object.__new__(drill.ContinuityDrill)
+    instance.admin_engine = MagicMock()
+    connection = instance.admin_engine.connect.return_value.__enter__.return_value
+    connection.exec_driver_sql.return_value.scalar_one.return_value = 170000
+    instance.steps = []
+    monkeypatch.setattr(
+        instance,
+        "_step",
+        lambda name, action: instance.steps.append({"name": name, "passed": True}),
+    )
+    monkeypatch.setattr(instance, "cleanup", lambda: {"passed": False})
+
+    assert instance.run() == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is False
+    assert report["cleanup"]["passed"] is False
+
+
+def test_restore_drill_checks_mcp_for_both_scopes(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import continuity_drill as drill
+
+    instance = object.__new__(drill.ContinuityDrill)
+    url = make_url("postgresql+psycopg://localhost/paiya_test")
+    engine = MagicMock()
+    connection = engine.connect.return_value.__enter__.return_value
+    connection.execute.return_value.scalar_one.side_effect = [0, 1]
+    instance._create_database = MagicMock(return_value=("db", url, engine))
+    (tmp_path / "set").mkdir()
+    paths = SimpleNamespace(root=tmp_path, backup=tmp_path, feed=tmp_path)
+    instance._step_paths = MagicMock(return_value=paths)
+    instance._env = MagicMock(side_effect=lambda url, paths, group_key: {"group": group_key})
+    instance._group = MagicMock()
+    instance._worker = MagicMock(return_value={"state": "succeeded"})
+    instance._read_ids = MagicMock(
+        side_effect=lambda engine, key: SimpleNamespace(
+            group_key=key, grant_id=uuid4(), post_id=uuid4()
+        )
+    )
+
+    def cli(environment, args, **kwargs):
+        if args[:2] == ["backup", "create"]:
+            return {"result": {"set_name": "set"}}
+        if args[:2] == ["backup", "restore"]:
+            return {"result": {"ready": True, "purge_replay": {"pending_count": 0}}}
+        return {"state": "succeeded"}
+
+    instance._cli = MagicMock(side_effect=cli)
+    instance._start_serve = MagicMock(return_value=1234)
+    instance._http_scope_checks = MagicMock()
+    instance._stop_all_processes = MagicMock()
+    instance._run_mcp = MagicMock()
+    monkeypatch.setattr(drill, "_write_feed", lambda *args, **kwargs: None)
+
+    instance._run_restore_step()
+
+    assert instance._run_mcp.call_count == 2
+    keys = [call.args[1].group_key for call in instance._run_mcp.call_args_list]
+    assert keys[0].startswith("synthetic-o4-removed-")
+    assert keys[1].startswith("synthetic-o4-kept-")
