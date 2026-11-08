@@ -1,0 +1,58 @@
+{
+  "feed_version": 1,
+  "group_key": "synthetic-feed-d05",
+  "runs": [
+    {
+      "label": "r1",
+      "started_at": "2026-11-08T09:00:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "d05-a",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-01.json"
+        },
+        {
+          "source_post_key": "d05-b",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-02.json"
+        },
+        {
+          "source_post_key": "d05-c",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-03.json"
+        },
+        {
+          "source_post_key": "d05-new1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-04.json"
+        },
+        {
+          "source_post_key": "d05-a",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-05.json"
+        },
+        {
+          "source_post_key": "d05-new2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-06.json"
+        }
+      ]
+    }
+  ]
+}

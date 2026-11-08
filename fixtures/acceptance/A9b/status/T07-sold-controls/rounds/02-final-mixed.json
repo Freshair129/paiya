@@ -1,0 +1,98 @@
+{
+  "run_id": "524b1e76-4492-5858-a15f-3078b0382cd1",
+  "capture_id": "synthetic-A9b-T07-sold-controls-final-mixed",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "revisit",
+  "page_check": {
+    "session": "ok",
+    "sort": "not_applicable"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-status-g2",
+    "source_post_key": "t07-post",
+    "permalink": "https://example.invalid/paiya/synthetic-status-g2/t07-post",
+    "observed_at": "2026-11-08T10:23:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-08T08:00:00Z",
+      "value": "2026-11-08T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-status-g2",
+      "external_actor_key": "seller-t07",
+      "display_name": "ผู้ขายสมมติ T07-sold-controls"
+    },
+    "items": [
+      {
+        "source_item_key": "item-1",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "ขายแล้ว",
+        "price": null,
+        "evidence_keys": [
+          "t07-final-1"
+        ]
+      },
+      {
+        "source_item_key": "item-2",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "ขายแล้ว",
+        "price": null,
+        "evidence_keys": [
+          "t07-final-2"
+        ]
+      },
+      {
+        "source_item_key": "item-3",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": null,
+        "evidence_keys": [
+          "t07-final-3"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "t07-final-1",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "ขายแล้ว"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "t07-final-2",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "ขายแล้ว"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "t07-final-3",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "เปิดขาย"
+        },
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}

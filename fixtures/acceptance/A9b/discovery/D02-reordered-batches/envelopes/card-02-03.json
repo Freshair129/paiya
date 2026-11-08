@@ -1,0 +1,48 @@
+{
+  "run_id": "cfd386ac-cfd4-54a5-a7d8-73eb3f3db920",
+  "capture_id": "synthetic-D02-reordered-batches-page-2-card-3",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "discover",
+  "page_check": {
+    "session": "ok",
+    "sort": "verified_latest"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-feed-d02",
+    "source_post_key": "d02-a",
+    "permalink": "https://example.invalid/paiya/synthetic-feed-d02/d02-a",
+    "observed_at": "2026-11-08T09:30:02Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-08T08:00:00Z",
+      "value": "2026-11-08T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-feed-d02",
+      "external_actor_key": "seller-d02-03",
+      "display_name": "ผู้ขายสมมติ D02"
+    },
+    "items": [
+      {
+        "source_item_key": "item-3",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": null,
+        "evidence_keys": []
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": []
+  }
+}

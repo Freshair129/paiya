@@ -1,0 +1,96 @@
+{
+  "feed_version": 1,
+  "group_key": "synthetic-feed-d02",
+  "runs": [
+    {
+      "label": "page-1",
+      "started_at": "2026-11-08T09:00:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "d02-a",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-01.json"
+        },
+        {
+          "source_post_key": "d02-b",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-02.json"
+        },
+        {
+          "source_post_key": "d02-c",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-03.json"
+        },
+        {
+          "source_post_key": "d02-d",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-04.json"
+        },
+        {
+          "source_post_key": "d02-e",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-01-05.json"
+        }
+      ]
+    },
+    {
+      "label": "page-2",
+      "started_at": "2026-11-08T09:30:00Z",
+      "session": "ok",
+      "sort": "verified_latest",
+      "access": "ok",
+      "load_limit": null,
+      "cards": [
+        {
+          "source_post_key": "d02-new1",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-02-01.json"
+        },
+        {
+          "source_post_key": "d02-c",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-02-02.json"
+        },
+        {
+          "source_post_key": "d02-a",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-02-03.json"
+        },
+        {
+          "source_post_key": "d02-b",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-02-04.json"
+        },
+        {
+          "source_post_key": "d02-new2",
+          "pinned": false,
+          "suggested": false,
+          "parse": "ok",
+          "envelope": "envelopes/card-02-05.json"
+        }
+      ]
+    }
+  ]
+}
