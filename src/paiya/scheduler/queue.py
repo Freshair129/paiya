@@ -532,6 +532,7 @@ def _ensure_run(
 
 
 def _grant_is_available(conn: Connection, job: dict[str, Any], now: datetime) -> bool:
+    """Check and share-lock the grant before the caller changes the job row."""
     row = (
         conn.execute(
             select(
@@ -570,6 +571,7 @@ def grant_is_readable(
     grant_id: UUID,
     now: datetime,
 ) -> bool:
+    """Check and share-lock a readable grant before its job can be changed."""
     row = (
         conn.execute(
             select(
@@ -639,20 +641,46 @@ def _reclaim_expired_enrich(conn: Connection, now: datetime) -> None:
                 jobs.c.lease_until <= now,
             )
             .order_by(jobs.c.lease_until, jobs.c.id)
-            .with_for_update(skip_locked=True)
         )
         .mappings()
         .all()
     )
     for row in expired:
         job = dict(row)
+        grant_available = grant_is_readable(
+            conn,
+            group_id=cast(UUID, job["group_id"]),
+            grant_id=cast(UUID, job["grant_id"]),
+            now=now,
+        )
+        if not grant_available:
+            conn.execute(
+                update(jobs)
+                .where(
+                    jobs.c.id == job["id"],
+                    jobs.c.state == "leased",
+                    jobs.c.lease_until <= now,
+                )
+                .values(
+                    state="cancelled",
+                    lease_token=None,
+                    lease_until=None,
+                    result={"status": "cancelled", "error": "grant_unavailable"},
+                )
+            )
+            continue
+
         retry_count = cast(int, job["retry_count"])
         attempt = retry_count + 1
         if retry_count < ENRICH_MAX_RETRIES:
             due_at = now + timedelta(minutes=ENRICH_BACKOFF_MINUTES[retry_count])
-            conn.execute(
+            reclaimed = conn.execute(
                 update(jobs)
-                .where(jobs.c.id == job["id"], jobs.c.state == "leased")
+                .where(
+                    jobs.c.id == job["id"],
+                    jobs.c.state == "leased",
+                    jobs.c.lease_until <= now,
+                )
                 .values(
                     state="queued",
                     retry_count=retry_count + 1,
@@ -661,18 +689,28 @@ def _reclaim_expired_enrich(conn: Connection, now: datetime) -> None:
                     lease_until=None,
                     result={"status": "retrying", "attempt": attempt, "error": "lease_expired"},
                 )
-            )
+                .returning(jobs.c.id)
+            ).scalar_one_or_none()
+            if reclaimed is None:
+                continue
         else:
-            conn.execute(
+            reclaimed = conn.execute(
                 update(jobs)
-                .where(jobs.c.id == job["id"], jobs.c.state == "leased")
+                .where(
+                    jobs.c.id == job["id"],
+                    jobs.c.state == "leased",
+                    jobs.c.lease_until <= now,
+                )
                 .values(
                     state="failed",
                     lease_token=None,
                     lease_until=None,
                     result={"status": "failed", "attempt": attempt, "error": "lease_expired"},
                 )
-            )
+                .returning(jobs.c.id)
+            ).scalar_one_or_none()
+            if reclaimed is None:
+                continue
 
 
 def claim_enrich_next(
@@ -705,7 +743,6 @@ def claim_enrich_next(
                         jobs.c.due_at <= normalized_now,
                     )
                     .order_by(jobs.c.due_at, jobs.c.id)
-                    .with_for_update(skip_locked=True)
                     .limit(1)
                 )
                 .mappings()
@@ -736,11 +773,18 @@ def claim_enrich_next(
 
             token = uuid4()
             lease_until = normalized_now + timedelta(minutes=lease_minutes)
-            conn.execute(
+            claimed = conn.execute(
                 update(jobs)
-                .where(jobs.c.id == job["id"], jobs.c.state == "queued")
+                .where(
+                    jobs.c.id == job["id"],
+                    jobs.c.state == "queued",
+                    jobs.c.due_at <= normalized_now,
+                )
                 .values(state="leased", lease_token=token, lease_until=lease_until)
-            )
+                .returning(jobs.c.id)
+            ).scalar_one_or_none()
+            if claimed is None:
+                continue
             return EnrichJobClaim(
                 job_id=cast(UUID, job["id"]),
                 group_id=group_id,
@@ -895,20 +939,38 @@ def _reclaim_expired(conn: Connection, now: datetime, settings: SchedulerSetting
                 jobs.c.lease_until <= now,
             )
             .order_by(jobs.c.lease_until, jobs.c.id)
-            .with_for_update(skip_locked=True)
         )
         .mappings()
         .all()
     )
     for row in expired:
         job = dict(row)
+        if not _grant_is_available(conn, job, now):
+            cancelled = conn.execute(
+                update(jobs)
+                .where(
+                    jobs.c.id == job["id"],
+                    jobs.c.state == "leased",
+                    jobs.c.lease_until <= now,
+                )
+                .values(state="cancelled", lease_token=None, lease_until=None)
+                .returning(jobs.c.id)
+            ).scalar_one_or_none()
+            if cancelled is not None:
+                _ensure_run(conn, job, now, denied=True)
+            continue
+
         retry_count = cast(int, job["retry_count"])
         if retry_count < settings.max_retries:
             backoff_index = min(retry_count, len(settings.backoff_minutes) - 1)
             due_at = now + timedelta(minutes=settings.backoff_minutes[backoff_index])
-            conn.execute(
+            reclaimed = conn.execute(
                 update(jobs)
-                .where(jobs.c.id == job["id"], jobs.c.state == "leased")
+                .where(
+                    jobs.c.id == job["id"],
+                    jobs.c.state == "leased",
+                    jobs.c.lease_until <= now,
+                )
                 .values(
                     state="queued",
                     retry_count=retry_count + 1,
@@ -916,13 +978,23 @@ def _reclaim_expired(conn: Connection, now: datetime, settings: SchedulerSetting
                     lease_token=None,
                     lease_until=None,
                 )
-            )
+                .returning(jobs.c.id)
+            ).scalar_one_or_none()
+            if reclaimed is None:
+                continue
         else:
-            conn.execute(
+            reclaimed = conn.execute(
                 update(jobs)
-                .where(jobs.c.id == job["id"], jobs.c.state == "leased")
+                .where(
+                    jobs.c.id == job["id"],
+                    jobs.c.state == "leased",
+                    jobs.c.lease_until <= now,
+                )
                 .values(state="failed", lease_token=None, lease_until=None)
-            )
+                .returning(jobs.c.id)
+            ).scalar_one_or_none()
+            if reclaimed is None:
+                continue
             conn.execute(
                 update(capture_runs)
                 .where(capture_runs.c.job_id == job["id"])
@@ -985,21 +1057,34 @@ def claim_next(
                     break
                 job = dict(row)
                 if not _grant_is_available(conn, job, normalized_now):
-                    _ensure_run(conn, job, normalized_now, denied=True)
-                    conn.execute(
+                    cancelled = conn.execute(
                         update(jobs)
-                        .where(jobs.c.id == job["id"], jobs.c.state == "queued")
+                        .where(
+                            jobs.c.id == job["id"],
+                            jobs.c.state == "queued",
+                            jobs.c.due_at <= normalized_now,
+                        )
                         .values(state="cancelled", lease_token=None, lease_until=None)
-                    )
+                        .returning(jobs.c.id)
+                    ).scalar_one_or_none()
+                    if cancelled is not None:
+                        _ensure_run(conn, job, normalized_now, denied=True)
                     continue
 
                 token = uuid4()
                 lease_until = normalized_now + timedelta(minutes=settings.lease_minutes)
-                conn.execute(
+                claimed = conn.execute(
                     update(jobs)
-                    .where(jobs.c.id == job["id"], jobs.c.state == "queued")
+                    .where(
+                        jobs.c.id == job["id"],
+                        jobs.c.state == "queued",
+                        jobs.c.due_at <= normalized_now,
+                    )
                     .values(state="leased", lease_token=token, lease_until=lease_until)
-                )
+                    .returning(jobs.c.id)
+                ).scalar_one_or_none()
+                if claimed is None:
+                    continue
                 run_id = _ensure_run(conn, job, normalized_now)
                 return JobClaim(
                     job_id=cast(UUID, job["id"]),

@@ -11,6 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from paiya.demo import seed_demo
 from paiya.extract.service import rebuild_extractions
+from paiya.grants.errors import GrantError
+from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.settings import get_database_engine
@@ -68,6 +70,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     demo_actions.add_parser("seed", help="seed the synthetic mobile demo group and posts")
 
+    grant = commands.add_parser("grant", help="manage source grants")
+    grant_actions = grant.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    revoke = grant_actions.add_parser("revoke", help="revoke a synthetic source grant")
+    revoke.add_argument("grant_id", type=UUID)
+
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
@@ -95,6 +104,8 @@ def _execute(args: argparse.Namespace) -> object:
     engine = get_database_engine()
     if args.resource == "extract" and args.action == "rebuild":
         return rebuild_extractions(engine)
+    if args.resource == "grant" and args.action == "revoke":
+        return revoke_grant(engine, args.grant_id)
     if args.resource == "enrich":
         from paiya.enrich.service import enrich_status, run_enrich_once, run_enrich_worker
 
@@ -137,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         _print_error(error.code, error.message)
         return 1
     except WatchError as error:
+        _print_error(error.code, error.message)
+        return 1
+    except GrantError as error:
         _print_error(error.code, error.message)
         return 1
     except (RuntimeError, ValueError) as error:
