@@ -156,6 +156,21 @@ capture_gaps = Table(
 )
 Index("ix_capture_gaps_group_gap_from", capture_gaps.c.group_id, capture_gaps.c.gap_from)
 
+purge_jobs = Table(
+    "purge_jobs",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("scope_kind", Text, nullable=False),
+    Column("scope_key", Text, nullable=False),
+    Column("requested_at", DateTime(timezone=True), nullable=False),
+    Column("state", Text, nullable=False),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("reason", Text, nullable=True),
+    Column("result_counts", JSONB, nullable=False),
+    CheckConstraint("scope_kind IN ('grant', 'post')", name="ck_purge_jobs_scope_kind"),
+    CheckConstraint("state IN ('running', 'succeeded', 'failed')", name="ck_purge_jobs_state"),
+)
+
 sellers = Table(
     "sellers",
     metadata,
