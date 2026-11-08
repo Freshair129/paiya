@@ -328,6 +328,88 @@ def test_replay_stops_at_malformed_line(pg_engine, paths):
     assert log.read_bytes() == original
 
 
+@pytest.mark.parametrize("mismatch", ["scope_kind", "scope_key", "requested_at"])
+def test_replay_refuses_existing_id_with_different_identity(pg_engine, paths, mismatch):
+    root, log = paths
+    scope = seed_fixture_scope(pg_engine, "synthetic-a8c-conflict")
+    ingest_fixture(pg_engine, scope, image_document(scope, "other"), {"image": WEBP}, root)
+    other_scope = seed_fixture_scope(pg_engine, "synthetic-a8c-conflict-other")
+    ingest_fixture(
+        pg_engine, other_scope, image_document(other_scope, "other-scope"), {"image": WEBP}, root
+    )
+    record, later = entry(), entry()
+    record["scope_key"] = str(scope.grant_id)
+    row = {
+        "id": record["id"],
+        "scope_kind": record["scope_kind"],
+        "scope_key": record["scope_key"],
+        "requested_at": datetime(2026, 11, 8, tzinfo=UTC),
+        "state": "failed",
+        "result_counts": {},
+    }
+    if mismatch == "scope_kind":
+        row["scope_kind"] = "post"
+    elif mismatch == "scope_key":
+        row["scope_key"] = str(other_scope.grant_id)
+    else:
+        row["requested_at"] = datetime(2026, 11, 7, tzinfo=UTC)
+    with pg_engine.begin() as conn:
+        conn.execute(insert(purge_jobs).values(**row))
+        before_jobs = conn.execute(select(purge_jobs)).all()
+    before = snapshot(pg_engine)
+    files = {path: path.read_bytes() for path in (root / "assets").iterdir()}
+    write_log(log, [record, later])
+    original_log = log.read_bytes()
+
+    with pytest.raises(PurgeError) as exc:
+        replay_purge_log(pg_engine)
+    assert exc.value.code == "purge_log_invalid"
+    with pg_engine.connect() as conn:
+        assert conn.execute(select(purge_jobs)).all() == before_jobs
+    assert snapshot(pg_engine) == before
+    assert {path: path.read_bytes() for path in (root / "assets").iterdir()} == files
+    assert log.read_bytes() == original_log
+
+
+def test_cli_replay_failed_transaction_remains_pending_then_succeeds(
+    pg_engine, paths, monkeypatch, capsys
+):
+    root, log = paths
+    scope = seed_fixture_scope(pg_engine, "synthetic-a8c-cli-retry")
+    ingest_fixture(pg_engine, scope, image_document(scope, "post"), {"image": WEBP}, root)
+    revoke_grant(pg_engine, scope.grant_id)
+    before = snapshot(pg_engine)
+    files = {path: path.read_bytes() for path in (root / "assets").iterdir()}
+    record = entry()
+    record["scope_key"] = str(scope.grant_id)
+    write_log(log, [record])
+    monkeypatch.setattr(cli, "get_database_engine", lambda: pg_engine)
+    original_delete = service._delete_count
+
+    def fail_late(conn, table, predicate, key):
+        if table.name == "observations":
+            raise RuntimeError("synthetic failure after deleting facts")
+        return original_delete(conn, table, predicate, key)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(service, "_delete_count", fail_late)
+        assert cli.main(["purge", "replay"]) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["pending_count"] == 1
+    assert [(item["purge_id"], item["state"]) for item in output["results"]] == [
+        (record["id"], "failed")
+    ]
+    assert snapshot(pg_engine) == before
+    assert {path: path.read_bytes() for path in (root / "assets").iterdir()} == files
+
+    assert cli.main(["purge", "replay"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["pending_count"] == 0
+    assert [(item["purge_id"], item["state"]) for item in output["results"]] == [
+        (record["id"], "succeeded")
+    ]
+
+
 def test_replay_stops_before_nonsynthetic_scope(pg_engine, paths):
     _, log = paths
     scope = seed_fixture_scope(pg_engine, "synthetic-a8c-boundary")
