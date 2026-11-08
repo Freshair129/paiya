@@ -126,6 +126,20 @@ def test_distinct_keys_and_scopes_never_merge_sellers(pg_engine, tmp_path):
             assert [row["post_id"] for row in page["posts"]] == [post]
 
 
+def test_unknown_identity_stays_unlinked_across_groups(pg_engine, tmp_path):
+    a = seed_fixture_scope(pg_engine, "synthetic-unknown-seller-a")
+    b = seed_fixture_scope(pg_engine, "synthetic-unknown-seller-b")
+    pa, sa = record(pg_engine, a, tmp_path, envelope(a, "one", actor=None))
+    pb, sb = record(pg_engine, b, tmp_path, envelope(b, "two", actor=None))
+    assert pa != pb
+    assert sa is None and sb is None
+    with pg_engine.connect() as conn:
+        rows = conn.execute(
+            select(posts.c.id, posts.c.group_id, posts.c.seller_id).where(posts.c.id.in_([pa, pb]))
+        ).all()
+    assert set(rows) == {(pa, a.group_id, None), (pb, b.group_id, None)}
+
+
 def test_seller_api_context_and_errors(pg_engine, tmp_path):
     a = seed_fixture_scope(pg_engine, "synthetic-seller-group-a")
     b = seed_fixture_scope(pg_engine, "synthetic-seller-group-b")

@@ -636,6 +636,43 @@ def test_failing_model_does_not_block_ingest_or_reads(pg_engine, tmp_path, monke
         app.dependency_overrides.clear()
 
 
+def test_failed_enrichment_does_not_block_fixture_discovery(pg_engine, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from paiya.collector.feed_script import FeedScriptAdapter
+    from paiya.collector.run import execute_discovery
+    from paiya.read.service import read_posts
+    from paiya.scheduler.queue import claim_next, schedule_due
+    from paiya.store.tables import groups
+
+    monkeypatch.setenv("PAIYA_ENRICH_ENABLED", "true")
+    scope = seed_fixture_scope(pg_engine, "synthetic-feed-s05")
+    doc = envelope(scope, "before-model-failure")
+    ingest_fixture(pg_engine, scope, doc, {}, tmp_path)
+    now = datetime.now(UTC) + timedelta(seconds=2)
+    transport = httpx.MockTransport(lambda request: httpx.Response(500))
+    for offset in (0, 1, 6):
+        result = run_enrich_once(
+            pg_engine, transport=transport, now=now + timedelta(minutes=offset)
+        )
+    assert result["state"] == "failed"
+    now += timedelta(minutes=7)
+    with pg_engine.begin() as conn:
+        conn.execute(update(groups).where(groups.c.id == scope.group_id).values(poll_minutes=30))
+    with pg_engine.connect() as conn:
+        schedule_due(conn, now)
+        claim = claim_next(conn, now)
+    assert claim is not None and claim.kind == "discover"
+    feed = FeedScriptAdapter(
+        Path(__file__).resolve().parents[1] / "fixtures/feeds/S05-pinned-overlap/feed.json"
+    )
+    discovered = execute_discovery(pg_engine, scope, claim, feed, "r1", now, media_root=tmp_path)
+    assert "s05-p1" in discovered.ingested_keys
+    with pg_engine.connect() as conn:
+        posts = read_posts(conn, scope)["posts"]
+    assert any(post["permalink"].endswith("/s05-p1") for post in posts)
+
+
 def test_grant_revoked_after_lease_stops_request(pg_engine, tmp_path, monkeypatch):
     from paiya.enrich import service
 

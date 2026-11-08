@@ -1,5 +1,50 @@
 import { test, expect } from './fixtures'
 
+test('AT-05.5 primary mobile actions are visible and usable', async ({ page }) => {
+  async function usable(locator: ReturnType<typeof page.getByRole>) {
+    await expect(locator).toBeVisible()
+    await locator.focus()
+    await expect(locator).toBeFocused()
+    const box = await locator.boundingBox()
+    expect(box!.width).toBeGreaterThanOrEqual(44)
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360)
+  }
+  await page.goto('/')
+  const filters = page.getByRole('button', { name: /ตัวกรอง/ }).first()
+  await usable(filters)
+  await filters.click()
+  const apply = page.getByRole('dialog').getByRole('button', { name: 'แสดงผล' })
+  await usable(apply)
+  await apply.click()
+  const card = page.locator('.post-card-link').first()
+  await usable(card)
+  await card.click()
+  const evidence = page.locator('.link-list a[href^="/evidence/"]').first()
+  await usable(evidence)
+  await evidence.click()
+  await usable(page.getByRole('link', { name: 'เปิดโพสต์ต้นทาง' }))
+  const watches = page.getByRole('link', { name: 'ติดตาม', exact: true })
+  await usable(watches)
+  await watches.click()
+  await expect(page.getByRole('heading', { name: 'ติดตาม' })).toBeVisible()
+})
+
+test('AT-08.7 existing posts remain searchable when models fail', async ({ page }) => {
+  await page.route('**/v1/models', (route) => route.fulfill({ status: 503, body: '{}' }))
+  await page.goto('/')
+  await expect(page.locator('.post-card-link')).toHaveCount(3)
+  await page.getByRole('button', { name: /ตัวกรอง/ }).first().click()
+  const sheet = page.getByRole('dialog', { name: 'กรองสินค้า' })
+  await expect(sheet.getByText('โหลดรายการรุ่นไม่สำเร็จ')).toBeVisible()
+  await sheet.getByLabel('สถานะการขาย').selectOption('reserved')
+  await sheet.getByLabel('ราคาตั้งแต่').fill('5000')
+  await sheet.getByRole('button', { name: 'แสดงผล' }).click()
+  await expect(page.locator('.post-card-link')).toHaveCount(1)
+  await page.locator('.post-card-link').first().click()
+  await expect(page.locator('.link-list a[href^="/evidence/"]').first()).toBeVisible()
+})
+
 test('AT-05 captured image within three taps', async ({ page }) => {
   await page.goto('/')
   const card = page.locator('.post-card-link').filter({ has: page.locator('img') }).first()
