@@ -125,11 +125,22 @@ def case_label(case: dict[str, Any]) -> str:
     )
 
 
+LABEL_STATUSES = ("agent-draft", "agent-reviewed-owner-delegated", "owner-confirmed")
+STATUS_LINES = {
+    "agent-draft": "สถานะป้าย: agent-draft · ผู้ดูแลต้องตรวจและยืนยันก่อนใช้เป็น answer key",
+    "agent-reviewed-owner-delegated": (
+        "สถานะป้าย: agent-reviewed-owner-delegated · reviewer เอเจนต์อิสระตรวจทุกแถวตามที่ผู้ดูแล"
+        "มอบหมายใน Issue #72; ยังไม่ใช่ป้ายที่คนตรวจ"
+    ),
+    "owner-confirmed": "สถานะป้าย: owner-confirmed · ผู้ดูแลยืนยันใน Issue #72",
+}
+
+
 def review_markdown(labels: dict[str, Any]) -> str:
     lines = [
         "# A9b — ใบตรวจป้ายร่าง",
         "",
-        "สถานะป้าย: agent-draft · ผู้ดูแลต้องตรวจและยืนยันก่อนใช้เป็น answer key",
+        STATUS_LINES[labels["label_status"]],
         "",
         "| case_id | fixture path | สิ่งที่ fixture แสดง | label | เหตุผลตาม SRS/สัญญา | "
         "ambiguous + คำถาม |",
@@ -171,9 +182,10 @@ def validate_corpus(corpus: Path, compare_review: bool = True) -> tuple[list[str
         errors.append(f"{labels_path}: corpus must be A9b")
     if labels.get("version") != 1:
         errors.append(f"{labels_path}: version must be 1")
-    if labels.get("label_status") != "agent-draft":
+    if labels.get("label_status") not in LABEL_STATUSES:
         errors.append(
-            f"{labels_path}: label_status must remain agent-draft until owner confirmation"
+            f"{labels_path}: label_status must be one of {LABEL_STATUSES}; "
+            "only the owner's comment in #72 moves it past agent-draft"
         )
     if labels.get("drafted_by") != "gpt-6-luna":
         errors.append(f"{labels_path}: drafted_by must be gpt-6-luna")
@@ -681,7 +693,8 @@ def main() -> int:
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    print("A9b corpus OK; labels remain agent-draft pending owner review.")
+    status = json.loads(labels_path.read_text(encoding="utf-8"))["label_status"]
+    print(f"A9b corpus OK; label_status={status}.")
     return 0
 
 

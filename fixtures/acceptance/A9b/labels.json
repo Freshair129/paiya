@@ -1,7 +1,7 @@
 {
   "corpus": "A9b",
   "version": 1,
-  "label_status": "agent-draft",
+  "label_status": "agent-reviewed-owner-delegated",
   "drafted_by": "gpt-6-luna",
   "cases": [
     {
@@ -179,10 +179,10 @@
       "run_label": "page-2",
       "card_index": 1,
       "post_key": "d02-c",
-      "labelled_visible": false,
+      "labelled_visible": true,
       "readable": true,
       "description_th": "การ์ด C ซ้ำในชุดหลังเรียงใหม่",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — stable post เดิมปรากฏแล้วในชุดแรก",
+      "reason": "SRS §7 AT-02 (ในขอบเขตรอบนั้น); discovery-queue.md §4 และตาราง AT-02 นับตัวหาร “ต่อรอบและรวมทุกรอบ” — page-2 เป็นรอบของตัวเอง การ์ดนี้โหลดและอ่านได้ในรอบนั้นจึงอยู่ในตัวหารของรอบ (แก้ร่างเดิมที่ตัดเพราะเคยเห็นในชุดแรก; ผลรวมทุกรอบนับ key ไม่ซ้ำ)",
       "ambiguous": false,
       "question": null
     },
@@ -193,10 +193,10 @@
       "run_label": "page-2",
       "card_index": 2,
       "post_key": "d02-a",
-      "labelled_visible": false,
+      "labelled_visible": true,
       "readable": true,
       "description_th": "การ์ด A ซ้ำในชุดหลังเรียงใหม่",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — stable post เดิมปรากฏแล้วในชุดแรก",
+      "reason": "SRS §7 AT-02 (ในขอบเขตรอบนั้น); discovery-queue.md §4 และตาราง AT-02 นับตัวหาร “ต่อรอบและรวมทุกรอบ” — page-2 เป็นรอบของตัวเอง การ์ดนี้โหลดและอ่านได้ในรอบนั้นจึงอยู่ในตัวหารของรอบ (แก้ร่างเดิมที่ตัดเพราะเคยเห็นในชุดแรก; ผลรวมทุกรอบนับ key ไม่ซ้ำ)",
       "ambiguous": false,
       "question": null
     },
@@ -207,10 +207,10 @@
       "run_label": "page-2",
       "card_index": 3,
       "post_key": "d02-b",
-      "labelled_visible": false,
+      "labelled_visible": true,
       "readable": true,
       "description_th": "การ์ด B ซ้ำในชุดหลังเรียงใหม่",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — stable post เดิมปรากฏแล้วในชุดแรก",
+      "reason": "SRS §7 AT-02 (ในขอบเขตรอบนั้น); discovery-queue.md §4 และตาราง AT-02 นับตัวหาร “ต่อรอบและรวมทุกรอบ” — page-2 เป็นรอบของตัวเอง การ์ดนี้โหลดและอ่านได้ในรอบนั้นจึงอยู่ในตัวหารของรอบ (แก้ร่างเดิมที่ตัดเพราะเคยเห็นในชุดแรก; ผลรวมทุกรอบนับ key ไม่ซ้ำ)",
       "ambiguous": false,
       "question": null
     },
@@ -224,7 +224,7 @@
       "labelled_visible": true,
       "readable": true,
       "description_th": "การ์ดใหม่ท้ายชุดหลังเรียงใหม่",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — stable key ใหม่และอ่านได้",
+      "reason": "SRS §7 AT-02; discovery-queue.md §4 Overlap และ §6 feed script — การ์ดนี้อยู่หลังจุดถึง overlap แต่โหลดในขั้นเลื่อนเดียวกัน; สัญญาไม่ได้ตัดการ์ดที่โหลดแล้วออกจากขอบเขตรอบ จึงนับเป็นโพสต์ที่โหลดเห็น (การตีความของ lead ใน #72)",
       "ambiguous": false,
       "question": null
     },
@@ -364,7 +364,7 @@
       "labelled_visible": false,
       "readable": false,
       "description_th": "การ์ด d04-p4 หลังจุดหยุด",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — การ์ดอยู่หลัง load_limit จึงไม่ถูกโหลดในรอบ",
+      "reason": "SRS §7 AT-02; discovery-queue.md §4 — การ์ดอยู่หลัง load_limit จึงไม่ถูกโหลดในรอบ (ไม่ได้โหลด ไม่ใช่การ์ดที่โหลดแล้วอ่านไม่ได้; ไม่อยู่ในตัวหาร)",
       "ambiguous": false,
       "question": null
     },
@@ -378,7 +378,7 @@
       "labelled_visible": false,
       "readable": false,
       "description_th": "การ์ด d04-p5 หลังจุดหยุด",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — การ์ดอยู่หลัง load_limit จึงไม่ถูกโหลดในรอบ",
+      "reason": "SRS §7 AT-02; discovery-queue.md §4 — การ์ดอยู่หลัง load_limit จึงไม่ถูกโหลดในรอบ (ไม่ได้โหลด ไม่ใช่การ์ดที่โหลดแล้วอ่านไม่ได้; ไม่อยู่ในตัวหาร)",
       "ambiguous": false,
       "question": null
     },
@@ -392,7 +392,7 @@
       "labelled_visible": false,
       "readable": false,
       "description_th": "การ์ด d04-p6 หลังจุดหยุด",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — การ์ดอยู่หลัง load_limit จึงไม่ถูกโหลดในรอบ",
+      "reason": "SRS §7 AT-02; discovery-queue.md §4 — การ์ดอยู่หลัง load_limit จึงไม่ถูกโหลดในรอบ (ไม่ได้โหลด ไม่ใช่การ์ดที่โหลดแล้วอ่านไม่ได้; ไม่อยู่ในตัวหาร)",
       "ambiguous": false,
       "question": null
     },
@@ -1752,5 +1752,6 @@
       "question": null,
       "final_round": "rounds/01-final.json"
     }
-  ]
+  ],
+  "reviewed_by": "independent agent reviewer (Claude subagent), owner-delegated in #72"
 }

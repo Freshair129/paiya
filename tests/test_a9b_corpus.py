@@ -172,7 +172,13 @@ def render(labels, answers):
     lines = [
         "# ผลวัด A9b — fixture (A)",
         "",
-        "ผลนี้ใช้ป้ายร่างที่ยังรอเจ้าของตรวจ",
+        {
+            "agent-draft": "ผลนี้ใช้ป้ายร่างที่ยังรอเจ้าของตรวจ",
+            "agent-reviewed-owner-delegated": (
+                "ผลนี้ใช้ป้ายที่ reviewer เอเจนต์อิสระตรวจตามที่ผู้ดูแลมอบหมายใน #72 ไม่ใช่ป้ายที่คนตรวจ"
+            ),
+            "owner-confirmed": "ผลนี้ใช้ป้ายที่ผู้ดูแลยืนยันใน #72",
+        }[labels["label_status"]],
         "",
         f"labels.json SHA-256: `{sha}` · label_status: `{labels['label_status']}`",
         "ผลนี้เป็น fixture สังเคราะห์ ไม่ใช่ผล pilot",

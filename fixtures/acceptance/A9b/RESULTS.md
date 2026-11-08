@@ -1,8 +1,8 @@
 # ผลวัด A9b — fixture (A)
 
-ผลนี้ใช้ป้ายร่างที่ยังรอเจ้าของตรวจ
+ผลนี้ใช้ป้ายที่ reviewer เอเจนต์อิสระตรวจตามที่ผู้ดูแลมอบหมายใน #72 ไม่ใช่ป้ายที่คนตรวจ
 
-labels.json SHA-256: `28e6ef795de6b4f897cc94059045225262370c4d74abb734e290c27665145048` · label_status: `agent-draft`
+labels.json SHA-256: `48d9659d41437c58a29fa283ce01ec14e66a6e4ec841eba86cc505ccbdf2a551` · label_status: `agent-reviewed-owner-delegated`
 ผลนี้เป็น fixture สังเคราะห์ ไม่ใช่ผล pilot
 
 ## การค้นพบ AT-02
@@ -13,7 +13,7 @@ Visible recall รวม: 37/37
   - `r1`: 6/6
 - `discovery/D02-reordered-batches/feed.json`: 7/7
   - `page-1`: 5/5
-  - `page-2`: 2/2
+  - `page-2`: 5/5
 - `discovery/D03-sort-unverified/feed.json`: 6/6
   - `r1`: 6/6
 - `discovery/D04-stop-before-overlap/feed.json`: 3/3
