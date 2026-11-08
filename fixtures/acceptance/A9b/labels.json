@@ -25,10 +25,10 @@
       "run_label": "r1",
       "card_index": 1,
       "post_key": "d01-pin-out",
-      "labelled_visible": false,
+      "labelled_visible": true,
       "readable": true,
       "description_th": "การ์ดปักหมุดที่ระบุไว้นอก scope",
-      "reason": "SRS §7 AT-02; discovery-queue.md §4 การอ่านฟีดและความครอบคลุม — fixture ระบุการ์ดปักหมุดนี้ไว้นอกขอบเขตรอบ",
+      "reason": "SRS §7 AT-02; discovery-queue.md §4 — การ์ดปักหมุดยังนำเข้าได้แต่ไม่นับต่อเนื่องและไม่ตัดลำดับ; feed script ไม่มีฟิลด์ scope แยกการ์ดนี้ จึงนับเป็นโพสต์ที่โหลดเห็นในรอบ (แก้ร่างเดิมที่ติด false)",
       "ambiguous": false,
       "question": null
     },
@@ -1356,9 +1356,9 @@
       "clear_sold_evidence": false,
       "trap": "unlinked_closing_evidence",
       "description_th": "มีข้อความหลักฐานปิดขาย แต่ item ไม่ได้ผูก local key ผ่าน evidence_keys",
-      "reason": "SRS §7 AT-03; item-status-and-watches.md §2 ข้อเท็จจริงสถานะ — item ไม่มี evidence_keys จึงไม่มี status fact ใหม่; สถานะ open ที่ยืนยันในรอบแรกยังคงอยู่",
-      "ambiguous": true,
-      "question": "สัญญาไม่มี URL แยกสำหรับ evidence; ยืนยันหรือไม่ว่าการไม่ผูก evidence key ใน item.evidence_keys คือกรณีลิงก์ปิดขายขาดของ AT-03?",
+      "reason": "SRS §7 AT-03 (ลิงก์ขาดต้องไม่ทำให้ปิดขาย); item-status-and-watches.md §2 ข้อเท็จจริงสถานะ — ป้าย ขายแล้ว ไม่มี evidence_keys ผูกกับ item จึงไม่มี status fact ใหม่ และ open ที่ยืนยันในรอบแรกยังคงอยู่. คำตัดสิน lead ใน Issue #72: ลิงก์ขาดครอบคลุมทั้งหลักฐานที่โยงกลับต้นทางไม่ได้ (permalink/comment หาย ถูกปฏิเสธตอนตรวจ schema, ครอบคลุมใน A9a) และหลักฐานที่ไม่ผูกกับ item (กรณีนี้)",
+      "ambiguous": false,
+      "question": null,
       "final_round": "rounds/02-closing-unlinked.json"
     },
     {
@@ -1373,9 +1373,9 @@
       "clear_sold_evidence": false,
       "trap": "unlinked_closing_evidence",
       "description_th": "มีข้อความหลักฐานปิดขาย แต่ item ไม่ได้ผูก local key ผ่าน evidence_keys",
-      "reason": "SRS §7 AT-03; item-status-and-watches.md §2 ข้อเท็จจริงสถานะ — item ไม่มี evidence_keys จึงไม่มี status fact ใหม่; สถานะ open ที่ยืนยันในรอบแรกยังคงอยู่",
-      "ambiguous": true,
-      "question": "สัญญาไม่มี URL แยกสำหรับ evidence; ยืนยันหรือไม่ว่าการไม่ผูก evidence key ใน item.evidence_keys คือกรณีลิงก์ปิดขายขาดของ AT-03?",
+      "reason": "SRS §7 AT-03 (ลิงก์ขาดต้องไม่ทำให้ปิดขาย); item-status-and-watches.md §2 ข้อเท็จจริงสถานะ — ป้าย ขายแล้ว ไม่มี evidence_keys ผูกกับ item จึงไม่มี status fact ใหม่ และ open ที่ยืนยันในรอบแรกยังคงอยู่. คำตัดสิน lead ใน Issue #72: ลิงก์ขาดครอบคลุมทั้งหลักฐานที่โยงกลับต้นทางไม่ได้ (permalink/comment หาย ถูกปฏิเสธตอนตรวจ schema, ครอบคลุมใน A9a) และหลักฐานที่ไม่ผูกกับ item (กรณีนี้)",
+      "ambiguous": false,
+      "question": null,
       "final_round": "rounds/02-closing-unlinked.json"
     },
     {
@@ -1390,9 +1390,9 @@
       "clear_sold_evidence": false,
       "trap": "unlinked_closing_evidence",
       "description_th": "มีข้อความหลักฐานปิดขาย แต่ item ไม่ได้ผูก local key ผ่าน evidence_keys",
-      "reason": "SRS §7 AT-03; item-status-and-watches.md §2 ข้อเท็จจริงสถานะ — item ไม่มี evidence_keys จึงไม่มี status fact ใหม่; สถานะ open ที่ยืนยันในรอบแรกยังคงอยู่",
-      "ambiguous": true,
-      "question": "สัญญาไม่มี URL แยกสำหรับ evidence; ยืนยันหรือไม่ว่าการไม่ผูก evidence key ใน item.evidence_keys คือกรณีลิงก์ปิดขายขาดของ AT-03?",
+      "reason": "SRS §7 AT-03 (ลิงก์ขาดต้องไม่ทำให้ปิดขาย); item-status-and-watches.md §2 ข้อเท็จจริงสถานะ — ป้าย ขายแล้ว ไม่มี evidence_keys ผูกกับ item จึงไม่มี status fact ใหม่ และ open ที่ยืนยันในรอบแรกยังคงอยู่. คำตัดสิน lead ใน Issue #72: ลิงก์ขาดครอบคลุมทั้งหลักฐานที่โยงกลับต้นทางไม่ได้ (permalink/comment หาย ถูกปฏิเสธตอนตรวจ schema, ครอบคลุมใน A9a) และหลักฐานที่ไม่ผูกกับ item (กรณีนี้)",
+      "ambiguous": false,
+      "question": null,
       "final_round": "rounds/02-closing-unlinked.json"
     },
     {

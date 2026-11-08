@@ -23,12 +23,12 @@
     },
     "seller": {
       "identity_scope": "synthetic-feed-d05",
-      "external_actor_key": "seller-d05-05",
+      "external_actor_key": "seller-d05-01",
       "display_name": "ผู้ขายสมมติ D05"
     },
     "items": [
       {
-        "source_item_key": "item-5",
+        "source_item_key": "item-1",
         "model": "RTX 3060 12GB",
         "condition_text": "ใช้งานได้",
         "source_status_label": "เปิดขาย",

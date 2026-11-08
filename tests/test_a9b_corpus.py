@@ -174,7 +174,7 @@ def render(labels, answers):
         "",
         "ผลนี้ใช้ป้ายร่างที่ยังรอเจ้าของตรวจ",
         "",
-        f"Labels commit: `31f2de2dded9d7c1458a4da472ddd7d26e7a383e` · SHA-256: `{sha}` · label_status: `{labels['label_status']}`",  # noqa: E501
+        f"labels.json SHA-256: `{sha}` · label_status: `{labels['label_status']}`",
         "ผลนี้เป็น fixture สังเคราะห์ ไม่ใช่ผล pilot",
         "",
         "## การค้นพบ AT-02",

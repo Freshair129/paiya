@@ -2,15 +2,15 @@
 
 ผลนี้ใช้ป้ายร่างที่ยังรอเจ้าของตรวจ
 
-Labels commit: `31f2de2dded9d7c1458a4da472ddd7d26e7a383e` · SHA-256: `837beeddb7bc1cddf42b1b7ae89f66b7a83eed44f3eef350d8342f91159f5c5d` · label_status: `agent-draft`
+labels.json SHA-256: `28e6ef795de6b4f897cc94059045225262370c4d74abb734e290c27665145048` · label_status: `agent-draft`
 ผลนี้เป็น fixture สังเคราะห์ ไม่ใช่ผล pilot
 
 ## การค้นพบ AT-02
 
 Corpus total: 112/100 minimum
-Visible recall รวม: 35/36
-- `discovery/D01-pinned-scope/feed.json`: 5/5
-  - `r1`: 5/5
+Visible recall รวม: 37/37
+- `discovery/D01-pinned-scope/feed.json`: 6/6
+  - `r1`: 6/6
 - `discovery/D02-reordered-batches/feed.json`: 7/7
   - `page-1`: 5/5
   - `page-2`: 2/2
@@ -18,8 +18,8 @@ Visible recall รวม: 35/36
   - `r1`: 6/6
 - `discovery/D04-stop-before-overlap/feed.json`: 3/3
   - `r1`: 3/3
-- `discovery/D05-duplicate-cards/feed.json`: 4/5
-  - `r1`: 4/5
+- `discovery/D05-duplicate-cards/feed.json`: 5/5
+  - `r1`: 5/5
 - `discovery/D06-unreadable-cards/feed.json`: 4/4
   - `r1`: 4/4
 - `discovery/D07-challenge-page/feed.json`: 0/0
@@ -27,8 +27,7 @@ Visible recall รวม: 35/36
 - `discovery/D08-complete-feed/feed.json`: 6/6
   - `r1`: 6/6
 - Unreadable: 11/52: D04-C04, D04-C05, D04-C06, D06-C02, D06-C04, D07-C01, D07-C02, D07-C03, D07-C04, D07-C05, D07-C06
-- Visible misses: D05-C06
-- `discovery/D05-duplicate-cards/feed.json`: r1: CaptureConflict: capture_id reused with different envelope content; พบจาก posts ที่ commit ก่อน exception เท่านั้น
+- Visible misses: none
 
 ## สถานะ AT-03
 
