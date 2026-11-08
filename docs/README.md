@@ -19,6 +19,7 @@
 | [architecture/contracts/revocation-and-purge.md](architecture/contracts/revocation-and-purge.md) | คำสั่งเพิกถอน grant งานลบตามขอบเขต การสร้างข้อมูลอนุพันธ์ใหม่ และ replay คำสั่งลบหลังกู้คืน | เจ้าของ Worker และฐานข้อมูล |
 | [architecture/contracts/backup-and-restore.md](architecture/contracts/backup-and-restore.md) | ชุดสำรอง คำสั่ง create/verify/restore/status ตาราง `backup_runs` และขอบเขต O1a กับ O1b | เจ้าของ Worker และฐานข้อมูล |
 | [architecture/contracts/system-health.md](architecture/contracts/system-health.md) | structured log, เกณฑ์ดิสก์ใกล้เต็ม, `GET /v1/admin/health`, หน้าจัดการ และเกณฑ์ตรวจ O2 | เจ้าของ Worker, API และ PWA |
+| [architecture/contracts/continuity-drill.md](architecture/contracts/continuity-drill.md) | worker สำหรับ fixture จุดจำลองการหยุด และสคริปต์ซ้อมความต่อเนื่อง O4 | เจ้าของ Worker และ QA |
 | [architecture/views/erd.md](architecture/views/erd.md) | ERD ของต้นทาง การสังเกต หลักฐาน ราคา และการติดตาม อ่านคู่กับข้อบังคับของแต่ละความสัมพันธ์ | Tech lead + เจ้าของฐานข้อมูล |
 | [architecture/data-model.md](architecture/data-model.md) | พจนานุกรมข้อมูล PostgreSQL ระดับตรรกะ หน่วยข้อมูล คีย์ ข้อบังคับ ดัชนี และวงจรลบ/สร้างใหม่ | เจ้าของฐานข้อมูล + API |
 | [architecture/contracts/buyer-workflows.md](architecture/contracts/buyer-workflows.md) | แบบสัญญาใหม่สำหรับนำเข้าด้วยมือ ประเมินกฎ แจ้งเตือน ติดตามรายชิ้น และเทียบราคาพร้อมหลักฐาน | เจ้าของ PWA + API + Worker |
