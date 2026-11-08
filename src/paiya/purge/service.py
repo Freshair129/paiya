@@ -23,10 +23,16 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.sql import ColumnElement
 
 from paiya.extract.service import recompute_listing_item_projection
+from paiya.grants.errors import GrantError
+from paiya.grants.service import revoke_grant
 from paiya.purge.errors import PurgeError
+from paiya.purge.log import PurgeLogEntry, ensure_unique_purge_ids, iter_purge_log
+from paiya.purge.startup import count_pending_purge_ids
 from paiya.status.service import rebuild_current_item_after_purge
 from paiya.store.media import (
     lock_media_asset_for_session,
@@ -744,6 +750,310 @@ def _record_failed(
         )
 
 
+def _replay_scope_status(conn: Connection, scope_kind: str, scope_id: UUID) -> tuple[bool, bool]:
+    """Return whether a replay scope exists and whether its grant needs revocation."""
+    if scope_kind == "grant":
+        row = (
+            conn.execute(
+                select(
+                    source_grants.c.revoked_at,
+                    groups.c.source,
+                    groups.c.group_key,
+                )
+                .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
+                .where(source_grants.c.id == scope_id)
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            return False, False
+        if row["source"] != "fixture" or not cast(str, row["group_key"]).startswith("synthetic-"):
+            raise PurgeError("scope_not_permitted", "Only synthetic-* scopes may be purged")
+        return True, row["revoked_at"] is None
+
+    row = (
+        conn.execute(
+            select(groups.c.source, groups.c.group_key)
+            .select_from(posts.join(groups, groups.c.id == posts.c.group_id))
+            .where(posts.c.id == scope_id)
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return False, False
+    if row["source"] != "fixture" or not cast(str, row["group_key"]).startswith("synthetic-"):
+        raise PurgeError("scope_not_permitted", "Only synthetic-* scopes may be purged")
+    return True, False
+
+
+def _same_purge_identity(row: RowMapping, entry: PurgeLogEntry, scope_text: str) -> bool:
+    return (
+        row["scope_kind"] == entry.scope_kind
+        and row["scope_key"] == entry.scope_key
+        and row["requested_at"] == entry.requested_at
+        and scope_text == entry.scope
+    )
+
+
+def _job_result(
+    purge_id: UUID, scope_text: str, state: str, result_counts: object
+) -> dict[str, object]:
+    return {
+        "purge_id": str(purge_id),
+        "scope": scope_text,
+        "state": state,
+        "result_counts": result_counts,
+    }
+
+
+def _start_purge_job(
+    conn: Connection,
+    purge_id: UUID,
+    scope_kind: str,
+    scope_key: str,
+    requested_at: datetime,
+    *,
+    replay_entry: PurgeLogEntry | None,
+) -> dict[str, object] | None:
+    """Insert or resume the command row; return its prior result if already complete."""
+    values = {
+        "id": purge_id,
+        "scope_kind": scope_kind,
+        "scope_key": scope_key,
+        "requested_at": requested_at,
+        "state": "running",
+        "completed_at": None,
+        "reason": None,
+        "result_counts": _empty_counts(),
+    }
+    with conn.begin():
+        if replay_entry is None:
+            conn.execute(insert(purge_jobs).values(**values))
+            return None
+
+        inserted_id = conn.execute(
+            pg_insert(purge_jobs)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=[purge_jobs.c.id])
+            .returning(purge_jobs.c.id)
+        ).scalar_one_or_none()
+        if inserted_id is not None:
+            return None
+
+        existing = (
+            conn.execute(
+                select(
+                    purge_jobs.c.scope_kind,
+                    purge_jobs.c.scope_key,
+                    purge_jobs.c.requested_at,
+                    purge_jobs.c.state,
+                    purge_jobs.c.result_counts,
+                )
+                .where(purge_jobs.c.id == purge_id)
+                .with_for_update()
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if existing is None or not _same_purge_identity(existing, replay_entry, replay_entry.scope):
+            raise PurgeError("purge_log_invalid", "A purge ID conflicts with its recorded command")
+        if existing["state"] == "succeeded":
+            return _job_result(
+                purge_id,
+                replay_entry.scope,
+                "succeeded",
+                existing["result_counts"],
+            )
+        conn.execute(
+            update(purge_jobs)
+            .where(purge_jobs.c.id == purge_id)
+            .values(**{key: value for key, value in values.items() if key != "id"})
+        )
+    return None
+
+
+def _execute_purge_command(
+    engine: Engine,
+    scope: str,
+    *,
+    purge_id: UUID | None = None,
+    requested_at: datetime | None = None,
+    append_log: bool,
+    replay_entry: PurgeLogEntry | None = None,
+    media_root: Path | None = None,
+    log_path: Path | None = None,
+) -> dict[str, object]:
+    """Run the shared purge path using a new logged ID or an existing replay ID."""
+    scope_kind, scope_id, scope_text = _parse_scope(scope)
+    scope_key = str(scope_id)
+    scope_exists = True
+
+    with engine.connect() as conn:
+        _lock_scope_for_session(conn, scope_kind, scope_key)
+        try:
+            if append_log:
+                with conn.begin():
+                    _validate_scope(conn, scope_kind, scope_id, scope_key)
+                    previous = _latest_success(conn, scope_kind, scope_key)
+            else:
+                if replay_entry is None or purge_id is None or requested_at is None:
+                    raise ValueError("Replay requires an existing purge command identity")
+                if (purge_id, requested_at, scope_text) != (
+                    replay_entry.id,
+                    replay_entry.requested_at,
+                    replay_entry.scope,
+                ):
+                    raise ValueError("Replay command identity does not match its log entry")
+                with conn.begin():
+                    scope_exists, needs_revoke = _replay_scope_status(conn, scope_kind, scope_id)
+                    existing = (
+                        conn.execute(
+                            select(
+                                purge_jobs.c.scope_kind,
+                                purge_jobs.c.scope_key,
+                                purge_jobs.c.requested_at,
+                                purge_jobs.c.state,
+                                purge_jobs.c.result_counts,
+                            )
+                            .where(purge_jobs.c.id == purge_id)
+                            .with_for_update()
+                        )
+                        .mappings()
+                        .one_or_none()
+                    )
+                    if existing is not None:
+                        if not _same_purge_identity(existing, replay_entry, scope_text):
+                            raise PurgeError(
+                                "purge_log_invalid",
+                                "A purge ID conflicts with its recorded command",
+                            )
+                        if existing["state"] == "succeeded":
+                            return _job_result(
+                                purge_id,
+                                scope_text,
+                                "succeeded",
+                                existing["result_counts"],
+                            )
+                    previous = _latest_success(conn, scope_kind, scope_key)
+
+                if needs_revoke:
+                    try:
+                        revoke_grant(engine, scope_id)
+                    except GrantError as error:
+                        raise PurgeError(error.code, error.message) from error
+                if scope_exists:
+                    with conn.begin():
+                        _validate_scope(conn, scope_kind, scope_id, scope_key)
+
+            if media_root is None or log_path is None:
+                media_root, log_path = _purge_paths()
+            assert media_root is not None and log_path is not None
+
+            if append_log:
+                purge_id = uuid4()
+                requested_at = datetime.now(UTC)
+                _append_log(log_path, purge_id, scope_kind, scope_key, requested_at)
+            elif purge_id is None or requested_at is None:
+                raise ValueError("Replay requires an existing purge command identity")
+            assert purge_id is not None and requested_at is not None
+
+            if not append_log and not scope_exists and previous is None:
+                counts = _empty_counts()
+                completed = datetime.now(UTC)
+                prior_result = _start_purge_job(
+                    conn,
+                    purge_id,
+                    scope_kind,
+                    scope_key,
+                    requested_at,
+                    replay_entry=replay_entry,
+                )
+                if prior_result is not None:
+                    return prior_result
+                with conn.begin():
+                    conn.execute(
+                        update(purge_jobs)
+                        .where(purge_jobs.c.id == purge_id)
+                        .values(
+                            state="succeeded",
+                            completed_at=completed,
+                            reason=None,
+                            result_counts=counts,
+                        )
+                    )
+                return _job_result(purge_id, scope_text, "succeeded", counts)
+
+            prior_result = _start_purge_job(
+                conn,
+                purge_id,
+                scope_kind,
+                scope_key,
+                requested_at,
+                replay_entry=replay_entry,
+            )
+            if prior_result is not None:
+                return prior_result
+
+            counts = _empty_counts()
+            deleted_asset_keys: list[str] = []
+            if previous is None:
+                try:
+                    with conn.begin():
+                        _validate_scope(conn, scope_kind, scope_id, scope_key)
+                        counts, deleted_assets = _purge_rows(conn, scope_kind, scope_id)
+                        deleted_asset_keys = [file_key for _storage_key, file_key in deleted_assets]
+                except PurgeError as error:
+                    _record_failed(conn, purge_id, error.code)
+                    return {
+                        "purge_id": str(purge_id),
+                        "scope": scope_text,
+                        "state": "failed",
+                        "reason": error.code,
+                        "result_counts": _empty_counts(),
+                    }
+                except Exception:
+                    _record_failed(conn, purge_id, "transaction_failed")
+                    return {
+                        "purge_id": str(purge_id),
+                        "scope": scope_text,
+                        "state": "failed",
+                        "reason": "transaction_failed",
+                        "result_counts": _empty_counts(),
+                    }
+                files_deleted, pending_keys = _retry_file_deletes(
+                    conn, media_root, deleted_asset_keys
+                )
+            else:
+                previous_counts = cast(Mapping[str, Any], previous["result_counts"])
+                previous_pending = previous_counts.get("pending_storage_keys", [])
+                pending_candidates = (
+                    cast(list[str], previous_pending) if isinstance(previous_pending, list) else []
+                )
+                files_deleted, pending_keys = _retry_file_deletes(
+                    conn, media_root, pending_candidates
+                )
+
+            counts["files_deleted"] = files_deleted
+            counts["files_pending"] = len(pending_keys)
+            counts["pending_storage_keys"] = pending_keys
+            with conn.begin():
+                conn.execute(
+                    update(purge_jobs)
+                    .where(purge_jobs.c.id == purge_id)
+                    .values(
+                        state="succeeded",
+                        completed_at=datetime.now(UTC),
+                        reason=None,
+                        result_counts=counts,
+                    )
+                )
+            return _job_result(purge_id, scope_text, "succeeded", counts)
+        finally:
+            _unlock_scope_for_session(conn, scope_kind, scope_key)
+
+
 def _retry_file_deletes(
     conn: Connection, media_root: Path, pending_keys: Sequence[str]
 ) -> tuple[int, list[str]]:
@@ -801,91 +1111,36 @@ def _retry_file_deletes(
 
 def run_purge(engine: Engine, scope: str) -> dict[str, object]:
     """Purge one synthetic grant or post, logging before durable database changes."""
-    scope_kind, scope_id, scope_text = _parse_scope(scope)
-    scope_key = str(scope_id)
-    with engine.connect() as conn:
-        _lock_scope_for_session(conn, scope_kind, scope_key)
-        try:
-            with conn.begin():
-                _validate_scope(conn, scope_kind, scope_id, scope_key)
-                previous = _latest_success(conn, scope_kind, scope_key)
-            media_root, log_path = _purge_paths()
-            purge_id = uuid4()
-            requested_at = datetime.now(UTC)
-            _append_log(log_path, purge_id, scope_kind, scope_key, requested_at)
+    return _execute_purge_command(engine, scope, append_log=True)
 
-            with conn.begin():
-                conn.execute(
-                    insert(purge_jobs).values(
-                        id=purge_id,
-                        scope_kind=scope_kind,
-                        scope_key=scope_key,
-                        requested_at=requested_at,
-                        state="running",
-                        completed_at=None,
-                        reason=None,
-                        result_counts=_empty_counts(),
-                    )
-                )
 
-            counts = _empty_counts()
-            deleted_asset_keys: list[str] = []
-            if previous is None:
-                try:
-                    with conn.begin():
-                        _validate_scope(conn, scope_kind, scope_id, scope_key)
-                        counts, deleted_assets = _purge_rows(conn, scope_kind, scope_id)
-                        deleted_asset_keys = [file_key for _storage_key, file_key in deleted_assets]
-                except PurgeError as error:
-                    _record_failed(conn, purge_id, error.code)
-                    return {
-                        "purge_id": str(purge_id),
-                        "scope": scope_text,
-                        "state": "failed",
-                        "reason": error.code,
-                        "result_counts": _empty_counts(),
-                    }
-                except Exception:
-                    _record_failed(conn, purge_id, "transaction_failed")
-                    return {
-                        "purge_id": str(purge_id),
-                        "scope": scope_text,
-                        "state": "failed",
-                        "reason": "transaction_failed",
-                        "result_counts": _empty_counts(),
-                    }
-                files_deleted, pending_keys = _retry_file_deletes(
-                    conn, media_root, deleted_asset_keys
-                )
-            else:
-                previous_counts = cast(Mapping[str, Any], previous["result_counts"])
-                previous_pending = previous_counts.get("pending_storage_keys", [])
-                pending_candidates = (
-                    cast(list[str], previous_pending) if isinstance(previous_pending, list) else []
-                )
-                files_deleted, pending_keys = _retry_file_deletes(
-                    conn, media_root, pending_candidates
-                )
+def replay_purge_log(engine: Engine) -> dict[str, object]:
+    """Replay pending synthetic purge commands in append order without appending."""
+    media_root, log_path = _purge_paths()
+    results: list[dict[str, object]] = []
+    seen: dict[UUID, PurgeLogEntry] = {}
 
-            counts["files_deleted"] = files_deleted
-            counts["files_pending"] = len(pending_keys)
-            counts["pending_storage_keys"] = pending_keys
-            with conn.begin():
-                conn.execute(
-                    update(purge_jobs)
-                    .where(purge_jobs.c.id == purge_id)
-                    .values(
-                        state="succeeded",
-                        completed_at=datetime.now(UTC),
-                        reason=None,
-                        result_counts=counts,
-                    )
-                )
-            return {
-                "purge_id": str(purge_id),
-                "scope": scope_text,
-                "state": "succeeded",
-                "result_counts": counts,
-            }
-        finally:
-            _unlock_scope_for_session(conn, scope_kind, scope_key)
+    for entry in iter_purge_log(log_path, missing_ok=True):
+        previous_entry = seen.get(entry.id)
+        if previous_entry is not None:
+            if previous_entry != entry:
+                raise PurgeError("purge_log_invalid", "The purge log reuses an ID inconsistently")
+            continue
+        seen[entry.id] = entry
+        result = _execute_purge_command(
+            engine,
+            entry.scope,
+            purge_id=entry.id,
+            requested_at=entry.requested_at,
+            append_log=False,
+            replay_entry=entry,
+            media_root=media_root,
+            log_path=log_path,
+        )
+        results.append(
+            {key: result[key] for key in ("purge_id", "scope", "state", "result_counts")}
+        )
+
+    final_entries = ensure_unique_purge_ids(iter_purge_log(log_path, missing_ok=True))
+    pending_count = count_pending_purge_ids(engine, final_entries)
+    return {"results": results, "pending_count": pending_count}

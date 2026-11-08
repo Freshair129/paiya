@@ -16,7 +16,8 @@ from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.purge.errors import PurgeError
-from paiya.purge.service import run_purge, validate_scope_format
+from paiya.purge.service import replay_purge_log, run_purge, validate_scope_format
+from paiya.purge.startup import check_purge_log
 from paiya.settings import get_database_engine
 from paiya.watches.errors import WatchError
 from paiya.watches.service import add_watch, list_watches, remove_watch, set_watch_hot
@@ -85,6 +86,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     purge_run = purge_actions.add_parser("run", help="purge one synthetic data scope")
     purge_run.add_argument("--scope", required=True)
+    purge_actions.add_parser("replay", help="replay pending synthetic purge commands")
 
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
@@ -111,6 +113,8 @@ def _execute(args: argparse.Namespace) -> object:
     if args.resource == "purge" and args.action == "run":
         validate_scope_format(args.scope)
         return run_purge(get_database_engine(), args.scope)
+    if args.resource == "purge" and args.action == "replay":
+        return replay_purge_log(get_database_engine())
 
     now = datetime.now(UTC)
     engine = get_database_engine()
@@ -127,6 +131,8 @@ def _execute(args: argparse.Namespace) -> object:
 
         if args.action == "status":
             return enrich_status(engine, now=now)
+        if args.action in {"run-once", "run"}:
+            check_purge_log(engine)
         if args.action == "run-once":
             return run_enrich_once(engine, now=now) or {"state": "idle"}
         if args.action == "run":
@@ -184,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print(json.dumps({"ok": True, "result": {"state": "stopped"}}))
         return 0
+    if args.resource == "purge" and args.action == "replay":
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+        replay_result = cast(dict[str, object], result)
+        return 0 if replay_result.get("pending_count") == 0 else 1
     if args.resource == "purge":
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         purge_result = cast(dict[str, object], result)
