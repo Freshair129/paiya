@@ -189,6 +189,73 @@ def table_row_counts(engine: Engine) -> dict[str, int]:
     return result
 
 
+def test_restore_refuses_pending_purge_replay(
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+    pg_tool_commands: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    media_root, _, backup_dir = backup_paths
+    seed_media_post(database_pair.source, media_root, "synthetic-o1a-pending-replay")
+    created = create_backup(database_pair.source)
+    original_replay = backup_service.replay_purge_log
+
+    def replay_with_pending(engine: Engine) -> dict[str, object]:
+        result = original_replay(engine)
+        return {**result, "pending_count": 1}
+
+    monkeypatch.setattr(backup_service, "replay_purge_log", replay_with_pending)
+    with pytest.raises(BackupError) as failure:
+        restore_backup(
+            database_pair.source,
+            set_path=backup_dir / str(created["set_name"]),
+            target_database_url=database_pair.target_url.set(password=None).render_as_string(
+                hide_password=False
+            ),
+            target_media_root=tmp_path / "pending-replay-media",
+        )
+    assert failure.value.code == "purge_replay_incomplete"
+
+
+@pytest.mark.parametrize("orphan", ["missing_file", "extra_file"])
+def test_restore_refuses_media_orphans_in_both_directions(
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+    pg_tool_commands: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    orphan: str,
+) -> None:
+    media_root, _, backup_dir = backup_paths
+    seed_media_post(database_pair.source, media_root, "synthetic-o1a-restore-orphan")
+    created = create_backup(database_pair.source)
+    original_copy = backup_service._copy_restored_media
+
+    def copy_then_introduce_orphan(*args: object) -> None:
+        original_copy(*args)
+        target_root = args[1]
+        assert isinstance(target_root, Path)
+        if orphan == "missing_file":
+            files = [path for path in target_root.rglob("*") if path.is_file()]
+            assert len(files) == 1
+            files[0].unlink()
+        else:
+            (target_root / "synthetic-orphan").write_bytes(b"synthetic-extra")
+
+    monkeypatch.setattr(backup_service, "_copy_restored_media", copy_then_introduce_orphan)
+    with pytest.raises(BackupError) as failure:
+        restore_backup(
+            database_pair.source,
+            set_path=backup_dir / str(created["set_name"]),
+            target_database_url=database_pair.target_url.set(password=None).render_as_string(
+                hide_password=False
+            ),
+            target_media_root=tmp_path / "orphan-media",
+        )
+    assert failure.value.code == "media_orphans_found"
+
+
 def test_backup_status_cli_emits_one_json_result(
     database_pair: DatabasePair,
     monkeypatch: pytest.MonkeyPatch,
@@ -374,7 +441,9 @@ def test_failed_media_copy_is_recorded_and_never_published(
     if media_state == "missing":
         source_file.unlink()
     else:
-        source_file.write_bytes(b"synthetic-mutated-media")
+        data = bytearray(source_file.read_bytes())
+        data[0] ^= 1
+        source_file.write_bytes(data)
 
     with pytest.raises(BackupError) as failure:
         create_backup(database_pair.source)
@@ -397,8 +466,10 @@ def test_verify_rejects_hash_mutations(
     created = create_backup(database_pair.source)
     set_path = backup_dir / str(created["set_name"])
     if changed_file == "db":
-        with (set_path / "db.dump").open("ab") as stream:
-            stream.write(b"synthetic-corruption")
+        db_file = set_path / "db.dump"
+        data = bytearray(db_file.read_bytes())
+        data[0] ^= 1
+        db_file.write_bytes(data)
     else:
         manifest = json.loads((set_path / "manifest.json").read_text(encoding="utf-8"))
         digest = manifest["media"][0]["sha256"]
