@@ -228,7 +228,7 @@
 | AT-08.4 | “ไม่มี notification/alert sink” ใน A; alerts อยู่ใน AT-12/M2 | จัดเป็น N/A in A และรอ M2 ก่อนวัด ไม่ใช้ผล history/current แทนผล alert |
 | AT-10.4 | SRS ระบุ “ภายใต้ cap”; ไม่ชี้ว่าเป็น cap 10 ของ hot watches หรือ budget 10 ของ scheduler | fixture ผ่านค่าที่ทดสอบทั้งสองส่วน; ไม่อ้างว่าได้ข้อสรุปเชิงความหมายเกินสอง assertion นั้น |
 | AT-10.8 | SRS ระบุ “เมื่อชิ้นที่ติดตามทุกชิ้นขายแล้ว”; test เลือกกรณีทุกชิ้นมี seller evidence ว่า sold | verdict ครอบคลุม sold ตามถ้อยคำนี้; ไม่ใช้ withdrawn แทน sold |
-| D05-C06 | collector contract: “payload_hash ต่างกันเป็น conflict”; discovery contract: “ส่ง envelope เข้า ingest ของ A2” | เอกสารไม่กำหนดผลของ run เมื่อ conflict เกิดระหว่างการ์ด; ไม่ตัดสินว่า fixture หรือระบบผิด และต้องได้คำตัดสินก่อน B2 |
+| D05-C05/C06 | ร่างแรกของ D05-C05 ใส่ผู้ขายและ item อื่นใต้ post key เดียวกัน ทำให้เกิด CaptureConflict และ run หยุดก่อน C06; lead แก้ fixture ให้เป็นโพสต์เดิมซ้ำตาม README ของ D05 (commit `253f744`) หลังแก้ D05 ได้ 5/5 | ผล A9b ไม่ขึ้นกับคำถามนี้แล้ว ส่วนกรณีจริงที่โพสต์เดิมเห็นซ้ำใน run เดียวแต่เนื้อหาเปลี่ยน (collector contract: “payload_hash ต่างกันเป็น conflict”; discovery contract ไม่กำหนดผลของ run) อยู่ในรายการวัดใน pilot และต้องตัดสินก่อน B2 |
 
 ## ประวัติแผนการปิดช่องว่าง A9a
 
