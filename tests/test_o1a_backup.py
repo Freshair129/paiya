@@ -12,6 +12,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from threading import Event
 from uuid import uuid4
@@ -719,3 +720,142 @@ def test_create_snapshot_and_purge_share_the_media_advisory_lock(
     assert not media_path(media_root, digest, "image/webp").exists()
     archived_media = backup_dir / str(created["set_name"]) / "media" / digest[:2] / digest
     assert hashlib.sha256(archived_media.read_bytes()).hexdigest() == digest
+
+
+def test_backup_snapshot_holds_media_copy_lock_against_committed_purge(
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+    pg_tool_commands: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media_root, _, backup_dir = backup_paths
+    scope, _post_id, _evidence_id = seed_media_post(
+        database_pair.source, media_root, "synthetic-o1a-snapshot-purge-race"
+    )
+    with database_pair.source.connect() as connection:
+        digest = connection.execute(select(media_assets.c.sha256)).scalar_one()
+
+    revoke_grant(database_pair.source, scope.grant_id)
+    snapshot_purge_ready = Event()
+    resume_dump = Event()
+    purge_futures = []
+    state = {"purge_waiting_for_media_copy_lock": False}
+    original_run_pg_dump = backup_service._run_pg_dump
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+
+        def purge_after_snapshot(database_url: URL, snapshot_id: str, destination: Path) -> int:
+            purge_future = executor.submit(
+                run_purge, database_pair.source, f"grant:{scope.grant_id}"
+            )
+            purge_futures.append(purge_future)
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                with database_pair.source.connect() as connection:
+                    media_row_exists = (
+                        connection.execute(
+                            select(media_assets.c.sha256).where(media_assets.c.sha256 == digest)
+                        ).first()
+                        is not None
+                    )
+                    purge_waiting = connection.execute(
+                        text(
+                            "SELECT EXISTS (SELECT 1 FROM pg_locks "
+                            "WHERE locktype = 'advisory' AND granted = false "
+                            "AND database = (SELECT oid FROM pg_database "
+                            "WHERE datname = current_database()))"
+                        )
+                    ).scalar_one()
+                if not media_row_exists and (purge_waiting or purge_future.done()):
+                    state["purge_waiting_for_media_copy_lock"] = bool(
+                        purge_waiting and not purge_future.done()
+                    )
+                    snapshot_purge_ready.set()
+                    if not resume_dump.wait(20):
+                        raise TimeoutError("backup dump was not resumed after the purge")
+                    return original_run_pg_dump(database_url, snapshot_id, destination)
+                time.sleep(0.025)
+            raise TimeoutError("purge did not commit or wait for the media-copy lock")
+
+        monkeypatch.setattr(backup_service, "_run_pg_dump", purge_after_snapshot)
+        backup_future = executor.submit(create_backup, database_pair.source)
+        try:
+            assert snapshot_purge_ready.wait(20)
+        finally:
+            resume_dump.set()
+        assert len(purge_futures) == 1
+        purge_future = purge_futures[0]
+        created = backup_future.result(timeout=60)
+        purged = purge_future.result(timeout=60)
+
+    assert state["purge_waiting_for_media_copy_lock"] is True
+    assert created["state"] == "succeeded"
+    assert purged["state"] == "succeeded"
+    assert purged["result_counts"]["files_deleted"] == 1
+    assert purged["result_counts"]["pending_storage_keys"] == []
+    assert not media_path(media_root, digest, "image/webp").exists()
+    set_path = backup_dir / str(created["set_name"])
+    manifest = json.loads((set_path / "manifest.json").read_text(encoding="utf-8"))
+    assert digest in {item["sha256"] for item in manifest["media"]}
+    archived_media = set_path / "media" / digest[:2] / digest
+    assert hashlib.sha256(archived_media.read_bytes()).hexdigest() == digest
+
+
+def test_backup_excludes_media_purged_before_backup_starts(
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+    pg_tool_commands: None,
+) -> None:
+    media_root, _, backup_dir = backup_paths
+    scope, _post_id, _evidence_id = seed_media_post(
+        database_pair.source, media_root, "synthetic-o1a-purge-before-backup"
+    )
+    with database_pair.source.connect() as connection:
+        digest = connection.execute(select(media_assets.c.sha256)).scalar_one()
+
+    revoke_grant(database_pair.source, scope.grant_id)
+    purged = run_purge(database_pair.source, f"grant:{scope.grant_id}")
+    assert purged["state"] == "succeeded"
+    assert not media_path(media_root, digest, "image/webp").exists()
+
+    created = create_backup(database_pair.source)
+    set_path = backup_dir / str(created["set_name"])
+    manifest = json.loads((set_path / "manifest.json").read_text(encoding="utf-8"))
+    assert created["media_count"] == 0
+    assert digest not in {item["sha256"] for item in manifest["media"]}
+
+
+def test_restore_marks_backup_run_succeeded_at_manifest_time(
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+    pg_tool_commands: None,
+    tmp_path: Path,
+) -> None:
+    media_root, _, backup_dir = backup_paths
+    seed_media_post(database_pair.source, media_root, "synthetic-o1a-restore-run-status")
+    created = create_backup(database_pair.source)
+    set_path = backup_dir / str(created["set_name"])
+    manifest = json.loads((set_path / "manifest.json").read_text(encoding="utf-8"))
+    expected_completed_at = datetime.fromisoformat(manifest["created_at"].replace("Z", "+00:00"))
+
+    restore_backup(
+        database_pair.source,
+        set_path=set_path,
+        target_database_url=database_pair.target_url.set(password=None).render_as_string(
+            hide_password=False
+        ),
+        target_media_root=tmp_path / "restore-run-status-media",
+    )
+
+    status = backup_status(database_pair.target)
+    assert status["last_success"] is not None
+    assert status["last_success"]["backup_run_id"] == created["backup_run_id"]
+    assert status["last_success"]["completed_at"] == manifest["created_at"]
+    with database_pair.target.connect() as connection:
+        restored_run = connection.execute(
+            select(backup_runs.c.state, backup_runs.c.completed_at).where(
+                backup_runs.c.id == created["backup_run_id"]
+            )
+        ).one()
+    assert restored_run.state == "succeeded"
+    assert restored_run.completed_at == expected_completed_at

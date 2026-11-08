@@ -26,7 +26,11 @@ from starlette.responses import Response
 
 from paiya.backup.errors import BackupError
 from paiya.purge.errors import PurgeError
-from paiya.purge.service import replay_purge_log
+from paiya.purge.service import (
+    lock_backup_media_copy_exclusive_for_session,
+    replay_purge_log,
+    unlock_backup_media_copy_exclusive_for_session,
+)
 from paiya.store.media import (
     lock_media_asset_for_session,
     media_path,
@@ -436,6 +440,19 @@ def _write_manifest(path: Path, manifest: Mapping[str, object]) -> None:
         os.fsync(stream.fileno())
 
 
+@contextmanager
+def _exclusive_media_copy_lock(connection: Connection) -> Iterator[None]:
+    lock_backup_media_copy_exclusive_for_session(connection)
+    try:
+        connection.commit()
+        yield
+    finally:
+        if connection.in_transaction():
+            connection.rollback()
+        unlock_backup_media_copy_exclusive_for_session(connection)
+        connection.commit()
+
+
 def create_backup(engine: Engine) -> dict[str, object]:
     """Export one consistent database and media snapshot into an atomic set."""
     run_id = uuid4()
@@ -449,7 +466,7 @@ def create_backup(engine: Engine) -> dict[str, object]:
         backup_root, media_root, _purge_log, same_device_allowed = _backup_configuration()
         temporary_set = Path(tempfile.mkdtemp(prefix=f".{set_name}.tmp-", dir=backup_root))
         dump_path = temporary_set / "db.dump"
-        with engine.connect() as connection:
+        with engine.connect() as connection, _exclusive_media_copy_lock(connection):
             connection = connection.execution_options(isolation_level="REPEATABLE READ")
             with connection.begin():
                 connection.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
@@ -1049,6 +1066,20 @@ def restore_backup(
             )
 
         _run_pg_restore(target_url, dump_path)
+        restored_run_id = UUID(cast(str, manifest["backup_run_id"]))
+        restored_completed_at = datetime.fromisoformat(
+            cast(str, manifest["created_at"]).replace("Z", "+00:00")
+        )
+        with target_engine.begin() as connection:
+            restored_run = connection.execute(
+                update(backup_runs)
+                .where(backup_runs.c.id == restored_run_id)
+                .values(state="succeeded", completed_at=restored_completed_at)
+            )
+        if restored_run.rowcount != 1:
+            raise BackupError(
+                "backup_run_missing", "The restored backup run record could not be completed"
+            )
         _copy_restored_media(
             Path(set_path).expanduser().resolve(), target_root, target_engine, manifest
         )
