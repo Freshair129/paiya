@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from sqlalchemy import Connection, select
 
 from paiya.prices.trends import PriceTrendFilters, compute_price_trend
+from paiya.purge.errors import PurgeError
 from paiya.purge.startup import check_purge_log
 from paiya.read.context import ReadContext, read_context_group_key_from_env, resolve_read_context
 from paiya.read.errors import (
@@ -381,6 +382,9 @@ def main() -> None:
     try:
         config = config_from_env()
         check_purge_log()
+    except PurgeError as error:
+        print(f"paiya.mcp: {error.code}: {error.message}", file=sys.stderr)
+        raise SystemExit(2) from error
     except (RuntimeError, ValueError) as error:
         print(f"paiya.mcp: {error}", file=sys.stderr)
         raise SystemExit(2) from error
