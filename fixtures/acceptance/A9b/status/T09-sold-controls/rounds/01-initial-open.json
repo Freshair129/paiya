@@ -1,0 +1,98 @@
+{
+  "run_id": "effa204c-993f-5391-b329-f80847c30429",
+  "capture_id": "synthetic-A9b-T09-sold-controls-initial-open",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "revisit",
+  "page_check": {
+    "session": "ok",
+    "sort": "not_applicable"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-status-g4",
+    "source_post_key": "t09-post",
+    "permalink": "https://example.invalid/paiya/synthetic-status-g4/t09-post",
+    "observed_at": "2026-11-08T10:28:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-08T08:00:00Z",
+      "value": "2026-11-08T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-status-g4",
+      "external_actor_key": "seller-t09",
+      "display_name": "ผู้ขายสมมติ T09-sold-controls"
+    },
+    "items": [
+      {
+        "source_item_key": "item-1",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": null,
+        "evidence_keys": [
+          "t09-open-1"
+        ]
+      },
+      {
+        "source_item_key": "item-2",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": null,
+        "evidence_keys": [
+          "t09-open-2"
+        ]
+      },
+      {
+        "source_item_key": "item-3",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": null,
+        "evidence_keys": [
+          "t09-open-3"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 0,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "complete"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "t09-open-1",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "เปิดขาย"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "t09-open-2",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "เปิดขาย"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "t09-open-3",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "เปิดขาย"
+        },
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}

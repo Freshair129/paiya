@@ -1,0 +1,73 @@
+{
+  "run_id": "79b3d2b4-b491-5e96-b0e4-be5279e8b421",
+  "capture_id": "synthetic-A9b-T29-seller-no-stable-id-final",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "revisit",
+  "page_check": {
+    "session": "ok",
+    "sort": "not_applicable"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-status-g4",
+    "source_post_key": "t29-post",
+    "permalink": "https://example.invalid/paiya/synthetic-status-g4/t29-post",
+    "observed_at": "2026-11-08T11:28:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-08T08:00:00Z",
+      "value": "2026-11-08T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-status-g4",
+      "external_actor_key": null,
+      "display_name": "ผู้ขายสมมติ T29-seller-no-stable-id"
+    },
+    "items": [
+      {
+        "source_item_key": "item-1",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "ขายแล้ว",
+        "price": null,
+        "evidence_keys": [
+          "t29-sold-no-id"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 1,
+      "distinct_comments_seen": 1,
+      "distinct_known_commenters_seen": 1,
+      "coverage": "complete"
+    },
+    "comments": [
+      {
+        "source_comment_key": "t29-seller-comment",
+        "role": "seller",
+        "actor_key": "actor-t29",
+        "text": "ขายแล้วครับ ส่งของเรียบร้อย",
+        "source_time": {
+          "source_text": "2026-11-08T10:00:00Z",
+          "value": "2026-11-08T10:00:00Z",
+          "precision": "exact"
+        }
+      }
+    ],
+    "evidence": [
+      {
+        "local_key": "t29-sold-no-id",
+        "role": "seller",
+        "source_span": {
+          "field": "comment_text",
+          "quote": "ขายแล้วครับ ส่งของเรียบร้อย",
+          "comment_key": "t29-seller-comment"
+        },
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}
