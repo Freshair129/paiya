@@ -21,6 +21,45 @@ class InlineFeed:
         return self.run
 
 
+def test_fixture_discovery_never_opens_network_or_login(pg_engine, tmp_path, monkeypatch):
+    import socket
+    from uuid import UUID
+
+    from paiya.collector.feed_script import FeedScriptAdapter
+    from paiya.store.tables import source_grants
+
+    now = datetime.now(UTC) - timedelta(minutes=1)
+    group_key = "synthetic-feed-s05"
+    with pg_engine.connect() as conn:
+        group = add_group(conn, now, group_key, 30)
+        gid = UUID(group["id"])
+        grant = conn.execute(
+            select(source_grants.c.id).where(source_grants.c.group_id == gid)
+        ).scalar_one()
+        conn.rollback()
+        schedule_due(conn, now)
+    with pg_engine.connect() as conn:
+        claim = claim_next(conn, now)
+
+    attempts = []
+    original_connect = socket.socket.connect
+
+    def guarded_connect(sock, address):
+        attempts.append(address)
+        raise AssertionError(f"fixture adapter attempted a socket connection: {address}")
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    feed = FeedScriptAdapter(
+        Path(__file__).resolve().parents[1] / "fixtures/feeds/S05-pinned-overlap/feed.json"
+    )
+    scope = FixtureScope(gid, grant, group_key)
+    result = execute_discovery(pg_engine, scope, claim, feed, "r1", now, media_root=tmp_path)
+    assert result.ingested_keys
+    assert attempts == []
+    assert not hasattr(feed, "login")
+    monkeypatch.setattr(socket.socket, "connect", original_connect)
+
+
 def test_feed_end_before_overlap_preserves_checkpoint(pg_engine, tmp_path: Path):
     now = datetime.now(UTC) - timedelta(minutes=1)
     with pg_engine.connect() as conn:

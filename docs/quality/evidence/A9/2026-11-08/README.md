@@ -15,6 +15,7 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 - **F gap** — ตรวจด้วย fixture ได้ แต่ยังไม่มี assertion ตรงข้อ หรือมีเพียงบางส่วน
 - **L corpus** — ต้องวัดด้วย corpus ที่มนุษย์ติดป้ายอย่างน้อย 100 กรณีตาม A9b; Q1 ใน Issue #72 ยังรอผู้ดูแล
 - **P pilot** — ต้องวัดกับเครื่องหรือการทำงานจริงตาม A9c; ไม่ใช่เกณฑ์ fixture ของ A9a
+- **N/A in A** — ความสามารถยังไม่มีในระยะ A; ต้องตรวจอีกครั้งเมื่อมีความสามารถนั้น
 
 การตรวจ `tests/test_scenarios.py` พบว่าเป็น mutation test ของ validator สำหรับ schema และเฉลยใน fixture; ไม่นับเป็น assertion ของ runtime สถานะ ส่วนการตรวจรับที่อ้างด้านล่างอ่าน assertion ใน test body โดยตรง
 
@@ -22,9 +23,9 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 
 | Clause | สาระย่อ | ประเภทและ assertion ที่มี |
 |---|---|---|
-| AT-01.1 | เปิด 5 กลุ่มที่แต่ละกลุ่มมี grant | **F gap** — `tests/test_a3_queue.py::test_group_limit_concurrent_and_persistence` assert ว่ามี 5 กลุ่มและกลุ่มที่ 6 ถูกปฏิเสธ แต่ไม่ assert ว่าแต่ละกลุ่มมี grant ที่ใช้งานได้ |
+| AT-01.1 | เปิด 5 กลุ่มที่แต่ละกลุ่มมี grant | **F covered** — `tests/test_a3_queue.py::test_five_grant_backed_groups` ตรวจ 5 grant ที่ยังใช้ได้และมี read/capture พร้อมปฏิเสธกลุ่มที่ 6 |
 | AT-01.2 | รองรับรอบ 30/60 นาที | **F covered** — `tests/test_a3_queue.py::test_global_lease_excludes_other_group_and_owner_can_complete` สร้างกลุ่มรอบ 30 และ 60 นาที แล้ว assert เวลางาน due ของทั้งสองกลุ่ม |
-| AT-01.3 | เปลี่ยนรอบและ pause มีผลหลัง restart | **F gap** — `tests/test_a3_queue.py::test_group_limit_concurrent_and_persistence` เปิด Engine ใหม่และ assert ค่า poll 60 กับ enabled=false ที่อ่านจากฐานข้อมูล แต่ไม่ได้ restart scheduler/process แล้ว assert งานที่ถูก schedule หลัง restart |
+| AT-01.3 | เปลี่ยนรอบและ pause มีผลหลัง restart | **F covered** — `tests/test_a3_queue.py::test_interval_and_pause_survive_scheduler_restart` dispose Engine สร้าง Engine ใหม่และเรียก scheduler entry ใหม่ใน process เดิม ตรวจ pause, resume และ slot 60 นาที; ไม่ใช่การ restart process |
 | AT-01.4 | งานค้างตรวจ grant ซ้ำก่อน claim | **F covered** — `tests/test_a3_queue.py::test_revoked_grant_cancels_claim` assert ว่า claim ไม่คืนงาน, job ถูก cancel และ run ระบุ `grant_unavailable` เมื่อ revoke grant ก่อน claim |
 | AT-01.5 | เริ่มทดสอบจาก fixture โดยไม่ login จริง | **F gap** — การทดสอบ discovery ใช้ `FeedScriptAdapter`/fixture แต่ไม่มี test ที่ assert ว่า login/authentication หรือคำขอไปต้นทางเกิดศูนย์ครั้ง |
 
@@ -33,7 +34,7 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 | Clause | สาระย่อ | ประเภทและ assertion ที่มี |
 |---|---|---|
 | AT-02.1 | พบ stable posts ที่คนติดป้ายว่าโหลดได้ไม่น้อยกว่า 95% | **L corpus** — `tests/test_a3_discovery.py::test_coverage_cases` และ `test_labelled_feed_replay` คำนวณ recall กับ label ชุดเล็กใน fixture; ยังไม่มี corpus ที่คนตรวจแล้ว ≥100 กรณี |
-| AT-02.2 | รายงานตัวเศษและตัวหาร | **F gap** — `test_coverage_cases` พิมพ์เศษ/ส่วนสำหรับกรณีเล็ก และ `test_labelled_feed_replay` คำนวณค่าในตัวแปร แต่ไม่มี assertion ของรายงานที่เก็บซ้ำได้หรือรูปแบบ output ที่ให้เศษ/ส่วน |
+| AT-02.2 | รายงานตัวเศษและตัวหาร | **L corpus** — เป็นส่วนของ harness รายงาน A9b ซึ่งรอคำตอบ Q1 ใน Issue #72; ยังไม่ได้สร้าง harness หรืออ้างผล corpus |
 | AT-02.3 | จัดการ pinned ให้ coverage/overlap ตรง fixture | **F covered** — `tests/test_a3_discovery.py::test_coverage_cases` และ `test_excluded_cards_do_not_break_overlap_run` assert overlap กับ coverage เมื่อมี pinned card |
 | AT-02.4 | การเรียงใหม่ยังพบ overlap ได้ | **F covered** — `tests/test_a3_discovery.py::test_coverage_cases` ใช้ `reordered_pinned` แล้ว assert `overlap_reached` และ coverage เป็น complete |
 | AT-02.5 | sort ที่ยืนยันไม่ได้รายงาน partial และไม่เลื่อน checkpoint | **F covered** — `tests/test_a3_discovery.py::test_coverage_cases` assert `sort_unverified`, ไม่ advance checkpoint และ checkpoint คงเดิม |
@@ -48,11 +49,11 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 | AT-03.3 | พบ sold ถูกต้อง ≥95% ในชุดย่อยที่มีหลักฐานปิดขายชัดเจนอย่างน้อย 20 กรณี | **L corpus** — SRS ต้องมี positive control เพื่อกันระบบตอบ unknown ทั้งชุดแล้วผ่านเกณฑ์ผิดศูนย์; ยังไม่มีชุดติดป้ายผ่านคน |
 | AT-03.4 | รายงาน coverage แยกสำหรับผู้ขายที่มี stable ID | **L corpus** — ต้องคำนวณ coverage จากป้ายของคนและระบุตัวหาร stable sellers; ไม่มีรายงานจาก corpus ปัจจุบัน |
 | AT-03.5 | reserved → open ต้องมีหลักฐานของแต่ละเหตุการณ์ | **F covered** — `tests/test_a4a_status.py::test_golden_replay` ใช้ `S01-reserve-reopen` แล้ว assert สถานะและประวัติพร้อม evidence ID ที่ตรงกับแต่ละรอบ |
-| AT-03.6 | ขายหนึ่งชิ้นในโพสต์หลายชิ้นไม่ปิดอีกชิ้น | **F gap** — `test_golden_replay` ของ `S03-multi-item` ทดสอบการ reserve 3060 ขณะที่ 3070 ยัง open แต่ไม่มีกรณีขายหนึ่งชิ้นและ assert ว่าอีกชิ้นไม่ถูกปิด |
+| AT-03.6 | ขายหนึ่งชิ้นในโพสต์หลายชิ้นไม่ปิดอีกชิ้น | **F covered** — `tests/test_a4a_status.py::test_golden_replay[S09-sold-one-item-seller-sells-one-other-stays-open]` ตรวจ seller confirmation ว่า 3060 sold และ 3070 open พร้อม history และ evidence |
 | AT-03.7 | คอมเมนต์ผู้ซื้อ “จองครับ” ที่ติดบทบาท seller ไม่สร้าง reserved/sold | **F covered** — `tests/test_a4a_status.py::test_golden_replay` ของ S03 buyer-only assert ว่าสถานะยัง open และ history ไม่มี event ใหม่; `test_rejected_comment_evidence` assert ว่า evidence ที่ role ไม่ตรงไม่สร้าง sale event |
 | AT-03.8 | actor_key ที่ไม่ตรง seller ไม่สร้างสถานะยืนยัน | **F covered** — `tests/test_a4a_status.py::test_rejected_comment_evidence` กรณี actor assert ผล rejected, `actor_mismatch` และจำนวน sale events เป็นศูนย์ |
 | AT-03.9 | ระบุสาเหตุของหลักฐานที่ถูกปฏิเสธ | **F covered** — `tests/test_a4a_status.py::test_rejected_comment_evidence` assert ค่า `reason` ที่เก็บไว้ เช่น `role_mismatch` และ `actor_mismatch`; ยังไม่ระบุใน AT ว่าต้องแสดง reason ที่ API หรือ UI |
-| AT-03.10 | ลิงก์ขาดต้องไม่ทำให้ปิดขาย | **F gap** — ไม่มี test ที่เอา fixture สถานะขายแล้วซึ่งขาดลิงก์ตามนิยามของ AT มา assert ว่าไม่เกิด sold event |
+| AT-03.10 | ลิงก์ขาดต้องไม่ทำให้ปิดขาย | **F covered** — `tests/test_a4a_status.py::test_sold_evidence_with_missing_source_link_is_rejected` ตรวจ permalink ที่หายและ evidence ที่อ้าง comment ซึ่งไม่มี; ทั้งสองถูกปฏิเสธพร้อมเหตุผลก่อนสร้าง observation หรือ sale event |
 
 ## AT-04 · คอมเมนต์และ gap
 
@@ -77,7 +78,7 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 | Clause | สาระย่อ | ประเภทและ assertion ที่มี |
 |---|---|---|
 | AT-06.1 | ชื่อแสดงเหมือนกันแต่ stable keys ต่างกันยังเป็นคนละ seller | **F covered** — `tests/test_a4c_seller.py::test_distinct_keys_and_scopes_never_merge_sellers` ใช้ display name เดียวกันกับ actor keys ต่างกัน และ assert seller IDs ทั้งสามไม่ซ้ำ |
-| AT-06.2 | ข้ามกลุ่มเมื่อยืนยัน identity ไม่ได้ต้องแยก scope | **F gap** — `test_seller_api_context_and_errors` ทดสอบ seller ที่มี stable identity เดียวกันข้ามกลุ่ม ส่วน `test_distinct_keys_and_scopes_never_merge_sellers` ทดสอบ key/scope ต่างกันในกลุ่มเดียว; ไม่มี assertion สำหรับ unknown identity ข้ามกลุ่ม |
+| AT-06.2 | ข้ามกลุ่มเมื่อยืนยัน identity ไม่ได้ต้องแยก scope | **F covered** — `tests/test_a4c_seller.py::test_unknown_identity_stays_unlinked_across_groups` ตรวจโพสต์สองกลุ่มชื่อผู้ขายซ้ำแต่ไม่มี stable key คง `seller_id = NULL` และแยก group ID ตามสัญญา Collector หัวข้อข้อมูลจาก Collector และการบันทึกและอ่านในระยะ A กับ data model ข้อ 3 |
 | AT-06.3 | tags บอกที่มาของค่าได้ | **F covered** — `tests/test_a6a_extraction.py::test_first_matching_eligible_evidence_and_replay` assert tag ผูกกับ evidence key ที่ตรง quote; `test_contract_examples_through_ingest` assert ผล tags และ reason จาก fixture |
 | AT-06.4 | ข้อความแทรกคำสั่งในโพสต์สั่งเรียก tool ไม่ได้ | **F gap** — `tests/test_a6c_mcp.py::test_untrusted_quote_is_fenced_and_tools_do_not_write` assert quote ถูก fence และ tool ไม่เขียนข้อมูล แต่ไม่มี test ของ boundary ที่จะพิสูจน์ว่า agent/tool router ไม่เรียก tool จากข้อความนั้น |
 
@@ -98,7 +99,7 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 | AT-08.1 | replay งานเดิมไม่เพิ่ม event ซ้ำ | **F covered** — `tests/test_a4a_status.py::test_golden_replay` replay envelope เดิมแล้ว assert counts และ sale event rows ไม่เปลี่ยน |
 | AT-08.2 | ประวัติ A → B → A อยู่ครบ | **F covered** — `test_golden_replay` ของ S01 assert ประวัติ open/reserved/open และ current เป็น open |
 | AT-08.3 | งานเก่าที่มาช้ากว่าไม่ทับข่าวใหม่ | **F covered** — `test_golden_replay` ของ S02 ใช้ O1/O3/O2 arrival order แล้ว assert history เรียงตาม effective time และ current status เป็น open |
-| AT-08.4 | O2 ที่มาทีหลังไม่สร้างแจ้งเตือน | **F gap** — S02 assert ประวัติย้อนหลังมี reserved จาก O2 และ current เป็น open แต่ไม่มี assertion ของ notification/alert ที่ถูกส่งหรือไม่ถูกส่ง |
+| AT-08.4 | O2 ที่มาทีหลังไม่สร้างแจ้งเตือน | **N/A in A** — `rg -n -i 'notification|notify|alert' src/paiya` ไม่พบผล; ระยะ A ไม่มี notification/alert sink และ alerts อยู่ใน AT-12 ระยะ M. `tests/test_a4a_status.py::test_golden_replay` ของ S02 ตรวจ history และ current แล้ว แต่ไม่ได้พิสูจน์การแจ้งเตือน; ตรวจข้อนี้อีกครั้งเมื่อมี alerts |
 | AT-08.5 | model error ไม่บล็อก ingest และ API reads | **F covered** — `tests/test_a6b_enrichment.py::test_failing_model_does_not_block_ingest_or_reads` จำลอง HTTP 500, ingest fixture อีกโพสต์ และ assert posts/models API ยังคืนข้อมูลสองโพสต์ |
 | AT-08.6 | collector ยัง discover ได้เมื่อ Ollama ใช้ไม่ได้ | **F gap** — test ข้างต้น เรียก ingest โดยตรง ไม่ได้รัน discovery กับ feed fixture ขณะที่ enrichment ล้มเหลว |
 | AT-08.7 | UI ยังค้นข้อมูลเดิมได้เมื่อ Ollama ใช้ไม่ได้ | **F gap** — มี API read หลัง model failure; `web/src/a6d-filters.test.tsx::model load failure leaves other filters usable` ตรวจเพียงว่าตัวกรองอื่นใช้ได้เมื่อ models endpoint fail โดยไม่มีผลค้นโพสต์เดิม |
@@ -130,19 +131,19 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 
 ## สรุปจำนวน clause
 
-| AT | F covered | F gap | L corpus | P pilot | รวม |
-|---|---:|---:|---:|---:|---:|
-| AT-01 | 2 | 3 | 0 | 0 | 5 |
-| AT-02 | 4 | 1 | 1 | 0 | 6 |
-| AT-03 | 4 | 2 | 4 | 0 | 10 |
-| AT-04 | 3 | 0 | 0 | 0 | 3 |
-| AT-05 | 4 | 1 | 0 | 0 | 5 |
-| AT-06 | 2 | 2 | 0 | 0 | 4 |
-| AT-07 | 1 | 0 | 4 | 0 | 5 |
-| AT-08 | 4 | 3 | 0 | 2 | 9 |
-| AT-09 | 5 | 0 | 0 | 0 | 5 |
-| AT-10 | 6 | 2 | 0 | 0 | 8 |
-| **รวม** | **35** | **14** | **9** | **2** | **60** |
+| AT | F covered | F gap | L corpus | P pilot | N/A in A | รวม |
+|---|---:|---:|---:|---:|---:|---:|
+| AT-01 | 4 | 1 | 0 | 0 | 0 | 5 |
+| AT-02 | 4 | 0 | 2 | 0 | 0 | 6 |
+| AT-03 | 6 | 0 | 4 | 0 | 0 | 10 |
+| AT-04 | 3 | 0 | 0 | 0 | 0 | 3 |
+| AT-05 | 4 | 1 | 0 | 0 | 0 | 5 |
+| AT-06 | 3 | 1 | 0 | 0 | 0 | 4 |
+| AT-07 | 1 | 0 | 4 | 0 | 0 | 5 |
+| AT-08 | 4 | 2 | 0 | 2 | 1 | 9 |
+| AT-09 | 5 | 0 | 0 | 0 | 0 | 5 |
+| AT-10 | 6 | 2 | 0 | 0 | 0 | 8 |
+| **รวม** | **40** | **7** | **10** | **2** | **1** | **60** |
 
 ยอดนี้เป็นจำนวน clause ในแผนที่ ไม่ใช่จำนวนเทสต์หรือผลผ่าน
 
@@ -153,19 +154,70 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 | AT-01.1 | เพิ่ม `tests/test_a3_queue.py::test_five_grant_backed_groups`; assert 5 กลุ่มมี grant active/read/capture ครบ และกลุ่มที่ 6 ถูกปฏิเสธ | ใช้ helper `add_group` และฐาน `pg_engine` เดิม |
 | AT-01.3 | เพิ่ม restart test ใน `tests/test_a3_queue.py`; เปลี่ยน interval, pause, สร้าง scheduler/Engine ใหม่ แล้ว assert due time หลัง restart, ไม่มีงานช่วง pause และ resume สร้างงานตาม interval ใหม่ | ใช้ setup กลุ่มสังเคราะห์เดิม |
 | AT-01.5 | เพิ่ม test ใน `tests/test_a3_discovery.py` ที่รัน `FeedScriptAdapter` พร้อม fail-fast network/auth spy; assert ingest ผ่านและไม่มีการเรียก login/HTTP ต้นทาง | ใช้ `fixtures/feeds` และ sample envelope เดิม |
-| AT-02.2 | เพิ่ม test ของ A9b report/harness ให้ assert output มี numerator และ denominator ที่คำนวณจาก label set | ใช้ feed fixtures สังเคราะห์เดิมทดสอบ format; corpus จริงรอ Q1 |
-| AT-03.6 | เพิ่มรอบใน `fixtures/scenarios/S03-multi-item` ที่ seller ยืนยัน sold ให้ 3060 ชิ้นเดียว; assert 3060 sold และ 3070 ยัง open | ใช้ S03 เป็นฐานและเพิ่มหนึ่ง synthetic round |
-| AT-03.10 | เพิ่ม case ใน `tests/test_a4a_status.py` ที่ขายแล้วแต่ขาด “ลิงก์” ตามนิยามที่ตกลง; assert ไม่มี confirmed sold event และเก็บ reason | ใช้ S03 seller confirmation เป็นฐานแล้วตัดลิงก์ที่ระบุ |
+| AT-02.2 | ย้ายไป A9b corpus harness; รอ Q1 ใน Issue #72 | ยังไม่ได้สร้าง harness |
+| AT-03.6 | ปิดด้วย `test_golden_replay` ของ S09 | scenario ใหม่ `S09-sold-one-item`; ไม่แก้ S03 |
+| AT-03.10 | ปิดด้วย `test_sold_evidence_with_missing_source_link_is_rejected`; เหตุผลอยู่ใน validation error ก่อนบันทึก | fixture ลบ permalink หรือ comment reference แยกใน `fixtures/a9a-missing-source-link/` |
 | AT-05.5 | เพิ่ม E2E ใน `web/e2e/mobile.spec.ts` ที่ viewport 360×800 assert ปุ่มหลักที่กำหนดแล้วมองเห็น, focus/activate ได้ และไม่มี horizontal overflow | ใช้ synthetic demo และ local request guard เดิม |
 | AT-06.2 | เพิ่ม `tests/test_a4c_seller.py::test_unknown_identity_stays_group_scoped`; สร้าง seller display name ซ้ำแต่ไม่มี stable actor identity คนละกลุ่ม แล้ว assert IDs/seller pages แยกกัน | ใช้ `envelope` และ grants เดิม ปรับ fixture ให้ actor identity unknown |
 | AT-06.4 | เพิ่ม deterministic tool-boundary test ใน `tests/test_a6c_mcp.py`; ส่ง synthetic quote ที่สั่งเรียก tool ผ่าน boundary ของ agent/tool router จำลอง แล้ว assert ไม่มี tool invocation/DB write | ใช้ quote และ fixture ของ `test_untrusted_quote_is_fenced_and_tools_do_not_write`; ต้องมี mock boundary ที่ระบุชัด |
-| AT-08.4 | เพิ่ม test ที่ขอบเขต event→notification โดยใช้ S02; assert O2 ยังอยู่ใน historical events แต่ไม่มี notification สำหรับ current=open | ใช้ S02 late-arrival เดิม; ต้องระบุ notification sink ที่จะตรวจ |
+| AT-08.4 | N/A in A; ตรวจอีกครั้งเมื่อมี alerts ในระยะ M | S02 ตรวจ history/current แล้ว แต่ไม่มี sink ให้ตรวจ |
 | AT-08.6 | เพิ่ม test รัน discover job ด้วย feed script พร้อม Ollama MockTransport error; assert discovery สำเร็จและ observation ใหม่ค้นคืนได้ | ใช้ `fixtures/feeds` และ mock pattern จาก `test_failing_model_does_not_block_ingest_or_reads` |
 | AT-08.7 | เพิ่ม `web/e2e/mobile.spec.ts` test ให้ `/v1/models` fail ขณะมี synthetic posts; assert UI ยังแสดง/ค้นโพสต์เดิมและใช้ filter ที่ไม่ต้องใช้ model ได้ | ใช้ demo posts และ local request guard เดิม |
 | AT-10.2 | เพิ่ม test ให้ unstarred post ถูก discover/ingest ด้วย FeedScriptAdapter ใน poll ปกติก่อนครบ 24h และยังถูกค้นพบหลัง quick revisit หมด | ใช้ `tests/test_a4d_watches.py` helper และ fixture feed เดิม |
 | AT-10.8 | เพิ่ม multi-item case ใน `tests/test_a4d_watches.py` ที่ทุกชิ้นมี seller evidence เป็น sold; assert ไม่มี slow revisit หลังทุกชิ้น sold และมี revisit เมื่อยังเหลือชิ้นเปิด | ใช้ S03 multi-item และ helper `make_posts` แล้วเพิ่ม seller-confirmed rounds |
 
-รวม F gap 14 ข้อ: 10 ข้อใช้ fixture/setup เดิมได้ และ 4 ข้อต้องเพิ่มหรือปรับ variant ของ fixture (AT-03.6, AT-03.10, AT-06.2, AT-10.8) ทั้งหมดเป็นข้อเสนอ ยังไม่มี test หรือ fixture ใหม่ในรอบนี้
+คงเหลือ F gap 7 ข้อในรายการข้างต้น; AT-02.2 ย้ายไป L corpus และ AT-08.4 เป็น N/A in A. ข้อเสนอทดสอบที่เหลือยังไม่ใช่ผลผ่านหรือหลักฐานว่าปิดช่องว่างแล้ว
+
+## การตีความที่ใช้
+
+- AT-01.1: [สัญญาคิว ข้อ 2](../../../../architecture/contracts/discovery-queue.md) กำหนด grant ที่ใช้ได้และมี capture; เทสต์ตรวจ read ด้วยสำหรับการค้นคืนข้อมูล fixture
+- AT-01.3: [สัญญาคิว ข้อ 3](../../../../architecture/contracts/discovery-queue.md) กำหนดสถานะคงอยู่หลัง restart; ใช้การ dispose Engine และสร้าง Engine กับ scheduler entry ใหม่ใน process เดิมเป็นขอบเขตที่ตรวจ
+- AT-03.10: [สัญญา Collector หัวข้อข้อมูลจาก Collector](../../../../architecture/contracts/collector-and-query.md) และ [observation schema](../../../../architecture/contracts/observation.v1.schema.json) บังคับ permalink; [สัญญาสถานะ ข้อ 2](../../../../architecture/contracts/item-status-and-watches.md) ต้องอ้าง comment ของ seller เมื่อต้นทางเป็น comment. ตรวจทั้งสองกรณี; reason เป็น validation error ไม่ใช่ fact ที่บันทึก
+- AT-06.2: [สัญญา Collector หัวข้อข้อมูลจาก Collector และการบันทึกและอ่านในระยะ A](../../../../architecture/contracts/collector-and-query.md) กับ [data model ข้อ 3](../../../../architecture/data-model.md) กำหนดว่าไม่มี stable actor key ให้คง seller ID เป็น NULL ไม่สร้าง seller จากชื่อ
+
+## ผลรันระหว่างดำเนินการ (A fixture)
+
+ฐานก่อนแก้ `98fb528509d899025d0a7a343f904f9594cb8089`; ผลต่อไปนี้เป็น targeted tests ไม่ใช่ผล suite หรือผล pilot:
+
+| คำสั่ง (`UV_OFFLINE=1`, `UV_NO_SYNC=1`) | ผลจริง |
+|---|---|
+| `uv run pytest -p no:cacheprovider tests/test_a3_queue.py::test_five_grant_backed_groups -q` | `1 passed in 11.74s` |
+| `uv run pytest -p no:cacheprovider tests/test_a3_queue.py::test_interval_and_pause_survive_scheduler_restart -q` | `1 passed in 2.66s` |
+| `uv run pytest -p no:cacheprovider tests/test_a4c_seller.py::test_unknown_identity_stays_unlinked_across_groups -q` | `1 passed in 2.97s` |
+| `uv run pytest -p no:cacheprovider tests/test_a4a_status.py -k S09 -q` | `1 passed, 17 deselected in 3.20s` |
+| `uv run pytest -p no:cacheprovider tests/test_a3_discovery.py::test_fixture_discovery_never_opens_network_or_login -q` | `1 passed in 2.93s`; ตรวจ Python socket และไม่มีเมธอด login บน adapter แต่ยังไม่ปิด AT-01.5 เพราะยังไม่ได้พิสูจน์ทุก authentication entry point |
+| `uv run pytest -p no:cacheprovider tests/test_a4a_status.py::test_sold_evidence_with_missing_source_link_is_rejected -q` | `2 passed in 2.97s` |
+
+Mutation แต่ละรายการรัน targeted test แล้วคืน byte เดิมด้วย Python ใน system temp และตรวจ SHA-256 ก่อน/หลัง:
+
+| Clause | Mutation | ผล | SHA-256 ก่อนและหลังตรงกัน |
+|---|---|---|---|
+| AT-01.1 | ตัด read จาก fixture grant | `1 failed in 2.86s` | `556abb1a0c29aeb8a185d4136fcd3b81b77fe0ed6506b298b8a9292248dedc93` |
+| AT-01.3 | บังคับ slot 30 นาทีแทน interval ที่ตั้ง | `1 failed in 2.90s` | `4380e3c2936327f1cec671291d268f1754a03f793949a515380b9261ffbdb2a9` |
+| AT-06.2 | ใช้ display name แทน actor key ที่ขาด | `1 failed in 3.04s` | `eb9356bcbd4a2d9d8c8650cb95a78ad52cf165085e27a972e8d806d4f24c4486` |
+| AT-03.6 | รวม status facts ทั้งโพสต์แทนกรอง item ID | `1 failed, 17 deselected in 2.85s` (constraint ปฏิเสธ fact ข้าม item) | `888dd882cc9878c485bd57778fa100c2ed9ca9f71f6440ac991593dfd90c8107` |
+| AT-03.10 | ไม่ปฏิเสธ evidence ที่อ้าง comment ซึ่งไม่มี | `1 failed, 1 passed in 3.08s` | `624a6ab08c3058276e73f79f5ee01ef9cc427eb7abbfd23fee5da20b7da2b2d5` |
+| AT-01.5 (บางส่วน) | สั่ง Python socket connect ใน fixture adapter | `1 failed in 2.70s` โดย guard ดักก่อนเชื่อมต่อ | `92e12e58ec6cfa11fe77f35ac3aab9622e3dea54b9678ecd5cc0a0c31ca34b4a` |
+
+### ผล suite และสถานะ handoff
+
+ผล A (fixture) ต่อไปนี้รันบนฐาน `98fb528509d899025d0a7a343f904f9594cb8089` พร้อมการเปลี่ยนแปลงรอบนี้; Python suite รันก่อนจัดรูปแบบ whitespace หนึ่งบรรทัดในชื่อฟังก์ชันเทสต์ ส่วน Ruff และตัวตรวจเอกสารรันหลังจัดรูปแบบแล้ว ตั้ง `UV_OFFLINE=1`, `UV_NO_SYNC=1`, ไม่ติดตั้งแพ็กเกจ และส่ง cache/temp ไป system temp.
+
+| คำสั่ง | ผลจริง |
+|---|---|
+| `uv run ruff check .` | `All checks passed!` |
+| `uv run ruff format --check .` | `133 files already formatted` |
+| `uv run mypy src` | `Success: no issues found in 62 source files` |
+| `uv run pytest -p no:cacheprovider` | `468 passed, 138 warnings in 215.43s (0:03:35)` |
+| `uv run python scripts/check_docs.py` | `Docs OK: 25 indexed documents, 44 requirement and test IDs.` |
+| `uv run python scripts/check_contracts.py` | `Contracts OK: 15 fixtures and examples checked against observation.v1.schema.json.` |
+| `uv run python scripts/check_scenarios.py` | `Scenarios OK: 5 A1 scenarios, 4 feed scenarios, and 0 revisit scripts; all fixture data matches its schema.` |
+| `corepack.cmd pnpm lint` ใน `web/` | exit 1: `'eslint' is not recognized`; ไม่มี `node_modules` |
+| `corepack.cmd pnpm typecheck` ใน `web/` | exit 1: `'tsc' is not recognized`; ไม่มี `node_modules` |
+| `corepack.cmd pnpm test` ใน `web/` | exit 1: `'vitest' is not recognized`; ไม่มี `node_modules` |
+| `corepack.cmd pnpm build` และ Playwright | ไม่ได้รัน: ไม่มี dependencies และยังไม่มีหลักฐาน storage preflight สำหรับ build ตาม policy J; ห้ามติดตั้งแพ็กเกจในงานนี้ |
+
+Corepack ตั้ง `COREPACK_ENABLE_NETWORK=0`. ไม่ได้สร้าง `paiya_e2e_a9` หรือเริ่ม server; ตรวจหลัง Python suite ว่า non-system schemas ของ `paiya_test` มีเฉพาะ `public`. รอบนี้ยังไม่เสร็จ: AT-01.5, AT-05.5, AT-06.4, AT-08.6, AT-08.7, AT-10.2 และ AT-10.8 ยังเป็น F gap; ทำ tests และ mutation ของแต่ละข้อก่อนปิดงาน. งาน web ต้องมี dependencies ที่มีเจ้าของและใช้ซ้ำได้โดยไม่ติดตั้ง พร้อม preflight ที่ครบก่อน build/e2e; จากนั้นใช้ port 8137 และฐานชั่วคราวตามคำสั่งงาน. ไม่มีการรับมอบ pilot จากผลนี้
 
 ## รายการวัด pilot สำหรับ A9c
 
@@ -195,4 +247,4 @@ Commit ที่ทำแผนที่: `46408054f3b8f407096582365762c3a1614fa
 
 ## สถานะรอบนี้
 
-แผนที่ผูกกับ commit ข้างต้น; ไม่มีการแก้ tests, fixtures, source, AT criteria, goldens หรือ SRS. A9b ยังรอคำตอบ Q1 ก่อนสร้างเฉลยสำหรับ corpus และเปอร์เซ็นต์ของ AT-02/03/07.
+แผนที่รอบแรกผูกกับ commit ข้างต้น ส่วนรอบสองยังไม่เสร็จและมีผลเฉพาะที่ระบุในหัวข้อผลรันระหว่างดำเนินการ; ไม่ได้แก้ fixtures เดิม, source, AT criteria, goldens หรือ SRS. A9b ยังรอคำตอบ Q1 ก่อนสร้างเฉลยสำหรับ corpus และเปอร์เซ็นต์ของ AT-02/03/07.

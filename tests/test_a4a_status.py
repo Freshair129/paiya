@@ -147,6 +147,25 @@ def ingest(pg_engine, scope, tmp_path, document):
 
 
 @pytest.mark.parametrize(
+    "filename,reason",
+    [
+        ("missing-permalink.json", "'permalink' is a required property"),
+        ("missing-comment.json", "refers to missing comment"),
+    ],
+)
+def test_sold_evidence_with_missing_source_link_is_rejected(pg_engine, tmp_path, filename, reason):
+    scope = seed_fixture_scope(pg_engine, "synthetic-missing-source")
+    path = ROOT / "fixtures/a9a-missing-source-link" / filename
+    document = json.loads(path.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError) as error:
+        ingest(pg_engine, scope, tmp_path, document)
+    assert reason in str(error.value)
+    with pg_engine.connect() as conn:
+        assert conn.execute(select(func.count()).select_from(sale_events)).scalar_one() == 0
+        assert conn.execute(select(func.count()).select_from(observations)).scalar_one() == 0
+
+
+@pytest.mark.parametrize(
     "case,reason",
     [("role", "role_mismatch"), ("actor", "actor_mismatch"), ("seller", "seller_unknown")],
 )
