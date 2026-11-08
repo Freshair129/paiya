@@ -1,0 +1,124 @@
+{
+  "run_id": "a1090000-0000-4000-8000-000000000003",
+  "capture_id": "s09/post-09/capture-3",
+  "grant_id": null,
+  "source_kind": "fixture",
+  "job_kind": "revisit",
+  "page_check": {
+    "session": "ok",
+    "sort": "not_applicable"
+  },
+  "assets": {},
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-s09",
+    "source_post_key": "post-09",
+    "permalink": "https://example.invalid/paiya/s09/post-09",
+    "observed_at": "2026-11-07T09:30:00Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": "2026-11-07T08:00:00Z",
+      "value": "2026-11-07T08:00:00Z",
+      "precision": "exact"
+    },
+    "seller": {
+      "identity_scope": "synthetic-s03",
+      "external_actor_key": "seller-S03",
+      "display_name": "ผู้ขายสมมติ"
+    },
+    "items": [
+      {
+        "source_item_key": "sku3060",
+        "model": "RTX 3060 12GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "ขายแล้ว",
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "5500",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "s03-02-3060"
+        ]
+      },
+      {
+        "source_item_key": "sku3070",
+        "model": "RTX 3070 8GB",
+        "condition_text": "ใช้งานได้",
+        "source_status_label": "เปิดขาย",
+        "price": {
+          "kind": "ask",
+          "unit": "each",
+          "amount": "7900",
+          "currency": "THB"
+        },
+        "evidence_keys": [
+          "s03-02-3070"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": 2,
+      "distinct_comments_seen": 2,
+      "distinct_known_commenters_seen": 2,
+      "coverage": "complete"
+    },
+    "comments": [
+      {
+        "source_comment_key": "s03-buyer",
+        "role": "other",
+        "actor_key": "buyer-s03",
+        "text": "จองครับ",
+        "source_time": {
+          "source_text": "2026-11-07T09:10:00Z",
+          "value": "2026-11-07T09:10:00Z",
+          "precision": "exact"
+        }
+      },
+      {
+        "source_comment_key": "s03-seller",
+        "role": "seller",
+        "actor_key": "seller-S03",
+        "text": "3060 ขายแล้ว 3070 ยังขายอยู่",
+        "source_time": {
+          "source_text": "2026-11-07T09:20:00Z",
+          "value": "2026-11-07T09:20:00Z",
+          "precision": "exact"
+        }
+      }
+    ],
+    "evidence": [
+      {
+        "local_key": "s03-buyer-text",
+        "role": "other",
+        "source_span": {
+          "field": "comment_text",
+          "comment_key": "s03-buyer",
+          "quote": "จองครับ"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "s03-02-3060",
+        "role": "seller",
+        "source_span": {
+          "field": "comment_text",
+          "comment_key": "s03-seller",
+          "quote": "3060 ขายแล้ว"
+        },
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "s03-02-3070",
+        "role": "seller",
+        "source_span": {
+          "field": "comment_text",
+          "comment_key": "s03-seller",
+          "quote": "3070 ยังขายอยู่"
+        },
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}

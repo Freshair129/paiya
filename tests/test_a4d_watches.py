@@ -213,6 +213,61 @@ def test_partially_sold_post_revisits_until_all_items_closed(pg_engine, tmp_path
         )
 
 
+def test_slow_revisit_stops_when_both_items_are_seller_confirmed_sold(pg_engine, tmp_path):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "fixtures/scenarios/S09-sold-one-item/rounds"
+    scope = seed_fixture_scope(pg_engine, "synthetic-both-sold")
+    for filename in ("01-open-both.json", "02-sold-one.json"):
+        doc = json.loads((root / filename).read_text(encoding="utf-8"))
+        doc["payload"]["group_key"] = scope.group_key
+        ingest_fixture(pg_engine, scope, doc, {}, tmp_path)
+    with pg_engine.begin() as conn:
+        post_id = conn.execute(select(observations.c.post_id).limit(1)).scalar_one()
+        conn.execute(update(groups).where(groups.c.id == scope.group_id).values(poll_minutes=30))
+    with pg_engine.connect() as conn:
+        add_watch(conn, NOW - timedelta(days=2), post_id)
+    finish_discovery(pg_engine, NOW)
+    with pg_engine.connect() as conn:
+        schedule_due(conn, NOW)
+        claim = claim_next(conn, NOW)
+    assert claim is not None and claim.kind == "revisit" and claim.target_key == str(post_id)
+    with pg_engine.connect() as conn:
+        complete(conn, claim.job_id, claim.lease_token, NOW)
+
+    sold = copy.deepcopy(doc)
+    sold["run_id"] = str(uuid4())
+    sold["capture_id"] = "synthetic-both-sold-final"
+    sold["payload"]["observed_at"] = "2026-11-07T10:00:00Z"
+    sold["payload"]["items"][1]["source_status_label"] = "ขายแล้ว"
+    sold["payload"]["comments"][1]["text"] = "3060 ขายแล้ว 3070 ขายแล้ว"
+    sold["payload"]["evidence"][2]["source_span"]["quote"] = "3070 ขายแล้ว"
+    ingest_fixture(pg_engine, scope, sold, {}, tmp_path)
+    with pg_engine.connect() as conn:
+        states = (
+            conn.execute(
+                select(sale_events.c.sale_status)
+                .join(current_items, current_items.c.status_event_id == sale_events.c.id)
+                .where(current_items.c.post_id == post_id)
+            )
+            .scalars()
+            .all()
+        )
+    assert states == ["sold", "sold"]
+    later = NOW + timedelta(days=2)
+    with pg_engine.begin() as conn:
+        conn.execute(update(watches).where(watches.c.post_id == post_id).values(next_due_at=later))
+    finish_discovery(pg_engine, later)
+    with pg_engine.connect() as conn:
+        schedule_due(conn, later)
+        assert (
+            conn.execute(
+                select(jobs.c.id).where(jobs.c.kind == "revisit", jobs.c.state == "queued")
+            ).first()
+            is None
+        )
+
+
 def test_hot_and_new_post_share_one_revisit_per_slot(pg_engine, tmp_path):
     scope, ids = make_posts(pg_engine, tmp_path, 1)
     with pg_engine.begin() as conn:

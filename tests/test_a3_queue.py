@@ -13,6 +13,60 @@ from paiya.scheduler.queue import claim_next, complete, renew_lease, schedule_du
 from paiya.store.tables import capture_gaps, capture_runs, groups, jobs, source_grants
 
 
+def test_five_grant_backed_groups(pg_engine):
+    now = datetime.now(UTC)
+    with pg_engine.connect() as conn:
+        added = [add_group(conn, now, f"synthetic-granted-{i}", 30) for i in range(5)]
+        with pytest.raises(GroupError, match="At most five"):
+            add_group(conn, now, "synthetic-granted-sixth", 30)
+        rows = (
+            conn.execute(
+                select(groups, source_grants)
+                .join(source_grants, source_grants.c.group_id == groups.c.id)
+                .where(groups.c.enabled.is_(True))
+            )
+            .mappings()
+            .all()
+        )
+        assert len(rows) == 5
+        assert all(group["grant_available"] for group in added)
+        for row in rows:
+            assert {"read", "capture"} <= set(row["scopes"])
+            assert row["revoked_at"] is None
+            assert row["valid_from"] <= now
+            assert row["valid_until"] is None or row["valid_until"] > now
+
+
+def test_interval_and_pause_survive_scheduler_restart(pg_engine):
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    with pg_engine.connect() as conn:
+        group = add_group(conn, now, "synthetic-restart", 30)
+        gid = UUID(group["id"])
+        set_interval(conn, now, gid, 60)
+        pause(conn, now, gid)
+    url = pg_engine.url
+    pg_engine.dispose()
+    fresh = create_engine(url)
+    try:
+        with fresh.connect() as conn:
+            assert schedule_due(conn, now + timedelta(minutes=30)) == []
+            resume(conn, now + timedelta(minutes=30), gid)
+        with fresh.connect() as conn:
+            due = conn.execute(
+                select(jobs.c.due_at).where(jobs.c.group_id == gid, jobs.c.state == "queued")
+            ).scalar_one()
+            assert due == now
+            conn.rollback()
+            schedule_due(conn, now + timedelta(minutes=90))
+        with fresh.connect() as conn:
+            due = conn.execute(
+                select(jobs.c.due_at).where(jobs.c.group_id == gid, jobs.c.state == "queued")
+            ).scalar_one()
+            assert due == now + timedelta(hours=1)
+    finally:
+        fresh.dispose()
+
+
 def test_group_limit_concurrent_and_persistence(pg_engine):
     now = datetime.now(UTC)
 

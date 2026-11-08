@@ -1,0 +1,76 @@
+{
+  "scenario_id": "S09",
+  "at": [
+    "AT-03"
+  ],
+  "runs": [
+    {
+      "name": "seller-sells-one-other-stays-open",
+      "arrival_order": [
+        "01-open-both.json",
+        "02-sold-one.json"
+      ],
+      "expect": {
+        "observations": 2,
+        "items": {
+          "sku3060": {
+            "current_status": "sold",
+            "status_history": [
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T09:00:00Z",
+                "evidence": {
+                  "round": "01-open-both.json",
+                  "local_key": "s03-01-3060"
+                }
+              },
+              {
+                "status": "sold",
+                "observed_at": "2026-11-07T09:30:00Z",
+                "evidence": {
+                  "round": "02-sold-one.json",
+                  "local_key": "s03-02-3060"
+                }
+              }
+            ],
+            "ask": {
+              "amount": "5500",
+              "currency": "THB"
+            },
+            "status_evidence": {
+              "round": "02-sold-one.json",
+              "local_key": "s03-02-3060"
+            }
+          },
+          "sku3070": {
+            "current_status": "open",
+            "status_history": [
+              {
+                "status": "open",
+                "observed_at": "2026-11-07T09:00:00Z",
+                "evidence": {
+                  "round": "01-open-both.json",
+                  "local_key": "s03-01-3070"
+                }
+              }
+            ],
+            "ask": {
+              "amount": "7900",
+              "currency": "THB"
+            },
+            "status_evidence": {
+              "round": "02-sold-one.json",
+              "local_key": "s03-02-3070"
+            }
+          }
+        },
+        "activity": {
+          "source_reported_comment_count": 2,
+          "distinct_comments_seen": 2,
+          "distinct_known_commenters_seen": 2,
+          "coverage": "complete"
+        }
+      }
+    }
+  ]
+}

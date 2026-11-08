@@ -21,6 +21,209 @@ class InlineFeed:
         return self.run
 
 
+def test_fixture_discovery_never_opens_network_or_login(pg_engine, tmp_path, monkeypatch):
+    import socket
+    from uuid import UUID
+
+    from paiya.collector.feed_script import FeedScriptAdapter
+    from paiya.store.tables import source_grants
+
+    now = datetime.now(UTC) - timedelta(minutes=1)
+    group_key = "synthetic-feed-s05"
+    with pg_engine.connect() as conn:
+        group = add_group(conn, now, group_key, 30)
+        gid = UUID(group["id"])
+        grant = conn.execute(
+            select(source_grants.c.id).where(source_grants.c.group_id == gid)
+        ).scalar_one()
+        conn.rollback()
+        schedule_due(conn, now)
+    with pg_engine.connect() as conn:
+        claim = claim_next(conn, now)
+
+    attempts = []
+    original_connect = socket.socket.connect
+
+    def guarded_connect(sock, address):
+        attempts.append(address)
+        raise AssertionError(f"fixture adapter attempted a socket connection: {address}")
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    feed = FeedScriptAdapter(
+        Path(__file__).resolve().parents[1] / "fixtures/feeds/S05-pinned-overlap/feed.json"
+    )
+    scope = FixtureScope(gid, grant, group_key)
+    result = execute_discovery(pg_engine, scope, claim, feed, "r1", now, media_root=tmp_path)
+    assert result.ingested_keys
+    assert attempts == []
+    assert not hasattr(feed, "login")
+    monkeypatch.setattr(socket.socket, "connect", original_connect)
+
+
+def test_fixture_start_path_avoids_external_authentication(pg_engine, tmp_path, monkeypatch):
+    import builtins
+    import io
+    import ipaddress
+    import os
+    import re
+    import socket
+    from uuid import UUID
+
+    from fastapi.testclient import TestClient
+
+    from paiya import cli, serve
+    from paiya.collector.feed_script import FeedScriptAdapter
+    from paiya.scheduler.queue import schedule_group_due
+    from paiya.store.tables import source_grants
+
+    monkeypatch.setenv("PAIYA_FIXTURE_MEDIA_ROOT", str(tmp_path))
+    monkeypatch.setenv("PAIYA_READ_CONTEXT_GROUP_KEY", "synthetic-demo")
+    monkeypatch.setattr(cli, "get_database_engine", lambda: pg_engine)
+    from paiya.api import evidence as api
+
+    monkeypatch.setattr(api, "get_database_engine", lambda: pg_engine)
+    sensitive = re.compile(
+        r"credential|cookie|session|password|passwd|token|secret|(?:^|[/\\])\.env(?:\.|$)", re.I
+    )
+    env_reads = []
+    file_reads = []
+    connections = []
+    environ_type = type(os.environ)
+    original_env = environ_type.__getitem__
+    original_open = builtins.open
+    original_io_open = io.open
+    original_os_open = os.open
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def env_get(environ, key):
+        if key != "PGTARGETSESSIONATTRS" and sensitive.search(key):
+            env_reads.append(key)
+            raise AssertionError(f"authentication environment read: {key}")
+        return original_env(environ, key)
+
+    def check_path(path):
+        if isinstance(path, (str, bytes, os.PathLike)) and sensitive.search(os.fsdecode(path)):
+            file_reads.append(os.fsdecode(path))
+            raise AssertionError(f"authentication file access: {path}")
+
+    def open_file(path, *args, **kwargs):
+        check_path(path)
+        return original_open(path, *args, **kwargs)
+
+    def open_io(path, *args, **kwargs):
+        check_path(path)
+        return original_io_open(path, *args, **kwargs)
+
+    def open_os(path, *args, **kwargs):
+        check_path(path)
+        return original_os_open(path, *args, **kwargs)
+
+    def check_connection(address):
+        host = address[0] if isinstance(address, tuple) else str(address)
+        if host != "localhost":
+            try:
+                loopback = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                loopback = False
+            if not loopback:
+                connections.append(address)
+                raise AssertionError(f"non-loopback connection: {address}")
+
+    def connect(sock, address):
+        check_connection(address)
+        return original_connect(sock, address)
+
+    def connect_ex(sock, address):
+        check_connection(address)
+        return original_connect_ex(sock, address)
+
+    monkeypatch.setattr(environ_type, "__getitem__", env_get)
+    monkeypatch.setattr(builtins, "open", open_file)
+    monkeypatch.setattr(io, "open", open_io)
+    monkeypatch.setattr(os, "open", open_os)
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    assert cli.main(["demo", "seed"]) == 0
+
+    def serve_in_process(app, *, host, port):
+        assert host == "127.0.0.1"
+        with TestClient(app) as client:
+            assert client.get("/v1/posts").status_code == 200
+
+    monkeypatch.setattr(serve.uvicorn, "run", serve_in_process)
+    serve.main()
+    now = datetime.now(UTC)
+    key = "synthetic-feed-s05"
+    with pg_engine.connect() as conn:
+        group = add_group(conn, now, key, 30)
+        gid = UUID(group["id"])
+        grant = conn.execute(
+            select(source_grants.c.id).where(source_grants.c.group_id == gid)
+        ).scalar_one()
+        conn.rollback()
+        schedule_group_due(conn, now, gid)
+    with pg_engine.connect() as conn:
+        claim = claim_next(conn, now)
+    assert claim is not None and claim.kind == "discover"
+    feed = FeedScriptAdapter(
+        Path(__file__).resolve().parents[1] / "fixtures/feeds/S05-pinned-overlap/feed.json"
+    )
+    assert execute_discovery(
+        pg_engine, FixtureScope(gid, grant, key), claim, feed, "r1", now, media_root=tmp_path
+    ).ingested_keys
+    assert not env_reads and not file_reads and not connections
+
+
+def test_regular_discovery_keeps_finding_unwatched_post_after_first_day(pg_engine, tmp_path):
+    import json
+    import shutil
+    from uuid import UUID
+
+    from sqlalchemy import func
+
+    from paiya.collector.feed_script import FeedScriptAdapter
+    from paiya.store.tables import observations, posts, source_grants, watches
+
+    now = datetime.now(UTC)
+    key = "synthetic-feed-s05"
+    with pg_engine.connect() as conn:
+        group = add_group(conn, now, key, 30)
+        gid = UUID(group["id"])
+        grant = conn.execute(
+            select(source_grants.c.id).where(source_grants.c.group_id == gid)
+        ).scalar_one()
+    scope = FixtureScope(gid, grant, key)
+    source = Path(__file__).resolve().parents[1] / "fixtures/feeds/S05-pinned-overlap"
+    root = tmp_path / "feed"
+    shutil.copytree(source, root)
+    feed_path = root / "feed.json"
+    script = json.loads(feed_path.read_text(encoding="utf-8"))
+    feed = FeedScriptAdapter(feed_path)
+    for clock in (now, now + timedelta(minutes=30), now + timedelta(hours=25)):
+        script["runs"][0]["started_at"] = clock.isoformat()
+        feed_path.write_text(json.dumps(script), encoding="utf-8")
+        with pg_engine.connect() as conn:
+            schedule_due(conn, clock)
+            claim = claim_next(conn, clock)
+        assert claim is not None and claim.kind == "discover"
+        result = execute_discovery(pg_engine, scope, claim, feed, "r1", clock, media_root=tmp_path)
+        assert "s05-p1" in result.ingested_keys
+    with pg_engine.connect() as conn:
+        post_id = conn.execute(
+            select(posts.c.id).where(posts.c.source_post_key == "s05-p1")
+        ).scalar_one()
+        assert conn.execute(select(func.count()).select_from(watches)).scalar_one() == 0
+        assert (
+            conn.execute(
+                select(func.count())
+                .select_from(observations)
+                .where(observations.c.post_id == post_id)
+            ).scalar_one()
+            == 3
+        )
+
+
 def test_feed_end_before_overlap_preserves_checkpoint(pg_engine, tmp_path: Path):
     now = datetime.now(UTC) - timedelta(minutes=1)
     with pg_engine.connect() as conn:
