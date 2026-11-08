@@ -48,7 +48,7 @@ def test_upgrade_and_downgrade_on_postgres17(
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0008_enrich_tags"
+        assert revision == "0009_purge_jobs"
         command.downgrade(alembic, "0007_tags")
         command.upgrade(alembic, "head")
         command.downgrade(alembic, "0006_price_validation")
@@ -166,7 +166,7 @@ def test_upgrade_and_downgrade_on_postgres17(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "0008_enrich_tags"
+                == "0009_purge_jobs"
             )
     finally:
         engine.dispose()
@@ -188,8 +188,29 @@ def test_downgrade_preserves_job_result(pg_engine, tmp_path):
     with pg_engine.connect() as connection:
         assert connection.execute(text("SELECT result FROM jobs")).scalar_one() == {"processed": 1}
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-            "0008_enrich_tags"
+            "0009_purge_jobs"
         )
+
+
+def test_purge_jobs_downgrade_refuses_records_and_allows_empty(pg_engine):
+    purge_id = uuid4()
+    with pg_engine.begin() as connection:
+        connection.execute(
+            text("""
+                INSERT INTO purge_jobs
+                    (id, scope_kind, scope_key, requested_at, state, result_counts)
+                VALUES (:id, 'grant', 'synthetic-key', now(), 'succeeded', '{}'::jsonb)
+            """),
+            {"id": purge_id},
+        )
+    with pytest.raises(RuntimeError, match="purge_jobs contains 1"):
+        command.downgrade(Config(str(ROOT / "alembic.ini")), "0008_enrich_tags")
+    with pg_engine.begin() as connection:
+        assert connection.execute(text("SELECT id FROM purge_jobs")).scalar_one() == purge_id
+        connection.execute(text("DELETE FROM purge_jobs WHERE id = :id"), {"id": purge_id})
+    command.downgrade(Config(str(ROOT / "alembic.ini")), "0008_enrich_tags")
+    with pg_engine.connect() as connection:
+        assert connection.execute(text("SELECT to_regclass('purge_jobs')")).scalar_one() is None
 
 
 def test_downgrade_allows_null_job_results(pg_engine, tmp_path):
@@ -232,7 +253,7 @@ def test_downgrade_preserves_model_tags(pg_engine, tmp_path):
             == 1
         )
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-            "0008_enrich_tags"
+            "0009_purge_jobs"
         )
     with pg_engine.begin() as connection:
         assert (

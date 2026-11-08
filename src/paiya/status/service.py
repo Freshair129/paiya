@@ -277,7 +277,7 @@ def _latest_price_fact(conn: Connection, item_id: UUID, price_kind: str) -> UUID
     )
 
 
-def _rebuild_sale_events_and_projection(conn: Connection, item_id: UUID, post_id: UUID) -> None:
+def _rebuild_sale_events_and_projection(conn: Connection, item_id: UUID, post_id: UUID) -> int:
     facts = (
         conn.execute(
             select(
@@ -314,6 +314,7 @@ def _rebuild_sale_events_and_projection(conn: Connection, item_id: UUID, post_id
     previous_status: str | None = None
     status_event_id: UUID | None = None
     event_seq = 0
+    event_count = 0
     tied_effective_statuses: dict[datetime, set[str]] = {}
     for fact in facts:
         sale_status = cast(str, fact["sale_status"])
@@ -337,6 +338,7 @@ def _rebuild_sale_events_and_projection(conn: Connection, item_id: UUID, post_id
                     precision=fact["precision"],
                 )
             )
+            event_count += 1
         previous_status = sale_status
 
     status_fact_id = cast(UUID | None, facts[-1]["id"]) if facts else None
@@ -352,6 +354,26 @@ def _rebuild_sale_events_and_projection(conn: Connection, item_id: UUID, post_id
             needs_review=needs_review,
         )
     )
+    return event_count
+
+
+def rebuild_current_item_after_purge(
+    conn: Connection,
+    *,
+    item_id: UUID,
+    post_id: UUID,
+    observation_id: UUID,
+    observed_at: datetime,
+) -> int:
+    """Recreate one current-item row and its sale events from remaining observations."""
+    _ensure_current_item(
+        conn,
+        item_id=item_id,
+        post_id=post_id,
+        observation_id=observation_id,
+        observed_at=observed_at,
+    )
+    return _rebuild_sale_events_and_projection(conn, item_id, post_id)
 
 
 def create_facts_and_rebuild_current_items(

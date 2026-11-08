@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from datetime import UTC, datetime
-from typing import NoReturn
+from typing import NoReturn, cast
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,6 +15,8 @@ from paiya.grants.errors import GrantError
 from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
+from paiya.purge.errors import PurgeError
+from paiya.purge.service import run_purge, validate_scope_format
 from paiya.settings import get_database_engine
 from paiya.watches.errors import WatchError
 from paiya.watches.service import add_watch, list_watches, remove_watch, set_watch_hot
@@ -77,6 +79,13 @@ def _parser() -> argparse.ArgumentParser:
     revoke = grant_actions.add_parser("revoke", help="revoke a synthetic source grant")
     revoke.add_argument("grant_id")
 
+    purge = commands.add_parser("purge", help="purge a synthetic grant or post scope")
+    purge_actions = purge.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    purge_run = purge_actions.add_parser("run", help="purge one synthetic data scope")
+    purge_run.add_argument("--scope", required=True)
+
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
@@ -99,6 +108,9 @@ def _parser() -> argparse.ArgumentParser:
 def _execute(args: argparse.Namespace) -> object:
     if args.resource == "demo" and args.action == "seed":
         return seed_demo(get_database_engine())
+    if args.resource == "purge" and args.action == "run":
+        validate_scope_format(args.scope)
+        return run_purge(get_database_engine(), args.scope)
 
     now = datetime.now(UTC)
     engine = get_database_engine()
@@ -157,6 +169,9 @@ def main(argv: list[str] | None = None) -> int:
     except GrantError as error:
         _print_error(error.code, error.message)
         return 1
+    except PurgeError as error:
+        _print_error(error.code, error.message)
+        return 1
     except (RuntimeError, ValueError) as error:
         _print_error("invalid_command", str(error))
         return 1
@@ -169,6 +184,10 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print(json.dumps({"ok": True, "result": {"state": "stopped"}}))
         return 0
+    if args.resource == "purge":
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+        purge_result = cast(dict[str, object], result)
+        return 0 if purge_result.get("state") == "succeeded" else 1
     print(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":")))
     return 0
 

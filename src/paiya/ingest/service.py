@@ -20,7 +20,7 @@ from paiya.store.fixture_scope import (
     verify_fixture_scope,
     verify_fixture_scope_for_commit,
 )
-from paiya.store.media import validate_media, write_media
+from paiya.store.media import lock_media_asset_for_transaction, validate_media, write_media
 from paiya.store.tables import (
     capture_runs,
     comment_versions,
@@ -192,6 +192,9 @@ def ingest_fixture(
         if posted_at is not None:
             post_updates["posted_at"] = posted_at
         conn.execute(update(posts).where(posts.c.id == post_id).values(**post_updates))
+
+        for meta in sorted(document["assets"].values(), key=lambda value: value["sha256"]):
+            lock_media_asset_for_transaction(conn, cast(str, meta["sha256"]))
 
         run_id = UUID(document["run_id"])
         existing_run = (

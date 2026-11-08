@@ -8,9 +8,43 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 
+from sqlalchemy import Connection, text
+
 MAX_MEDIA_BYTES = 5 * 1024 * 1024
 STAGING_KEY = re.compile(r"^[a-zA-Z0-9_-]{1,200}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def media_asset_lock_id(storage_key: str) -> int:
+    """Return a stable advisory-lock key for one content-addressed asset."""
+    if not SHA256.fullmatch(storage_key):
+        raise ValueError("Invalid storage key")
+    digest = hashlib.sha256(f"paiya:media-asset:{storage_key}".encode("ascii")).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+def lock_media_asset_for_transaction(conn: Connection, storage_key: str) -> None:
+    """Serialize an ingest against purge of the same content-addressed asset."""
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": media_asset_lock_id(storage_key)},
+    )
+
+
+def lock_media_asset_for_session(conn: Connection, storage_key: str) -> None:
+    """Hold an asset lock across a database commit and its file unlink."""
+    conn.execute(
+        text("SELECT pg_advisory_lock(:lock_key)"),
+        {"lock_key": media_asset_lock_id(storage_key)},
+    )
+
+
+def unlock_media_asset_for_session(conn: Connection, storage_key: str) -> None:
+    """Release the session lock acquired before an out-of-transaction unlink."""
+    conn.execute(
+        text("SELECT pg_advisory_unlock(:lock_key)"),
+        {"lock_key": media_asset_lock_id(storage_key)},
+    )
 
 
 def validate_media(staging_key: str, meta: Mapping[str, object], data: bytes) -> str:
