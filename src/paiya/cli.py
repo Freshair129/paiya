@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 
 from paiya.backup.errors import BackupError
+from paiya.backup.prune import prune_backup_sets
 from paiya.backup.service import backup_status, create_backup, restore_backup, verify_backup
 from paiya.demo import seed_demo
 from paiya.extract.service import rebuild_extractions
@@ -19,6 +20,8 @@ from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.health.service import get_health_report
+from paiya.inbox.validation import validate_inbox
+from paiya.manual.service import ManualImportError, ManualImportService
 from paiya.purge.errors import PurgeError
 from paiya.purge.service import replay_purge_log, run_purge, validate_scope_format
 from paiya.purge.startup import check_purge_log
@@ -93,6 +96,22 @@ def _parser() -> argparse.ArgumentParser:
     revoke = grant_actions.add_parser("revoke", help="revoke a synthetic source grant")
     revoke.add_argument("grant_id")
 
+    manual_import = commands.add_parser("import", help="import a locally pasted post")
+    import_actions = manual_import.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    for action_name, help_text in (
+        ("preview", "parse pasted text without writing an observation"),
+        ("commit", "save a manual-share observation"),
+    ):
+        import_action = import_actions.add_parser(action_name, help=help_text)
+        import_action.add_argument("--grant", type=UUID, required=True)
+        import_action.add_argument("--permalink", required=True)
+        import_action.add_argument("--text-file", required=True)
+        if action_name == "commit":
+            import_action.add_argument("--idempotency-key", required=True)
+            import_action.add_argument("--preview-digest", required=True)
+
     purge = commands.add_parser("purge", help="purge a synthetic grant or post scope")
     purge_actions = purge.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
@@ -108,6 +127,10 @@ def _parser() -> argparse.ArgumentParser:
     backup_actions.add_parser("create", help="create a complete backup set")
     verify = backup_actions.add_parser("verify", help="verify a backup set")
     verify.add_argument("--set", dest="set_path", required=True)
+    prune = backup_actions.add_parser("prune", help="review or delete old backup sets")
+    prune_mode = prune.add_mutually_exclusive_group()
+    prune_mode.add_argument("--dry-run", action="store_true", help="list sets without deleting")
+    prune_mode.add_argument("--apply", action="store_true", help="delete listed backup sets")
     restore = backup_actions.add_parser("restore", help="restore a backup set into empty targets")
     restore.add_argument("--set", dest="set_path", required=True)
     restore.add_argument("--target-database-url", required=True)
@@ -115,6 +138,13 @@ def _parser() -> argparse.ArgumentParser:
     backup_actions.add_parser("status", help="show the latest successful backup and latest failure")
 
     commands.add_parser("health", help="show system health as JSON")
+
+    inbox = commands.add_parser("inbox", help="validate a Collector inbox run offline")
+    inbox_actions = inbox.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    inbox_validate = inbox_actions.add_parser("validate", help="validate one inbox run directory")
+    inbox_validate.add_argument("run_dir")
 
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
@@ -187,12 +217,26 @@ def _execute(args: argparse.Namespace) -> object:
         return _set_owner_passphrase()
     if args.resource == "health":
         return get_health_report(get_database_engine())
+    if args.resource == "import":
+        service = ManualImportService(get_database_engine())
+        service.check_grant(args.grant)
+        text = Path(args.text_file).read_text(encoding="utf-8")
+        preview = service.preview(text, args.permalink, args.grant)
+        if args.action == "preview":
+            return preview
+        if args.preview_digest != preview["preview_digest"]:
+            raise ManualImportError(
+                "preview_changed", "Current input no longer matches the reviewed preview"
+            )
+        return service.commit(preview, args.idempotency_key, args.grant)
     if args.resource == "backup":
         if args.action == "verify":
             return verify_backup(Path(args.set_path))
         engine = get_database_engine()
         if args.action == "create":
             return create_backup(engine)
+        if args.action == "prune":
+            return prune_backup_sets(engine, apply=args.apply)
         if args.action == "restore":
             return restore_backup(
                 engine,
@@ -258,6 +302,24 @@ def _execute(args: argparse.Namespace) -> object:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.resource == "inbox":
+        try:
+            report = validate_inbox(Path(args.run_dir))
+        except Exception:
+            report = {
+                "ok": False,
+                "run_id": None,
+                "envelopes_checked": 0,
+                "problems": [
+                    {
+                        "path": ".",
+                        "code": "validation_error",
+                        "message": "Inbox validation failed",
+                    }
+                ],
+            }
+        print(json.dumps(report, ensure_ascii=False, separators=(",", ":")))
+        return 0 if report.get("ok") is True else 1
     if args.resource == "worker":
         if args.now is not None and not args.once:
             _print_error("invalid_command", "--now requires --once")
@@ -279,6 +341,9 @@ def main(argv: list[str] | None = None) -> int:
     except GrantError as error:
         _print_error(error.code, error.message)
         return 1
+    except ManualImportError as error:
+        _print_error(error.code, error.message)
+        return 1
     except PurgeError as error:
         _print_error(error.code, error.message)
         return 1
@@ -298,6 +363,26 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         replay_result = cast(dict[str, object], result)
         return 0 if replay_result.get("pending_count") == 0 else 1
+    if args.resource == "backup" and args.action == "prune":
+        prune_result = cast(dict[str, object], result)
+        if prune_result.get("state") == "partial_failure":
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "backup_prune_partial_failure",
+                            "message": "One or more backup sets could not be removed",
+                        },
+                        "result": prune_result,
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+            return 1
+        print(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":")))
+        return 0
     if args.resource == "health":
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0

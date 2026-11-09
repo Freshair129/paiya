@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Freshair129/paiya/docs/architecture/contracts/observation.v2.schema.json",
+  "title": "paiya manual-share observation v2",
+  "description": "A local manual-share import. Provenance is carried by source_kind, grant_id, job_kind, capture_id, and observed_at. This schema does not authorize an HTTP route or source request.",
+  "$ref": "#/$defs/envelope",
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "capture_id", "grant_id", "source_kind", "job_kind", "page_check", "assets", "payload"],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/uuid"},
+        "capture_id": {"type": "string", "minLength": 1},
+        "grant_id": {"$ref": "#/$defs/uuid"},
+        "source_kind": {"const": "manual_share"},
+        "job_kind": {"const": "manual_import"},
+        "page_check": {"type": "null", "description": "Manual import does not open or inspect a browser page."},
+        "assets": {
+          "type": "object",
+          "description": "M1a CLI does not attach images. Future assets still require a media grant with retention.",
+          "additionalProperties": {"$ref": "#/$defs/asset"}
+        },
+        "payload": {"$ref": "#/$defs/payload"}
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "group_key", "source_post_key", "permalink", "observed_at", "access", "post_text", "seller", "items", "unassigned_price_facts", "activity", "evidence"],
+      "properties": {
+        "schema_version": {"const": 2},
+        "group_key": {"$ref": "#/$defs/key"},
+        "source_post_key": {"$ref": "#/$defs/key"},
+        "permalink": {"type": "string", "pattern": "^https://"},
+        "observed_at": {"$ref": "#/$defs/utc_time"},
+        "posted_at": {"$ref": "#/$defs/source_time"},
+        "access": {"const": "ok"},
+        "post_text": {"type": "string", "minLength": 1},
+        "seller": {"type": "null", "description": "A pasted copy cannot establish the author's identity."},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+        "unassigned_price_facts": {"type": "array", "items": {"$ref": "#/$defs/price_fact"}},
+        "activity": {"$ref": "#/$defs/activity"},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_item_key", "model", "price_facts", "evidence_keys"],
+      "properties": {
+        "source_item_key": {"$ref": "#/$defs/key"},
+        "model": {"type": ["string", "null"]},
+        "condition_text": {"type": ["string", "null"]},
+        "price_facts": {"type": "array", "items": {"$ref": "#/$defs/price_fact"}},
+        "evidence_keys": {"type": "array", "items": {"$ref": "#/$defs/key"}}
+      }
+    },
+    "price_fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "unit", "currency", "amount", "evidence_key"],
+      "properties": {
+        "kind": {"enum": ["ask", "shipping", "deposit", "installment", "offer", "unknown"]},
+        "unit": {"enum": ["each", "bundle", "unknown"]},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "amount": {"$ref": "#/$defs/decimal"},
+        "amount_max": {"$ref": "#/$defs/decimal"},
+        "evidence_key": {"$ref": "#/$defs/key"}
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_reported_comment_count", "distinct_comments_seen", "distinct_known_commenters_seen", "coverage"],
+      "properties": {
+        "source_reported_comment_count": {"type": ["integer", "null"], "minimum": 0},
+        "distinct_comments_seen": {"type": "integer", "const": 0},
+        "distinct_known_commenters_seen": {"type": "integer", "const": 0},
+        "coverage": {"enum": ["partial", "none"]}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_key", "role", "source_span", "media_state"],
+      "properties": {
+        "local_key": {"$ref": "#/$defs/key"},
+        "role": {"const": "unknown", "description": "Manual pasted text never asserts seller authorship."},
+        "source_span": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field", "quote"],
+          "properties": {
+            "field": {"const": "post_text"},
+            "quote": {"type": "string", "minLength": 1},
+            "start": {"type": "integer", "minimum": 0},
+            "end": {"type": "integer", "minimum": 0}
+          }
+        },
+        "media_state": {"enum": ["not_requested", "missing_at_source", "captured", "capture_failed"]}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staging_key", "sha256", "mime", "bytes", "width", "height"],
+      "properties": {
+        "staging_key": {"$ref": "#/$defs/key"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mime": {"enum": ["image/jpeg", "image/png", "image/webp"]},
+        "bytes": {"type": "integer", "minimum": 1},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "source_time": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "precision"],
+      "properties": {
+        "value": {"$ref": "#/$defs/utc_time"},
+        "precision": {"enum": ["exact", "minute", "day", "unknown"]}
+      }
+    },
+    "uuid": {"type": "string", "format": "uuid"},
+    "key": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"},
+    "decimal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?$"},
+    "utc_time": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$"}
+  }
+}

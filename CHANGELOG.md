@@ -4,6 +4,10 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
+- Nothing yet.
+
+## [0.1.0] - 2026-11-09
+
 ### Phase A — synthetic fixture workflow
 
 - Added Thai synthetic scenarios and labelled answers (A1, PR #9); fixture ingest, evidence reads, discovery groups and queue (A2–A3, PR #14, #17, #24, #25).
@@ -16,7 +20,12 @@ All notable changes are recorded here. Versions follow [Semantic Versioning](htt
 
 ### Operations
 
-- Added backup create, verify and restore for O1a (PR #79, #80). O1b encryption, key handling, retention and in-place restore are not included; these remain undecided in Issue #78.
+- Added backup create, verify and restore for O1a (PR #79, #80). O1b is not included: the owner decided in Issue #78 on BitLocker for the backup disk, `backup prune --dry-run`/`--apply` and a manual in-place restore, but these are not implemented yet.
 - Added system health reporting, `paiya health` and the admin health view for O2 (PR #82, #83).
-- Added the O4 continuity contract (PR #85). The worker and drill implementation is present on the stacked `feat/o4-continuity` branch; its implementation PR number is not available in `origin/main` yet.
-- Added the Windows install/upgrade/rollback runbook and offline release smoke check for O3 (Issue #87; PR pending).
+- Added the fixture worker `paiya worker run`, gated fault points and the continuity drill for O4 (PR #85, #86).
+- Added the Windows install/upgrade/rollback runbook and offline release smoke check for O3 (Issue #87, PR #88).
+
+### Decisions and contracts
+
+- Accepted ADR 0002 (manual import for phase M) and ADR 0005 (owner-directed automated collection; the bot-detection evasion ban stays) (PR #90, #93).
+- Added the M1 approval package (PR #90), the collector inbox contract (PR #92) and the owner-session contract (PR #95). Their implementations are not in this release.

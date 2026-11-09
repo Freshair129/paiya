@@ -1,0 +1,65 @@
+{
+  "run_id": "11111111-2222-4333-8444-555555555555",
+  "capture_id": "a61e057d-9f72-5c5c-9287-b4dbed0bfd89",
+  "grant_id": "22222222-3333-4444-8555-666666666666",
+  "source_kind": "facebook_live",
+  "job_kind": "discover",
+  "page_check": {
+    "session": "ok",
+    "sort": "verified_latest"
+  },
+  "assets": {
+    "e1": {
+      "staging_key": "image-001.webp",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "mime": "image/webp",
+      "width": 1,
+      "height": 1,
+      "bytes": 39
+    }
+  },
+  "payload": {
+    "schema_version": 1,
+    "group_key": "synthetic-group",
+    "source_post_key": "post-001",
+    "permalink": "https://example.invalid/groups/synthetic-group/posts/post-001",
+    "observed_at": "2026-11-09T00:00:30Z",
+    "access": "ok",
+    "posted_at": {
+      "source_text": null,
+      "value": null,
+      "precision": "unknown"
+    },
+    "seller": null,
+    "items": [
+      {
+        "source_item_key": "synthetic-item-1",
+        "model": "Synthetic item",
+        "condition_text": null,
+        "source_status_label": null,
+        "price": null,
+        "evidence_keys": [
+          "e1"
+        ]
+      }
+    ],
+    "activity": {
+      "source_reported_comment_count": null,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "none"
+    },
+    "comments": [],
+    "evidence": [
+      {
+        "local_key": "e1",
+        "role": "seller",
+        "source_span": {
+          "field": "post_text",
+          "quote": "Synthetic item"
+        },
+        "media_state": "captured"
+      }
+    ]
+  }
+}
