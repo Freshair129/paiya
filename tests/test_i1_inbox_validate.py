@@ -18,6 +18,16 @@ def fixture_run_dir(name: str) -> Path:
     return FIXTURES / name / folder_name
 
 
+def copy_fixture_with_empty_dirs(name: str, tmp_path: Path) -> Path:
+    run_dir = tmp_path / VALID_RUN_ID
+    shutil.copytree(fixture_run_dir(name), run_dir)
+    # Git does not preserve empty directories, and hidden placeholders are invalid.
+    empty_dirs = {"valid-none": ("envelopes", "assets"), "asset-missing": ("assets",)}
+    for directory in empty_dirs[name]:
+        (run_dir / directory).mkdir(exist_ok=True)
+    return run_dir
+
+
 def run_validator(
     run_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> tuple[int, dict[str, object], str]:
@@ -71,17 +81,28 @@ def test_valid_fixture_passes_with_report_shape(capsys: pytest.CaptureFixture[st
 def test_invalid_fixture_reports_its_problem(
     fixture_name: str,
     problem_code: str,
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    exit_code, report, _ = run_validator(fixture_run_dir(fixture_name), capsys)
+    run_dir = (
+        copy_fixture_with_empty_dirs(fixture_name, tmp_path)
+        if fixture_name == "asset-missing"
+        else fixture_run_dir(fixture_name)
+    )
+    exit_code, report, _ = run_validator(run_dir, capsys)
 
     assert exit_code == 1
     assert report["ok"] is False
     assert problem_code in {problem["code"] for problem in report["problems"]}
+    if fixture_name == "asset-missing":
+        assert {problem["code"] for problem in report["problems"]} == {"asset_missing"}
 
 
-def test_none_coverage_with_no_envelopes_is_valid(capsys: pytest.CaptureFixture[str]) -> None:
-    exit_code, report, _ = run_validator(fixture_run_dir("valid-none"), capsys)
+def test_none_coverage_with_no_envelopes_is_valid(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_dir = copy_fixture_with_empty_dirs("valid-none", tmp_path)
+    exit_code, report, _ = run_validator(run_dir, capsys)
 
     assert exit_code == 0
     assert report["ok"] is True
