@@ -692,3 +692,43 @@ def test_permalink_parser_rejects_untrusted_hosts_locally(
             "https://facebook.com.evil.example/groups/demo-group/posts/42",
             manual_grant,
         )
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("item_evidence", "Unassigned price fact uses item evidence"),
+        ("reversed_range", "price amount_max is below amount"),
+        ("missing_quote", "quote not found in post_text"),
+        ("seller_role", "Invalid observation v2"),
+        ("seller_nonnull", "Invalid observation v2"),
+    ],
+)
+def test_v2_rejects_invalid_manual_claims(case: str, message: str) -> None:
+    from paiya.ingest.validation import validate_observation
+
+    path = ROOT / "fixtures/contract/observation/v2/valid/manual-multiple-facts.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    payload = document["payload"]
+    if case == "item_evidence":
+        payload["unassigned_price_facts"][0]["evidence_key"] = "ask"
+    elif case == "reversed_range":
+        payload["items"][0]["price_facts"][0]["amount_max"] = "5799.99"
+    elif case == "missing_quote":
+        payload["evidence"][0]["source_span"]["quote"] = "not in the copied text"
+    elif case == "seller_role":
+        payload["evidence"][0]["role"] = "seller"
+    else:
+        payload["seller"] = {"name": "claimed seller"}
+    with pytest.raises(ValueError, match=message):
+        validate_observation(document)
+
+
+def test_v1_rejects_unknown_schema_version() -> None:
+    from paiya.ingest.validation import validate_observation
+
+    path = ROOT / "fixtures/scenarios/S01-reserve-reopen/rounds/01-open.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["payload"]["schema_version"] = 0
+    with pytest.raises(ValueError, match="Unsupported observation schema_version"):
+        validate_observation(document)
