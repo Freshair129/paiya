@@ -268,7 +268,7 @@ def _attempts_lock(path: Path) -> Iterator[None]:
     with _auth_file_lock:
         lock_path = path.with_name(f".{path.name}.lock")
         with lock_path.open("a+b") as handle:
-            if os.name == "nt":
+            if sys.platform == "win32":
                 import msvcrt
 
                 handle.seek(0)
