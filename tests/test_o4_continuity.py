@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -466,6 +467,34 @@ def test_sleep_records_missed_slots_and_health_reports_one_follow_up(o4_db, tmp_
     assert _counts(pg_engine)["capture_runs"] == 2
 
 
+def _without_fixture_schemas(schemas: set[str]) -> set[str]:
+    return {
+        name
+        for name in schemas
+        if re.fullmatch(r"(paiya_test_(o4_)?|paiya_migration_)[0-9a-f]{32}", name) is None
+    }
+
+
+def test_drill_schema_snapshot_excludes_only_fixture_schemas():
+    schemas = {
+        "paiya_test_" + "a" * 32,
+        "paiya_test_o4_" + "b" * 32,
+        "paiya_migration_" + "c" * 32,
+        "paiya_test_xyz",
+        "paiya_o4_leak_x",
+        "paiya_test_" + "d" * 31,
+        "paiya_test_" + "A" * 32,
+        "paiya_test_" + "e" * 32 + "_extra",
+    }
+    assert _without_fixture_schemas(schemas) == {
+        "paiya_test_xyz",
+        "paiya_o4_leak_x",
+        "paiya_test_" + "d" * 31,
+        "paiya_test_" + "A" * 32,
+        "paiya_test_" + "e" * 32 + "_extra",
+    }
+
+
 def test_continuity_drill_end_to_end():
     raw_url = os.environ.get("PAIYA_TEST_DATABASE_URL")
     assert raw_url is not None
@@ -522,7 +551,7 @@ def test_continuity_drill_end_to_end():
     finally:
         cleanup.dispose()
     assert remaining == before
-    assert schemas == schemas_before
+    assert _without_fixture_schemas(schemas) == _without_fixture_schemas(schemas_before)
 
 
 def test_drill_rejects_duplicate_sale_event_keys(monkeypatch, tmp_path):
