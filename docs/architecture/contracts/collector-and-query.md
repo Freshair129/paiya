@@ -1,10 +1,52 @@
 # สัญญาข้อมูลของ Collector และช่องทางค้นคืน
 
-**สถานะ** observation v1 มี JSON Schema และ fixture สังเคราะห์สำหรับตรวจสัญญา ส่วน API และ MCP เป็นแบบสำหรับพัฒนา · **ผู้ดูแล** ผู้พัฒนา Collector และ API ร่วมกัน
+**สถานะ** observation v1 และ v2 มี JSON Schema กับ fixture สังเคราะห์แยกกัน ส่วน API และ MCP เป็นแบบสำหรับพัฒนา · **ผู้ดูแล** ผู้พัฒนา Collector และ API ร่วมกัน
 
 หน้านี้กำหนดรูปแบบข้อมูลกลางที่ Collector ส่งเข้า backend และสิ่งที่แอปกับ Agent เรียกอ่านได้ รูปแบบที่เสนอรองรับประวัติการตรวจ (FR-05) หลักฐาน (FR-07) การค้นผ่าน MCP (FR-11) และการตรวจสิทธิ์ (FR-13) ดูข้อกำหนดทั้งหมดและเกณฑ์รับมอบใน [SRS](../../requirements/SRS.md)
 
-งานนำเข้าโดยผู้ใช้ กฎตั้งรับ การติดตามรายชิ้น และการเทียบดีลมีข้อเสนอ API กับรูปแบบ observation v2 แยกไว้ ข้อมูล v1 ในหน้านี้ยังเป็นฐานสำหรับทดสอบความเข้ากันได้ [สัญญาเส้นทางผู้ซื้อ](buyer-workflows.md) · [แบบจำลองข้อมูล](../data-model.md)
+งานนำเข้าโดยผู้ใช้ กฎตั้งรับ การติดตามรายชิ้น และการเทียบดีลใช้ observation v2 เป็นสัญญาอ้างอิงแยกจาก v1 [Schema v2](observation.v2.schema.json) และ fixture ใช้ตรวจ manual-share provenance, `payload.post_text`, evidence quote/offset และ price facts ส่วน M1a เปิดเฉพาะ service/CLI ในเครื่อง ไม่มี HTTP route หรือหน้าเว็บ; ส่วน HTTP ใน [สัญญาเส้นทางผู้ซื้อ](buyer-workflows.md) รอสัญญา session/CSRF [แบบจำลองข้อมูล](../data-model.md)
+
+### ตัวอย่าง payload observation v2 สำหรับ manual-share
+
+Envelope v2 ระบุ `source_kind=manual_share`, `grant_id`, `job_kind=manual_import` และ `page_check=null` ส่วนเวลาที่ผู้ใช้ส่งบันทึกใน `observed_at` ตัวอย่างนี้เป็นข้อมูลสังเคราะห์ ข้อความที่วางเก็บใน `post_text`; evidence ทุกชิ้นชี้กลับไปยัง quote และผู้เขียนยังเป็น unknown
+
+```json
+{
+  "schema_version": 2,
+  "group_key": "demo-group",
+  "source_post_key": "42",
+  "permalink": "https://www.facebook.com/groups/demo-group/posts/42/",
+  "observed_at": "2026-11-09T10:00:00Z",
+  "access": "ok",
+  "post_text": "RTX 3060 12GB 5,800 บาท",
+  "seller": null,
+  "items": [
+    {
+      "source_item_key": "gpu-rtx-3060-12gb",
+      "model": "RTX 3060 12GB",
+      "price_facts": [
+        {"kind": "ask", "unit": "each", "currency": "THB", "amount": "5800.00", "evidence_key": "e1"}
+      ],
+      "evidence_keys": ["e1"]
+    }
+  ],
+  "unassigned_price_facts": [],
+  "activity": {
+    "source_reported_comment_count": null,
+    "distinct_comments_seen": 0,
+    "distinct_known_commenters_seen": 0,
+    "coverage": "partial"
+  },
+  "evidence": [
+    {
+      "local_key": "e1",
+      "role": "unknown",
+      "source_span": {"field": "post_text", "quote": "RTX 3060 12GB 5,800 บาท"},
+      "media_state": "not_requested"
+    }
+  ]
+}
+```
 
 ## ข้อมูลจาก Collector
 
