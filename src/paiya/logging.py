@@ -18,6 +18,7 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
             "queue_wait_ms",
             "cards_seen",
             "cards_parsed",
+            "duplicate_cards_skipped",
         }
     ),
     "media_failed": frozenset({"run_id", "evidence_local_key", "reason"}),
@@ -46,6 +47,7 @@ def _validate_fields(event: str, fields: dict[str, object]) -> None:
             "queue_wait_ms",
             "cards_seen",
             "cards_parsed",
+            "duplicate_cards_skipped",
             "free_bytes",
             "min_free_bytes",
             "pending_count",
