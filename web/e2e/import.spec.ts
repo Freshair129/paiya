@@ -1,7 +1,8 @@
-﻿import { readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { test, expect } from './fixtures'
 
-test('AT-11 preview and retry a confirmation whose first response was lost', async ({ page }) => {
+test('AT-11 preview and retry a confirmation whose first response was lost', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('Playwright baseURL is not configured')
   const passphraseFile = process.env.PAIYA_E2E_PASSPHRASE_FILE
   if (!passphraseFile) throw new Error('E2E owner passphrase file is not configured')
   const passphrase = readFileSync(passphraseFile, 'utf8').trim()
@@ -9,7 +10,7 @@ test('AT-11 preview and retry a confirmation whose first response was lost', asy
   expect(challenge.status()).toBe(200)
   const { nonce } = await challenge.json()
   const unlock = await page.request.post('/v1/auth/unlock', {
-    headers: { Origin: 'http://127.0.0.1:8137', 'X-CSRF-Token': nonce },
+    headers: { Origin: new URL(baseURL).origin, 'X-CSRF-Token': nonce },
     data: { passphrase },
   })
   expect(unlock.status()).toBe(200)
