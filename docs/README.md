@@ -12,6 +12,7 @@
 | [architecture/contracts/discovery-queue.md](architecture/contracts/discovery-queue.md) | กติกาวางรอบ จองงาน ความครอบคลุมของรอบ ช่วงที่ขาด feed script สังเคราะห์ และการอ่านผลรอบ | เจ้าของ Worker และฐานข้อมูล |
 | [architecture/contracts/item-status-and-watches.md](architecture/contracts/item-status-and-watches.md) | ตารางป้ายสถานะ การยืนยันหลักฐาน การสร้าง sale_events/current_items, timeline, หน้าผู้ขาย และ Watch/revisit ระยะ A | เจ้าของ Worker, API และฐานข้อมูล |
 | [architecture/contracts/mobile-read-path.md](architecture/contracts/mobile-read-path.md) | read context เมื่อรัน server ระยะ A, endpoint ของหน้าจอมือถือ ข้อความไทย การนับแตะ AT-05 และ fixture สาธิต | เจ้าของ PWA + API |
+| [architecture/contracts/owner-session.md](architecture/contracts/owner-session.md) | **ร่าง / เสนอเพื่ออนุมัติ** การปลดล็อกเจ้าของเครื่อง, cookie, CSRF, read grants และโหมด fixture สำหรับ HTTP API | Product owner + Backend + QA |
 | [architecture/contracts/price-trends.md](architecture/contracts/price-trends.md) | ask ที่ยืนยันได้ ชุดตัวอย่างที่เทียบกันได้ ช่วงเวลา ค่ากลาง เกณฑ์ข้อมูลไม่พอ และ `GET /v1/prices/trends` | เจ้าของ API และฐานข้อมูล |
 | [architecture/contracts/extraction-and-tags.md](architecture/contracts/extraction-and-tags.md) | กฎสกัดรุ่น หน่วยความจำ สภาพ และประกัน `extract-v1.0` ตาราง tags ค่าใน listing_items และตัวกรองรุ่นของ `GET /v1/posts` | เจ้าของ Worker, API และฐานข้อมูล |
 | [architecture/contracts/local-model-enrichment.md](architecture/contracts/local-model-enrichment.md) | คิว enrich การเรียก Ollama ผ่าน loopback การตรวจข้อเสนอของโมเดล และผลต่อ listing_items | เจ้าของ Worker และฐานข้อมูล |
@@ -32,6 +33,7 @@
 | [architecture/decisions/0002-source-strategy.md](architecture/decisions/0002-source-strategy.md) | **รับรองแล้ว** ขอบเขตนำเข้าเองสำหรับทดลอง M และสิทธิ์แยกสำหรับ Collector ระยะ B | Product owner + Tech lead |
 | [architecture/decisions/0003-dev-tooling.md](architecture/decisions/0003-dev-tooling.md) | **เสนอเพื่อรับรอง** เครื่องมือพัฒนา โครงสร้างรีโป และวิธีรันเทสต์บน Linux กับ Windows | Tech lead |
 | [architecture/decisions/0004-local-access-and-mcp.md](architecture/decisions/0004-local-access-and-mcp.md) | **รับรองแล้ว** API เฉพาะในเครื่องกับ session เจ้าของเครื่อง, MCP เรียก service ใน process และจุดบังคับ `agent_export` | Product owner + Tech lead |
+| [architecture/decisions/0005-owner-directed-collection.md](architecture/decisions/0005-owner-directed-collection.md) | **รับรองแล้ว** Collector อัตโนมัติตามคำตัดสินของเจ้าของ แทนเงื่อนไขสิทธิ์จากแพลตฟอร์มใน ADR 0002 กติกาที่คงไว้ | Product owner + Tech lead |
 | [quality/TRACEABILITY.md](quality/TRACEABILITY.md) | ตารางโยง PR → FR → AT และลิงก์ผลตรวจของแต่ละข้อ | QA |
 | [delivery/ROADMAP.md](delivery/ROADMAP.md) | ลำดับงาน สิ่งที่ต้องมีก่อน และหลักฐานจบแต่ละระยะ | Delivery lead |
 | [delivery/m1-approval-package.md](delivery/m1-approval-package.md) | ข้อเสนอขอคำตัดสินและอนุมัติขอบเขต M1, schema v2 และการแปลงจาก v1 | Product owner + Tech lead |
