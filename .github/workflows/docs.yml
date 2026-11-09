@@ -23,6 +23,7 @@ jobs:
       - run: uv run --frozen python scripts/check_docs.py
       - run: uv run --frozen python scripts/check_contracts.py
       - run: uv run --frozen python scripts/check_scenarios.py
+      - run: uv run --frozen python scripts/check_corpus.py
 
   python:
     runs-on: ubuntu-latest
