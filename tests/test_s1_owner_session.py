@@ -201,6 +201,7 @@ def test_unlock_rejects_invalid_origin_without_creating_session(
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
     challenge = client.get("/v1/auth/challenge", headers={"Host": "127.0.0.1:8137"})
@@ -235,6 +236,7 @@ def test_unlock_without_pre_auth_csrf_is_rejected(monkeypatch, tmp_path, client)
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
 
@@ -287,6 +289,7 @@ def test_unlock_hashes_token_and_sets_contract_cookie(monkeypatch, tmp_path, pg_
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
     challenge = client.get("/v1/auth/challenge", headers={"Host": "127.0.0.1:8137"})
@@ -334,6 +337,7 @@ def test_expired_or_idle_session_returns_401(
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
     response = unlock(client, passphrase)
@@ -365,6 +369,7 @@ def test_authenticated_write_rejects_missing_or_bad_csrf(csrf_token, monkeypatch
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
     assert unlock(client, passphrase).status_code == 200
@@ -385,6 +390,7 @@ def test_middleware_rejects_missing_csrf_before_route_dispatch(monkeypatch, tmp_
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
     assert unlock(client, passphrase).status_code == 200
@@ -405,6 +411,7 @@ def test_logout_invalidates_session(monkeypatch, tmp_path, client):
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
     login = unlock(client, passphrase)
@@ -442,6 +449,7 @@ def test_revoke_all_requires_csrf_and_revokes_every_session(
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
     login_a = unlock(client, passphrase)
@@ -483,6 +491,7 @@ def test_auth_secrets_never_appear_in_logs(monkeypatch, tmp_path, client, caplog
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     canary = secrets.token_urlsafe(18)
     passphrase = f"passphrase-{canary}"
     nonce = f"preauth-{canary}"
@@ -514,6 +523,7 @@ def test_cli_stores_scrypt_verifier_outside_repository(monkeypatch, tmp_path, ca
     passphrase = secrets.token_urlsafe(18)
     answers = iter((passphrase, passphrase))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     monkeypatch.setattr(getpass, "getpass", lambda _prompt: next(answers))
     from paiya.auth import credentials
 
@@ -543,6 +553,7 @@ def test_serve_fails_closed_when_first_setup_has_no_terminal(monkeypatch, tmp_pa
     from paiya.auth import credentials
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     monkeypatch.delenv("PAIYA_DEV_FIXTURE_MODE", raising=False)
     monkeypatch.delenv("PAIYA_READ_CONTEXT_GROUP_KEY", raising=False)
     monkeypatch.setattr(
@@ -565,6 +576,7 @@ def test_unlock_backoff_starts_after_five_failures(monkeypatch, tmp_path):
     )
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     wrong_passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
@@ -582,6 +594,7 @@ def test_unlock_endpoint_throttles_after_five_failed_attempts(monkeypatch, tmp_p
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     passphrase = secrets.token_urlsafe(18)
     wrong_passphrase = secrets.token_urlsafe(18)
     create_auth_verifier(passphrase)
@@ -600,6 +613,7 @@ def test_verifier_rejects_passphrase_shorter_than_twelve(monkeypatch, tmp_path):
     from paiya.auth.credentials import create_auth_verifier
 
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
 
     with pytest.raises(ValueError, match="passphrase_too_short"):
         create_auth_verifier("short-pass")

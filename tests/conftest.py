@@ -32,6 +32,7 @@ def authenticated_session(
 
     passphrase = secrets.token_urlsafe(18)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     create_auth_verifier(passphrase)
     host = "127.0.0.1:8137"
     challenge = client.get("/v1/auth/challenge", headers={"Host": host}).json()["nonce"]
