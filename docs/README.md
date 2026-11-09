@@ -32,6 +32,7 @@
 | [architecture/decisions/0004-local-access-and-mcp.md](architecture/decisions/0004-local-access-and-mcp.md) | **รับรองแล้ว** API เฉพาะในเครื่องกับ session เจ้าของเครื่อง, MCP เรียก service ใน process และจุดบังคับ `agent_export` | Product owner + Tech lead |
 | [quality/TRACEABILITY.md](quality/TRACEABILITY.md) | ตารางโยง PR → FR → AT และลิงก์ผลตรวจของแต่ละข้อ | QA |
 | [delivery/ROADMAP.md](delivery/ROADMAP.md) | ลำดับงาน สิ่งที่ต้องมีก่อน และหลักฐานจบแต่ละระยะ | Delivery lead |
+| [delivery/m1-approval-package.md](delivery/m1-approval-package.md) | ข้อเสนอขอคำตัดสินและอนุมัติขอบเขต M1, schema v2 และการแปลงจาก v1 | Product owner + Tech lead |
 
 ## เลือกโฟลเดอร์เมื่อเพิ่มเอกสาร
 
