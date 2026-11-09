@@ -72,6 +72,8 @@ Collector เป็นโปรแกรมแยกที่เจ้าขอ�
 
 ## 6. ข้อกำหนดฝั่ง Collector
 
+ขั้นตอนฝั่งผู้ผลิต ข้อจำกัดของ revisit และ 429 กับเกณฑ์รับงานอยู่ใน [สเปกโปรแกรม Collector ภายนอก](../external-collector.md)
+
 paiya บังคับข้อเหล่านี้ไม่ได้ จึงเป็นความรับผิดชอบของผู้รัน Collector ซึ่งตรงกับ [สเปกสถาปัตยกรรม](../SPEC.md) ข้อ 3 และ 6
 
 - เจ้าของบันทึกคำตัดสิน ขอบเขต วัตถุประสงค์ และ retention ของกลุ่มไว้ใน grant ของ paiya ก่อนรัน ตาม [ADR 0005](../decisions/0005-owner-directed-collection.md) ซึ่งระบุความเสี่ยงต่อเงื่อนไขของแพลตฟอร์มและบัญชีที่เจ้าของรับเอง
@@ -95,6 +97,8 @@ paiya บังคับข้อเหล่านี้ไม่ได้ จ�
 
 ```text
 Task: build an external Collector that writes its results into the paiya inbox format.
+
+Producer behavior and acceptance: docs/architecture/external-collector.md. Start with offline discovery; see its compatibility gates before emitting revisit or rate-limit summaries.
 
 Contract (source of truth, read all of it first, from the paiya repo):
 - docs/architecture/contracts/collector-inbox.md (this delivery contract: layout, run.json, envelope rules, Collector obligations)
