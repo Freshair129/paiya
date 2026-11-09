@@ -1,6 +1,5 @@
 """The Paiya FastAPI application."""
 
-import hmac
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -15,6 +14,7 @@ from paiya.api.prices import router as price_router
 from paiya.auth.request_checks import (
     READ_METHODS,
     WRITE_METHODS,
+    csrf_token_matches,
     host_is_allowed,
     origin_is_allowed,
 )
@@ -89,7 +89,7 @@ async def disable_api_caching(
         if session is None:
             return _request_error(401, "session_required", "A valid owner session is required")
         csrf_token = request.headers.get("x-csrf-token")
-        if csrf_token is None or not hmac.compare_digest(csrf_token, session.csrf_token):
+        if not csrf_token_matches(csrf_token, session.csrf_token):
             return _request_error(403, "csrf_invalid", "A valid CSRF token is required")
         request.state.owner_session = session
     elif request.method in READ_METHODS and request.url.path.startswith("/v1/"):

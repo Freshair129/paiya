@@ -225,6 +225,38 @@ def test_unlock_without_pre_auth_csrf_is_rejected(monkeypatch, tmp_path, client)
     assert response.json()["detail"]["code"] == "csrf_invalid"
 
 
+def test_authenticated_write_rejects_non_ascii_csrf(client, authenticated_session):
+    assert authenticated_session["session_id"]
+    response = client.post(
+        "/v1/auth/logout",
+        headers=[
+            (b"host", b"127.0.0.1:8137"),
+            (b"origin", b"http://127.0.0.1:8137"),
+            (b"x-csrf-token", b"\xff"),
+        ],
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "csrf_invalid"
+
+
+def test_unlock_rejects_non_ascii_pre_auth_csrf(client):
+    challenge = client.get("/v1/auth/challenge", headers={"Host": "127.0.0.1:8137"})
+    assert challenge.status_code == 200
+    response = client.post(
+        "/v1/auth/unlock",
+        headers=[
+            (b"host", b"127.0.0.1:8137"),
+            (b"origin", b"http://127.0.0.1:8137"),
+            (b"x-csrf-token", b"\xff"),
+        ],
+        json={"passphrase": "synthetic-passphrase"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "csrf_invalid"
+
+
 def test_unlock_hashes_token_and_sets_contract_cookie(monkeypatch, tmp_path, pg_engine, client):
     from paiya.auth.credentials import create_auth_verifier
 

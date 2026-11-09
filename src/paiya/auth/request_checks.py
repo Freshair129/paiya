@@ -1,5 +1,6 @@
 """Host and browser-origin checks for every loopback HTTP request."""
 
+import hmac
 import os
 from urllib.parse import urlsplit
 
@@ -7,6 +8,18 @@ from starlette.requests import Request
 
 READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def csrf_token_matches(candidate: object, expected: object) -> bool:
+    """Compare ASCII CSRF tokens in constant time, rejecting malformed values."""
+    if not isinstance(candidate, str) or not isinstance(expected, str):
+        return False
+    try:
+        candidate_bytes = candidate.encode("ascii")
+        expected_bytes = expected.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return hmac.compare_digest(candidate_bytes, expected_bytes)
 
 
 def _port() -> int | None:

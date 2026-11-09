@@ -1,6 +1,5 @@
 """Owner authentication routes for the loopback HTTP API."""
 
-import hmac
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -13,6 +12,7 @@ from paiya.auth.credentials import (
     verify_owner_passphrase,
 )
 from paiya.auth.nonces import consume_challenge, issue_challenge
+from paiya.auth.request_checks import csrf_token_matches
 from paiya.auth.sessions import (
     SESSION_COOKIE_NAME,
     SESSION_MAX_AGE_SECONDS,
@@ -66,7 +66,7 @@ OwnerSession = Annotated[AuthenticatedSession, Depends(require_owner_session)]
 
 
 def _require_csrf(session: AuthenticatedSession, token: str | None) -> None:
-    if token is None or not hmac.compare_digest(token, session.csrf_token):
+    if not csrf_token_matches(token, session.csrf_token):
         raise HTTPException(
             status_code=403,
             detail={"code": "csrf_invalid", "message": "A valid CSRF token is required"},
