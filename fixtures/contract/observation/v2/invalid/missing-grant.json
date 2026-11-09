@@ -1,0 +1,23 @@
+{
+  "run_id": "7b7d8670-93e2-4fb1-a1b8-816b2c1379d3",
+  "capture_id": "manual-invalid-grant",
+  "grant_id": null,
+  "source_kind": "manual_share",
+  "job_kind": "manual_import",
+  "page_check": null,
+  "assets": {},
+  "payload": {
+    "schema_version": 2,
+    "group_key": "demo-group",
+    "source_post_key": "42",
+    "permalink": "https://www.facebook.com/groups/demo-group/posts/42/",
+    "observed_at": "2026-11-09T10:00:00Z",
+    "access": "ok",
+    "post_text": "RTX 3060 12GB 5,800 บาท",
+    "seller": null,
+    "items": [],
+    "unassigned_price_facts": [],
+    "activity": {"source_reported_comment_count": null, "distinct_comments_seen": 0, "distinct_known_commenters_seen": 0, "coverage": "partial"},
+    "evidence": []
+  }
+}

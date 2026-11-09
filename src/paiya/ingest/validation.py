@@ -5,16 +5,36 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+from jsonschema import Draft202012Validator, FormatChecker  # type: ignore[import-untyped]
 
-SCHEMA = (
+SCHEMA_V1 = (
     Path(__file__).resolve().parents[3] / "docs/architecture/contracts/observation.v1.schema.json"
 )
+SCHEMA_V2 = (
+    Path(__file__).resolve().parents[3] / "docs/architecture/contracts/observation.v2.schema.json"
+)
+# Preserve the previous import name for callers that inspect the v1 contract.
+SCHEMA = SCHEMA_V1
 
 
 def validate_observation(document: dict[str, Any]) -> None:
-    """Enforce the v1 JSON Schema and cross-field reference invariants."""
-    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    """Validate an observation by payload schema_version without altering v1 rules."""
+    payload = document.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid observation: payload must be an object")
+    version = payload.get("schema_version")
+    if version == 1:
+        _validate_v1_observation(document)
+        return
+    if version == 2:
+        _validate_v2_observation(document)
+        return
+    raise ValueError(f"Unsupported observation schema_version: {version!r}")
+
+
+def _validate_v1_observation(document: dict[str, Any]) -> None:
+    """Enforce the unchanged v1 JSON Schema and cross-field invariants."""
+    schema = json.loads(SCHEMA_V1.read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema)
     errors = list(validator.iter_errors(document))
     if errors:
@@ -70,3 +90,71 @@ def validate_observation(document: dict[str, Any]) -> None:
                 raise ValueError(f"Evidence {key} comment offsets do not match quote")
         elif span["quote"] not in text:
             raise ValueError(f"Evidence {key} quote not found in comment")
+
+
+def _validate_v2_observation(document: dict[str, Any]) -> None:
+    """Enforce manual-share v2 structure, evidence scope and quote integrity."""
+    schema = json.loads(SCHEMA_V2.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    errors = list(validator.iter_errors(document))
+    if errors:
+        first = errors[0]
+        path = "/".join(str(part) for part in first.absolute_path)
+        raise ValueError(f"Invalid observation v2 ({path}): {first.message}")
+
+    payload = document["payload"]
+    if payload["seller"] is not None:
+        raise ValueError("Manual-share author must remain unknown")
+    evidence_entries = payload["evidence"]
+    evidence = {entry["local_key"]: entry for entry in evidence_entries}
+    if len(evidence) != len(evidence_entries):
+        raise ValueError("Duplicate evidence local_key")
+
+    def validate_fact(fact: dict[str, Any], scope_key: str, assigned: set[str] | None) -> None:
+        evidence_key = fact["evidence_key"]
+        if evidence_key not in evidence:
+            raise ValueError(f"Price fact refers to missing evidence local_key: {evidence_key}")
+        if assigned is not None and evidence_key not in assigned:
+            raise ValueError(f"Price fact evidence is outside item scope: {evidence_key}")
+        if assigned is None and evidence_key in item_evidence_keys:
+            raise ValueError(f"Unassigned price fact uses item evidence: {evidence_key}")
+        amount_max = fact.get("amount_max")
+        if amount_max is not None and Decimal(amount_max) < Decimal(fact["amount"]):
+            raise ValueError("price amount_max is below amount")
+        fact_identity = (scope_key, fact["kind"], fact["unit"], evidence_key)
+        if fact_identity in fact_identities:
+            raise ValueError("Duplicate price fact key")
+        fact_identities.add(fact_identity)
+
+    item_evidence_keys: set[str] = set()
+    fact_identities: set[tuple[str, str, str, str]] = set()
+    for item in payload["items"]:
+        item_keys = set(item["evidence_keys"])
+        item_evidence_keys.update(item_keys)
+        if any(key not in evidence for key in item_keys):
+            missing = next(key for key in item_keys if key not in evidence)
+            raise ValueError(f"Item refers to missing evidence local_key: {missing}")
+        item_key = item["source_item_key"]
+        for fact in item["price_facts"]:
+            validate_fact(fact, item_key, item_keys)
+    for fact in payload["unassigned_price_facts"]:
+        validate_fact(fact, "post", None)
+
+    text = payload["post_text"]
+    for key, entry in evidence.items():
+        span = entry["source_span"]
+        if span["field"] != "post_text":
+            raise ValueError(f"Manual evidence {key} must refer to post_text")
+        start = span.get("start")
+        end = span.get("end")
+        if (start is None) != (end is None):
+            raise ValueError(f"Evidence {key} must provide both quote offsets or neither")
+        if start is not None:
+            if start > end or text[start:end] != span["quote"]:
+                raise ValueError(f"Evidence {key} post_text offsets do not match quote")
+        elif span["quote"] not in text:
+            raise ValueError(f"Evidence {key} quote not found in post_text")
+        if entry["media_state"] == "captured" and key not in document["assets"]:
+            raise ValueError(f"Captured evidence {key} has no asset")
+    if any(key not in evidence for key in document["assets"]):
+        raise ValueError("Asset refers to missing evidence local_key")
