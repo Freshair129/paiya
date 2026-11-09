@@ -267,3 +267,60 @@ def test_revoked_grant_never_attempts_persistence(
     result = commit(client, group_id, authenticated_session, p.json()["preview_digest"])
     assert result.status_code == 404
     assert calls == []
+
+
+def test_non_manual_grant_is_not_selected_for_import(
+    pg_engine, client, group_id, manual_grant, authenticated_session, monkeypatch
+):
+    import paiya.manual.service as manual_service
+
+    with pg_engine.begin() as conn:
+        conn.execute(
+            update(source_grants)
+            .where(source_grants.c.id == manual_grant)
+            .values(source_kind="facebook_live")
+        )
+    loaded = []
+    original = manual_service._load_grant
+
+    def track_load(*args, **kwargs):
+        loaded.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manual_service, "_load_grant", track_load)
+    responses = (
+        preview(client, group_id, authenticated_session),
+        commit(client, group_id, authenticated_session, "synthetic-digest"),
+    )
+    for response in responses:
+        assert (response.status_code, response.json()["detail"]["code"]) == (
+            404,
+            "import_grant_unavailable",
+        )
+    assert loaded == []
+    assert count(pg_engine, posts) == count(pg_engine, observations) == 0
+
+
+def test_retry_with_wrong_digest_is_rejected(pg_engine, client, group_id, authenticated_session):
+    digest = preview(client, group_id, authenticated_session).json()["preview_digest"]
+    assert commit(client, group_id, authenticated_session, digest).status_code == 201
+    retry = commit(client, group_id, authenticated_session, "wrong-digest")
+    assert retry.status_code == 409
+    assert retry.json()["detail"]["code"] == "preview_digest_mismatch"
+    assert count(pg_engine, posts) == count(pg_engine, observations) == 1
+
+
+def test_streaming_body_limit_without_content_length(
+    client, group_id, authenticated_session, monkeypatch
+):
+    monkeypatch.setattr(imports_api, "MAX_IMPORT_BODY_BYTES", 32)
+    request = client.build_request(
+        "POST",
+        f"/v1/imports/preview?group_id={group_id}",
+        content=iter([b"x" * 20, b"x" * 20]),
+        headers={**headers(authenticated_session), "Content-Type": "application/json"},
+    )
+    assert "content-length" not in request.headers
+    response = client.send(request)
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "payload_too_large"
