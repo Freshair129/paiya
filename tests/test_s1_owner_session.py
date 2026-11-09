@@ -191,6 +191,32 @@ def test_cross_origin_post_is_rejected(client):
     assert response.json()["detail"]["code"] == "origin_not_allowed"
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [None, "null", "http://attacker.example", "http://127.0.0.1:8138", "http://localhost:8137"],
+)
+def test_unlock_rejects_invalid_origin_without_creating_session(
+    origin, monkeypatch, tmp_path, pg_engine, client
+):
+    from paiya.auth.credentials import create_auth_verifier
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    passphrase = secrets.token_urlsafe(18)
+    create_auth_verifier(passphrase)
+    challenge = client.get("/v1/auth/challenge", headers={"Host": "127.0.0.1:8137"})
+    assert challenge.status_code == 200
+    headers = {"Host": "127.0.0.1:8137", "X-CSRF-Token": challenge.json()["nonce"]}
+    if origin is not None:
+        headers["Origin"] = origin
+
+    response = client.post("/v1/auth/unlock", headers=headers, json={"passphrase": passphrase})
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "origin_not_allowed"
+    with pg_engine.connect() as connection:
+        assert connection.execute(select(owner_sessions)).all() == []
+
+
 def test_unauthenticated_write_rejection_is_not_cacheable(client):
     response = client.post(
         "/v1/auth/logout",
@@ -408,6 +434,49 @@ def test_logout_invalidates_session(monkeypatch, tmp_path, client):
     assert protected.json()["detail"]["code"] == "session_required"
     assert replayed.status_code == 401
     assert replayed.json()["detail"]["code"] == "session_required"
+
+
+def test_revoke_all_requires_csrf_and_revokes_every_session(
+    monkeypatch, tmp_path, pg_engine, client
+):
+    from paiya.auth.credentials import create_auth_verifier
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    passphrase = secrets.token_urlsafe(18)
+    create_auth_verifier(passphrase)
+    login_a = unlock(client, passphrase)
+    assert login_a.status_code == 200
+    token_a = login_a.cookies["paiya_owner_session"]
+    client.cookies.clear()
+    login_b = unlock(client, passphrase)
+    assert login_b.status_code == 200
+    token_b = login_b.cookies["paiya_owner_session"]
+    assert token_a != token_b
+    client.cookies.clear()
+    client.cookies.set("paiya_owner_session", token_a, domain="127.0.0.1", path="/")
+    headers = {"Host": "127.0.0.1:8137", "Origin": "http://127.0.0.1:8137"}
+
+    rejected = client.post("/v1/auth/revoke-all", headers=headers)
+    assert rejected.status_code == 403
+    assert rejected.json()["detail"]["code"] == "csrf_invalid"
+    with pg_engine.connect() as connection:
+        rows = connection.execute(select(owner_sessions)).mappings().all()
+    assert len(rows) == 2
+    assert all(row["revoked_at"] is None for row in rows)
+
+    response = client.post(
+        "/v1/auth/revoke-all", headers={**headers, "X-CSRF-Token": login_a.json()["csrf_token"]}
+    )
+    assert response.status_code == 200
+    for token in (token_a, token_b):
+        client.cookies.clear()
+        client.cookies.set("paiya_owner_session", token, domain="127.0.0.1", path="/")
+        read = client.get("/v1/auth/csrf", headers={"Host": "127.0.0.1:8137"})
+        assert read.status_code == 401
+    with pg_engine.connect() as connection:
+        rows = connection.execute(select(owner_sessions)).mappings().all()
+    assert len(rows) == 2
+    assert all(row["revoked_at"] is not None for row in rows)
 
 
 def test_auth_secrets_never_appear_in_logs(monkeypatch, tmp_path, client, caplog):

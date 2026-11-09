@@ -51,6 +51,7 @@ PERMALINK = "https://www.facebook.com/groups/demo-group/posts/42/"
 TWO_ITEM_TEXT = "RTX 3060 12GB 5,800 บาท\nRTX 3070 8GB 7,900 บาท\nค่าส่งรวม 150 บาท"
 V1_EXPECTED_ROW_COUNTS = {
     "backup_runs": 0,
+    "owner_sessions": 0,
     "groups": 1,
     "media_assets": 1,
     "purge_jobs": 0,
