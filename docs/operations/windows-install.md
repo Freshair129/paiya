@@ -167,18 +167,58 @@ uv run python -m paiya.cli backup create
 uv run python -m paiya.cli backup verify --set 'F:\PaiyaBackup\<set-name>'
 ```
 
+### ตรวจการเข้ารหัสดิสก์สำรอง
+
+เจ้าของเครื่องเป็นผู้เปิดและดูแล BitLocker หรือการเข้ารหัสดิสก์ระดับ volume แบบอื่นเอง ก่อนใช้งานให้ตรวจ drive ของดิสก์สำรอง เช่น:
+
+```powershell
+manage-bde -status F:
+```
+
+แทน `F:` ด้วย drive จริง ตรวจผลว่า `Conversion Status` เป็น `Fully Encrypted`, `Percentage Encrypted` เป็น `100%` และ `Protection Status` เป็น `Protection On` หากผลยังไม่ครบ ให้ถือว่าดิสก์ยังไม่ได้รับการยืนยันว่าเข้ารหัสแล้ว แอป paiya ไม่เก็บ อ่าน หรือจัดการ recovery key; เก็บกุญแจไว้ตามกระบวนการของเจ้าของเครื่องและอย่าใส่ใน configuration, ชุดสำรอง, log หรือ repository
+
+### ตรวจแผน retention และลบด้วยมือ
+
+คำสั่งแรกเป็น dry-run โดยปริยาย; ระบุ `--dry-run` เพื่อให้เห็นเจตนาชัดเจน ตรวจชื่อชุด เหตุผล และ totals ก่อนตัดสินใจ:
+
+```powershell
+uv run python -m paiya.cli backup prune --dry-run
+```
+
+เฉพาะเมื่อยืนยันแล้วว่า `PAIYA_BACKUP_DIR` เป็นดิสก์และโฟลเดอร์ที่ถูกต้อง และตรวจรายการ `delete` แล้วเท่านั้น จึงสั่งลบด้วยมือ:
+
+```powershell
+uv run python -m paiya.cli backup prune --apply
+```
+
+`--apply` วางแผนใหม่ก่อนลบและแสดงผลแยกต่อชุด หากมีบางชุดลบไม่สำเร็จ คำสั่งคืน exit code ที่ไม่เป็นศูนย์และระบุชื่อชุดที่ยังเหลือ ห้ามตั้ง `--apply` ใน Task Scheduler
+
+### กู้คืนลงเป้าหมายใหม่และการกู้คืนทับระบบ
+
+ทางที่แนะนำคือ restore ไปยังฐานข้อมูลว่างและ media directory ใหม่ ตรวจผล `ready: true`, hash/orphan และ API sample ให้ครบ จากนั้นหยุด service แล้วเปลี่ยน `PAIYA_DATABASE_URL` กับ `PAIYA_FIXTURE_MEDIA_ROOT` ให้ชี้ไปยังเป้าหมายใหม่ เก็บระบบเดิมไว้จนตรวจหลังสลับเสร็จ
+
+**คำเตือนสูงสุด — การกู้คืนทับฐานข้อมูลหรือ media ที่มีข้อมูลอาจแทนที่ข้อมูลปัจจุบัน ทำให้ฐานกับไฟล์ไม่ตรงกัน หรือทำให้กู้คืนกลับไม่ได้บางส่วน คำสั่ง O1a ปฏิเสธเป้าหมายที่ไม่ว่าง และไม่มีคำสั่ง paiya สำหรับ in-place restore**
+
+หากเจ้าของเลือกกู้คืนทับระบบจริง ให้ถือเป็นเหตุฉุกเฉินและทำด้วยมือโดยผู้ดูแลฐานข้อมูล: หยุดทุก writer, worker และ API; สำรองระบบปัจจุบันและตรวจชุดสำรองนั้นให้ผ่าน; ตรวจชุดต้นทางด้วย `backup verify`; เก็บฐานข้อมูล, media และ purge log เดิมแยกไว้อย่างกู้กลับได้; บันทึก source/target, revision และแผน rollback; ทำการแทนที่ด้วยขั้นตอนเฉพาะของผู้ดูแล; replay purge log ปัจจุบันและตรวจ orphan/hash/API ก่อนเปิด writer กลับ ห้ามใช้คำสั่ง `pg_restore` กับฐาน live หรือคัดลอก media ทับแบบกว้างโดยไม่มีแผนและหลักฐานกู้คืนที่ตรวจแล้ว
+
 ### ตัวอย่างสร้างงานด้วย Task Scheduler
 
 เจ้าของเครื่องสร้าง task ด้วยมือใน Task Scheduler:
 
 1. เลือก **Create Task** ตั้งชื่อ `Paiya daily backup` และเลือกบัญชี Windows ที่มีค่า environment `PAIYA_DATABASE_URL`, `PAIYA_FIXTURE_MEDIA_ROOT`, `PAIYA_BACKUP_DIR` และ `PAIYA_PURGE_LOG_PATH`
 2. เพิ่ม trigger แบบ **Daily** ตามเวลาที่เครื่องเปิดและฐานข้อมูลพร้อม
-3. เพิ่ม action **Start a program**: Program `uv.exe`; Arguments `run --directory "C:\Paiya" python -m paiya.cli backup create`; Start in `C:\Paiya` โดยแทนที่ `C:\Paiya` ด้วยตำแหน่ง checkout จริง
+3. เพิ่ม action **Start a program**: Program `powershell.exe`; Arguments:
+
+   ```text
+   -NoProfile -Command "& { uv run --directory 'C:\Paiya' python -m paiya.cli backup create; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; uv run --directory 'C:\Paiya' python -m paiya.cli backup prune --dry-run; exit $LASTEXITCODE }"
+   ```
+
+   ตั้ง **Start in** เป็น `C:\Paiya` และแทนที่ด้วยตำแหน่ง checkout จริง คำสั่งจะรัน dry-run ต่อเมื่อ `backup create` สำเร็จเท่านั้น
 4. เปิด **Run task as soon as possible after a scheduled start is missed** เพื่อให้เครื่องที่หลับทำงานเมื่อกลับมาใช้งาน และตรวจ JSON/log หลังรอบแรกด้วยมือ
 
 Task Scheduler ไม่รับค่าจาก `$env:` ใน PowerShell window อื่นโดยอัตโนมัติ ให้เจ้าของตั้ง environment ของบัญชี Task Scheduler ให้เรียบร้อยก่อนสร้าง task และอย่าใส่รหัสผ่านลงใน Arguments
 
-การเข้ารหัสชุด backup, การเก็บกุญแจ และ retention อัตโนมัติเป็น O1b ซึ่งยังไม่ได้ทำและยังรอการตัดสินใจใน Issue #78 ชุดสำรอง O1a ยังไม่เข้ารหัสและไม่มี retention job; อย่าถือว่ามีการลบชุดเก่าอัตโนมัติ
+คำตัดสิน O1b ใน [Issue #78](https://github.com/Freshair129/paiya/issues/78#issuecomment-6731424263) ให้เจ้าของเครื่องใช้การเข้ารหัสดิสก์และสั่ง prune แบบ apply เอง Task Scheduler ทำได้เฉพาะ create กับ prune dry-run; ไม่เก็บกุญแจและไม่ลบชุดอัตโนมัติ
 
 ## ตรวจสุขภาพ
 
@@ -339,7 +379,7 @@ O1a restore เขียนได้เฉพาะฐานข้อมูล�
 
    หาก smoke/read check ใดที่มีใน ref ก่อนหน้าไม่ผ่าน ให้หยุดและคง target กับ backup ไว้เพื่อวิเคราะห์
 
-การ restore ทับ live database หรือ media ที่มีข้อมูลไม่มีให้ใช้ใน O1a; นั่นเป็น O1b ที่ยังไม่รวมในขอบเขตนี้
+การ restore ทับ live database หรือ media ยังไม่มีคำสั่งอัตโนมัติและคงเป็นขั้นตอนมือของ O1b ตามคำตัดสิน [Issue #78](https://github.com/Freshair129/paiya/issues/78#issuecomment-6731424263); ใช้คำเตือนและแนวทางกู้คืนลงเป้าหมายใหม่ในหัวข้อ Backup รายวันข้างต้น
 
 ## ซ้อมความต่อเนื่อง O4
 

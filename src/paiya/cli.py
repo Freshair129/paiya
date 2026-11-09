@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 
 from paiya.backup.errors import BackupError
+from paiya.backup.prune import prune_backup_sets
 from paiya.backup.service import backup_status, create_backup, restore_backup, verify_backup
 from paiya.demo import seed_demo
 from paiya.extract.service import rebuild_extractions
@@ -120,6 +121,10 @@ def _parser() -> argparse.ArgumentParser:
     backup_actions.add_parser("create", help="create a complete backup set")
     verify = backup_actions.add_parser("verify", help="verify a backup set")
     verify.add_argument("--set", dest="set_path", required=True)
+    prune = backup_actions.add_parser("prune", help="review or delete old backup sets")
+    prune_mode = prune.add_mutually_exclusive_group()
+    prune_mode.add_argument("--dry-run", action="store_true", help="list sets without deleting")
+    prune_mode.add_argument("--apply", action="store_true", help="delete listed backup sets")
     restore = backup_actions.add_parser("restore", help="restore a backup set into empty targets")
     restore.add_argument("--set", dest="set_path", required=True)
     restore.add_argument("--target-database-url", required=True)
@@ -197,6 +202,8 @@ def _execute(args: argparse.Namespace) -> object:
         engine = get_database_engine()
         if args.action == "create":
             return create_backup(engine)
+        if args.action == "prune":
+            return prune_backup_sets(engine, apply=args.apply)
         if args.action == "restore":
             return restore_backup(
                 engine,
@@ -323,6 +330,26 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         replay_result = cast(dict[str, object], result)
         return 0 if replay_result.get("pending_count") == 0 else 1
+    if args.resource == "backup" and args.action == "prune":
+        prune_result = cast(dict[str, object], result)
+        if prune_result.get("state") == "partial_failure":
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "backup_prune_partial_failure",
+                            "message": "One or more backup sets could not be removed",
+                        },
+                        "result": prune_result,
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+            return 1
+        print(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":")))
+        return 0
     if args.resource == "health":
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0

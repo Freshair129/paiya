@@ -118,7 +118,7 @@ def _nearest_existing_path(path: Path) -> Path:
     return candidate
 
 
-def _backup_configuration() -> tuple[Path, Path, Path | None, bool]:
+def _backup_configuration(*, create_directory: bool = True) -> tuple[Path, Path, Path | None, bool]:
     raw_backup_root = os.environ.get("PAIYA_BACKUP_DIR")
     raw_media_root = os.environ.get("PAIYA_FIXTURE_MEDIA_ROOT")
     raw_log_path = os.environ.get("PAIYA_PURGE_LOG_PATH")
@@ -162,10 +162,15 @@ def _backup_configuration() -> tuple[Path, Path, Path | None, bool]:
         )
 
     try:
-        backup_root.mkdir(parents=True, exist_ok=True)
-        if not backup_root.is_dir():
+        if create_directory:
+            backup_root.mkdir(parents=True, exist_ok=True)
+        if backup_root.exists() and not backup_root.is_dir():
             raise BackupError("backup_destination_invalid", "PAIYA_BACKUP_DIR must be a directory")
-        if media_device == backup_root.stat().st_dev and not allow_same_device:
+        if (
+            backup_root.exists()
+            and media_device == backup_root.stat().st_dev
+            and not allow_same_device
+        ):
             raise BackupError(
                 "backup_same_device",
                 "The backup destination must be on a different device from the media root",
