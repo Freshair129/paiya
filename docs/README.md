@@ -12,6 +12,7 @@
 | [architecture/contracts/discovery-queue.md](architecture/contracts/discovery-queue.md) | กติกาวางรอบ จองงาน ความครอบคลุมของรอบ ช่วงที่ขาด feed script สังเคราะห์ และการอ่านผลรอบ | เจ้าของ Worker และฐานข้อมูล |
 | [architecture/contracts/item-status-and-watches.md](architecture/contracts/item-status-and-watches.md) | ตารางป้ายสถานะ การยืนยันหลักฐาน การสร้าง sale_events/current_items, timeline, หน้าผู้ขาย และ Watch/revisit ระยะ A | เจ้าของ Worker, API และฐานข้อมูล |
 | [architecture/contracts/mobile-read-path.md](architecture/contracts/mobile-read-path.md) | read context เมื่อรัน server ระยะ A, endpoint ของหน้าจอมือถือ ข้อความไทย การนับแตะ AT-05 และ fixture สาธิต | เจ้าของ PWA + API |
+| [architecture/contracts/owner-session.md](architecture/contracts/owner-session.md) | **ร่าง / เสนอเพื่ออนุมัติ** การปลดล็อกเจ้าของเครื่อง, cookie, CSRF, read grants และโหมด fixture สำหรับ HTTP API | Product owner + Backend + QA |
 | [architecture/contracts/price-trends.md](architecture/contracts/price-trends.md) | ask ที่ยืนยันได้ ชุดตัวอย่างที่เทียบกันได้ ช่วงเวลา ค่ากลาง เกณฑ์ข้อมูลไม่พอ และ `GET /v1/prices/trends` | เจ้าของ API และฐานข้อมูล |
 | [architecture/contracts/extraction-and-tags.md](architecture/contracts/extraction-and-tags.md) | กฎสกัดรุ่น หน่วยความจำ สภาพ และประกัน `extract-v1.0` ตาราง tags ค่าใน listing_items และตัวกรองรุ่นของ `GET /v1/posts` | เจ้าของ Worker, API และฐานข้อมูล |
 | [architecture/contracts/local-model-enrichment.md](architecture/contracts/local-model-enrichment.md) | คิว enrich การเรียก Ollama ผ่าน loopback การตรวจข้อเสนอของโมเดล และผลต่อ listing_items | เจ้าของ Worker และฐานข้อมูล |
@@ -21,6 +22,7 @@
 | [architecture/contracts/system-health.md](architecture/contracts/system-health.md) | structured log, เกณฑ์ดิสก์ใกล้เต็ม, `GET /v1/admin/health`, หน้าจัดการ และเกณฑ์ตรวจ O2 | เจ้าของ Worker, API และ PWA |
 | [architecture/contracts/continuity-drill.md](architecture/contracts/continuity-drill.md) | worker สำหรับ fixture จุดจำลองการหยุด และสคริปต์ซ้อมความต่อเนื่อง O4 | เจ้าของ Worker และ QA |
 | [operations/windows-install.md](operations/windows-install.md) | ติดตั้ง เริ่มระบบ สำรอง ตรวจสุขภาพ อัปเกรด กู้คืน และซ้อมความต่อเนื่องบน Windows สำหรับ O3 | เจ้าของระบบบนเครื่อง Windows |
+| [architecture/contracts/collector-inbox.md](architecture/contracts/collector-inbox.md) | **ร่าง** รูปแบบ inbox ที่ Collector ภายนอกใช้ส่งผล การตรวจ `paiya inbox validate` การรับเข้าฐานที่รออนุมัติ และ prompt สำหรับ Collector | เจ้าของ Worker และฐานข้อมูล |
 | [architecture/views/erd.md](architecture/views/erd.md) | ERD ของต้นทาง การสังเกต หลักฐาน ราคา และการติดตาม อ่านคู่กับข้อบังคับของแต่ละความสัมพันธ์ | Tech lead + เจ้าของฐานข้อมูล |
 | [architecture/data-model.md](architecture/data-model.md) | พจนานุกรมข้อมูล PostgreSQL ระดับตรรกะ หน่วยข้อมูล คีย์ ข้อบังคับ ดัชนี และวงจรลบ/สร้างใหม่ | เจ้าของฐานข้อมูล + API |
 | [architecture/contracts/buyer-workflows.md](architecture/contracts/buyer-workflows.md) | แบบสัญญาใหม่สำหรับนำเข้าด้วยมือ ประเมินกฎ แจ้งเตือน ติดตามรายชิ้น และเทียบราคาพร้อมหลักฐาน | เจ้าของ PWA + API + Worker |
@@ -31,6 +33,7 @@
 | [architecture/decisions/0002-source-strategy.md](architecture/decisions/0002-source-strategy.md) | **รับรองแล้ว** ขอบเขตนำเข้าเองสำหรับทดลอง M และสิทธิ์แยกสำหรับ Collector ระยะ B | Product owner + Tech lead |
 | [architecture/decisions/0003-dev-tooling.md](architecture/decisions/0003-dev-tooling.md) | **เสนอเพื่อรับรอง** เครื่องมือพัฒนา โครงสร้างรีโป และวิธีรันเทสต์บน Linux กับ Windows | Tech lead |
 | [architecture/decisions/0004-local-access-and-mcp.md](architecture/decisions/0004-local-access-and-mcp.md) | **รับรองแล้ว** API เฉพาะในเครื่องกับ session เจ้าของเครื่อง, MCP เรียก service ใน process และจุดบังคับ `agent_export` | Product owner + Tech lead |
+| [architecture/decisions/0005-owner-directed-collection.md](architecture/decisions/0005-owner-directed-collection.md) | **รับรองแล้ว** Collector อัตโนมัติตามคำตัดสินของเจ้าของ แทนเงื่อนไขสิทธิ์จากแพลตฟอร์มใน ADR 0002 กติกาที่คงไว้ | Product owner + Tech lead |
 | [quality/TRACEABILITY.md](quality/TRACEABILITY.md) | ตารางโยง PR → FR → AT และลิงก์ผลตรวจของแต่ละข้อ | QA |
 | [delivery/ROADMAP.md](delivery/ROADMAP.md) | ลำดับงาน สิ่งที่ต้องมีก่อน และหลักฐานจบแต่ละระยะ | Delivery lead |
 | [delivery/m1-approval-package.md](delivery/m1-approval-package.md) | ข้อเสนอขอคำตัดสินและอนุมัติขอบเขต M1, schema v2 และการแปลงจาก v1 | Product owner + Tech lead |
