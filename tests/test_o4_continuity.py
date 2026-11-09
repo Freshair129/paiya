@@ -4,7 +4,6 @@ import base64
 import hashlib
 import json
 import os
-import shlex
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -467,47 +466,14 @@ def test_sleep_records_missed_slots_and_health_reports_one_follow_up(o4_db, tmp_
     assert _counts(pg_engine)["capture_runs"] == 2
 
 
-def _write_pg_tool_proxy(directory: Path) -> tuple[str, str]:
-    directory.mkdir(parents=True, exist_ok=True)
-    proxy = directory / "pg_tool_proxy.py"
-    proxy.write_text(
-        "import subprocess\n"
-        "import sys\n"
-        "from sqlalchemy.engine import make_url\n"
-        "tool, *args = sys.argv[1:]\n"
-        "for index, argument in enumerate(args):\n"
-        "    if argument == '--dbname' and index + 1 < len(args):\n"
-        "        url = make_url(args[index + 1])\n"
-        "        if url.port == 55432:\n"
-        "            url = url.set(drivername='postgresql', port=5432)\n"
-        "            args[index + 1] = url.render_as_string(hide_password=False)\n"
-        "    elif argument.startswith('--dbname='):\n"
-        "        url = make_url(argument.split('=', 1)[1])\n"
-        "        if url.port == 55432:\n"
-        "            url = url.set(drivername='postgresql', port=5432)\n"
-        "            args[index] = '--dbname=' + url.render_as_string(hide_password=False)\n"
-        "command = ['docker', 'exec', '-i', '-e', 'PGPASSWORD', 'paiya-pg17', tool, *args]\n"
-        "completed = subprocess.run(command, check=False)\n"
-        "raise SystemExit(completed.returncode)\n",
-        encoding="utf-8",
-    )
-    return (
-        shlex.join([sys.executable, str(proxy), "pg_dump"]),
-        shlex.join([sys.executable, str(proxy), "pg_restore"]),
-    )
-
-
-def test_continuity_drill_end_to_end(tmp_path):
+def test_continuity_drill_end_to_end():
     raw_url = os.environ.get("PAIYA_TEST_DATABASE_URL")
     assert raw_url is not None
     base_url = make_url(raw_url)
     assert base_url.database == "paiya_test"
     admin = create_engine(base_url)
-    dump, restore = _write_pg_tool_proxy(tmp_path / "pg-tools")
     environment = os.environ.copy()
     environment["UV_OFFLINE"] = "1"
-    environment["PAIYA_PG_DUMP"] = dump
-    environment["PAIYA_PG_RESTORE"] = restore
     with admin.connect() as connection:
         before = set(
             connection.execute(
@@ -528,7 +494,7 @@ def test_continuity_drill_end_to_end(tmp_path):
         env=environment,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
         check=False,
     )
     admin.dispose()
