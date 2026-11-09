@@ -1,0 +1,59 @@
+{
+  "run_id": "6d8a035c-45a8-4852-b8be-a3b4509ef4bc",
+  "capture_id": "manual-fixture-multiple-facts",
+  "grant_id": "c3d8a0f2-897f-41b0-ae6c-42fd76535de3",
+  "source_kind": "manual_share",
+  "job_kind": "manual_import",
+  "page_check": null,
+  "assets": {},
+  "payload": {
+    "schema_version": 2,
+    "group_key": "demo-group",
+    "source_post_key": "43",
+    "permalink": "https://www.facebook.com/groups/demo-group/posts/43/",
+    "observed_at": "2026-11-09T10:05:00Z",
+    "access": "ok",
+    "post_text": "RTX 3060 12GB 5,800 บาท มัดจำ 500 บาท ค่าส่งรวม 150 บาท",
+    "seller": null,
+    "items": [
+      {
+        "source_item_key": "gpu-rtx-3060-12gb",
+        "model": "RTX 3060 12GB",
+        "price_facts": [
+          {"kind": "ask", "unit": "each", "currency": "THB", "amount": "5800.00", "evidence_key": "ask"},
+          {"kind": "deposit", "unit": "each", "currency": "THB", "amount": "500.00", "evidence_key": "deposit"}
+        ],
+        "evidence_keys": ["ask", "deposit"]
+      }
+    ],
+    "unassigned_price_facts": [
+      {"kind": "shipping", "unit": "bundle", "currency": "THB", "amount": "150.00", "evidence_key": "shipping"}
+    ],
+    "activity": {
+      "source_reported_comment_count": null,
+      "distinct_comments_seen": 0,
+      "distinct_known_commenters_seen": 0,
+      "coverage": "partial"
+    },
+    "evidence": [
+      {
+        "local_key": "ask",
+        "role": "unknown",
+        "source_span": {"field": "post_text", "quote": "RTX 3060 12GB 5,800 บาท"},
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "deposit",
+        "role": "unknown",
+        "source_span": {"field": "post_text", "quote": "มัดจำ 500 บาท"},
+        "media_state": "not_requested"
+      },
+      {
+        "local_key": "shipping",
+        "role": "unknown",
+        "source_span": {"field": "post_text", "quote": "ค่าส่งรวม 150 บาท"},
+        "media_state": "not_requested"
+      }
+    ]
+  }
+}
