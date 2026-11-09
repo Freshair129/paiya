@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,43 @@ from paiya.backup.service import create_backup
 from paiya.store.tables import backup_runs
 
 pytest_plugins = ["test_o1a_backup"]
+
+
+@pytest.mark.parametrize("link_kind", ["junction", "symlink"])
+def test_nested_link_never_deletes_outside_set(
+    link_kind: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+) -> None:
+    media_root, _purge_dir, backup_dir = backup_paths
+    sentinel = media_root / "outside-sentinel.txt"
+    sentinel.write_bytes(b"outside must survive")
+    old = _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 1, 1, 10, tzinfo=UTC))
+    _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 1, 1, 12, tzinfo=UTC))
+    link = backup_dir / old / "nested-link"
+    if link_kind == "junction":
+        if os.name != "nt":
+            pytest.skip("Windows junction required")
+        import _winapi
+
+        _winapi.CreateJunction(str(media_root), str(link))
+    else:
+        try:
+            link.symlink_to(media_root, target_is_directory=True)
+        except OSError as error:
+            pytest.skip(
+                f"directory symlink unavailable: {error.winerror if os.name == 'nt' else error}"
+            )
+
+    exit_code, output, _stdout = _run_prune(monkeypatch, capsys, database_pair.source, "--apply")
+
+    names = {item["set_name"] for item in (*output["result"]["keep"], *output["result"]["delete"])}
+    assert exit_code == 0
+    assert old not in names
+    assert (backup_dir / old).is_dir()
+    assert sentinel.read_bytes() == b"outside must survive"
 
 
 def _craft_backup_set(
@@ -195,6 +233,67 @@ def test_apply_deletes_exactly_the_dry_run_plan(
     assert all(not (backup_dir / name).exists() for name in planned)
     assert (backup_dir / names[-1]).is_dir()
     assert applied["totals"]["deleted_sets"] == len(planned)
+
+
+def test_apply_refuses_set_changed_after_planning(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+) -> None:
+    _media_root, _purge_dir, backup_dir = backup_paths
+    old = _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 2, 2, 10, tzinfo=UTC))
+    _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 2, 2, 12, tzinfo=UTC))
+    original = prune_service._safe_to_remove
+
+    def change_before_validation(root: Path, backup_set: prune_service._BackupSet) -> bool:
+        (backup_set.path / "db.dump").write_bytes(b"changed after planning")
+        return original(root, backup_set)
+
+    monkeypatch.setattr(prune_service, "_safe_to_remove", change_before_validation)
+    exit_code, output, _stdout = _run_prune(monkeypatch, capsys, database_pair.source, "--apply")
+    assert exit_code == 1
+    assert output["result"]["failures"] == [
+        {"set_name": old, "error_code": "set_changed_or_unsafe"}
+    ]
+    assert (backup_dir / old / "db.dump").read_bytes() == b"changed after planning"
+
+
+def test_apply_reports_failure_when_delete_leaves_set(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+) -> None:
+    _media_root, _purge_dir, backup_dir = backup_paths
+    old = _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 2, 2, 10, tzinfo=UTC))
+    _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 2, 2, 12, tzinfo=UTC))
+    monkeypatch.setattr(prune_service.shutil, "rmtree", lambda path: None)
+    exit_code, output, _stdout = _run_prune(monkeypatch, capsys, database_pair.source, "--apply")
+    assert exit_code == 1
+    assert output["result"]["failures"] == [
+        {"set_name": old, "error_code": "set_remains_after_delete"}
+    ]
+    assert output["result"]["totals"]["deleted_sets"] == 0
+    assert (backup_dir / old).is_dir()
+
+
+def test_hidden_temporary_complete_set_is_never_a_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    database_pair: DatabasePair,
+    backup_paths: tuple[Path, Path, Path],
+) -> None:
+    _media_root, _purge_dir, backup_dir = backup_paths
+    old = _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 2, 2, 10, tzinfo=UTC))
+    temporary = backup_dir / f".{old}.tmp-interrupted"
+    (backup_dir / old).rename(temporary)
+    _craft_backup_set(database_pair.source, backup_dir, datetime(2026, 2, 2, 12, tzinfo=UTC))
+    exit_code, output, _stdout = _run_prune(monkeypatch, capsys, database_pair.source, "--apply")
+    assert exit_code == 0
+    assert len(output["result"]["keep"]) == 1
+    assert output["result"]["delete"] == []
+    assert (temporary / "db.dump").is_file()
 
 
 def test_prune_refuses_a_backup_directory_that_fails_o1a_checks(
