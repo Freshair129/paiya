@@ -624,6 +624,7 @@ class ContinuityDrill:
     def _start_serve(self, environment: dict[str, str], log_path: Path) -> int:
         port = self._free_port()
         child_env = environment.copy()
+        child_env["PAIYA_DEV_FIXTURE_MODE"] = "1"
         child_env["PAIYA_PORT"] = str(port)
         log = log_path.open("wb")
         process = subprocess.Popen(

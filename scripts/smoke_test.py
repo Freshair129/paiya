@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -85,57 +86,61 @@ def _health_cli_check() -> dict[str, Any]:
 
 
 def _read_api_sample(engine: Engine) -> dict[str, Any]:
-    from paiya.read.context import read_context_group_key_from_env, resolve_read_context
-    from paiya.read.service import read_groups
+    from paiya.api.app import app
+    from paiya.auth.sessions import SESSION_COOKIE_NAME, create_session, revoke_session
+    from paiya.read.context import read_context_group_key_from_env
 
+    result: dict[str, Any] = {"name": "read_api_sample", "ok": False}
+    session = None
     try:
         group_key = read_context_group_key_from_env()
         if group_key is None:
-            return {"name": "read_api_sample", "ok": False, "code": "read_context_required"}
-        with engine.connect() as connection:
-            context = resolve_read_context(connection, group_key)
-            sample = read_groups(connection, context)
-        groups = sample.get("groups")
-        matched = isinstance(groups, list) and any(
-            isinstance(group, dict) and group.get("group_key") == group_key for group in groups
-        )
-        return {
-            "name": "read_api_sample",
-            "ok": matched,
-            "group_key": group_key,
-            "group_count": len(groups) if isinstance(groups, list) else 0,
-        }
+            result["code"] = "read_context_required"
+        else:
+            with engine.begin() as connection:
+                session = create_session(connection)
+            port = os.environ.get("PAIYA_PORT", "8000")
+            with TestClient(app, base_url=f"http://127.0.0.1:{port}") as client:
+                client.cookies.set(SESSION_COOKIE_NAME, session.token)
+                response = client.get("/v1/groups")
+            body = response.json() if response.status_code == 200 else {}
+            groups = body.get("groups") if isinstance(body, dict) else None
+            matched = isinstance(groups, list) and any(
+                isinstance(group, dict) and group.get("group_key") == group_key
+                for group in groups
+            )
+            result = {
+                "name": "read_api_sample",
+                "ok": response.status_code == 200 and matched,
+                "group_key": group_key,
+                "group_count": len(groups) if isinstance(groups, list) else 0,
+                "http_status": response.status_code,
+            }
     except Exception as error:
-        return {"name": "read_api_sample", "ok": False, "code": _error_code(error)}
+        result = {"name": "read_api_sample", "ok": False, "code": _error_code(error)}
+    finally:
+        if session is not None:
+            with engine.begin() as connection:
+                revoke_session(connection, session.session_id)
+            result["session_revoked"] = True
+
+    return result
 
 
 def _testclient_check() -> dict[str, Any]:
     from paiya.api.app import app
-    from paiya.read.context import read_context_group_key_from_env
 
     try:
-        group_key = read_context_group_key_from_env()
-        if group_key is None:
-            return {"name": "testclient_read_routes", "ok": False, "code": "read_context_required"}
-        with TestClient(app) as client:
-            groups_response = client.get("/v1/groups")
+        port = os.environ.get("PAIYA_PORT", "8000")
+        with TestClient(app, base_url=f"http://127.0.0.1:{port}") as client:
             health_response = client.get("/healthz")
-        groups_body = groups_response.json() if groups_response.status_code == 200 else {}
-        groups = groups_body.get("groups") if isinstance(groups_body, dict) else None
-        context_matches = isinstance(groups, list) and any(
-            isinstance(group, dict) and group.get("group_key") == group_key for group in groups
-        )
         return {
-            "name": "testclient_read_routes",
-            "ok": groups_response.status_code == 200
-            and health_response.status_code == 200
-            and context_matches,
-            "get_v1_groups": groups_response.status_code,
+            "name": "testclient_healthz",
+            "ok": health_response.status_code == 200,
             "get_healthz": health_response.status_code,
-            "read_context_matches": context_matches,
         }
     except Exception as error:
-        return {"name": "testclient_read_routes", "ok": False, "code": _error_code(error)}
+        return {"name": "testclient_healthz", "ok": False, "code": _error_code(error)}
 
 
 def run_smoke_checks() -> dict[str, Any]:

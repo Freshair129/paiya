@@ -18,7 +18,7 @@ from sqlalchemy import Connection, and_, case, func, or_, select
 
 from paiya.enrich import ENRICH_RULE_VERSION
 from paiya.extract.rules import RULE_VERSION
-from paiya.read.context import ReadContext
+from paiya.read.context import ReadableGrant, ReadContext
 from paiya.read.errors import (
     GrantUnavailable,
     MediaIntegrityFailure,
@@ -44,6 +44,7 @@ from paiya.store.tables import (
     price_facts,
     sale_events,
     sellers,
+    source_grants,
     status_facts,
     tags,
     watches,
@@ -59,6 +60,7 @@ class MediaContent:
 
 
 _BANGKOK = ZoneInfo("Asia/Bangkok")
+ReadAccess = ReadContext | ReadableGrant | list[ReadableGrant]
 
 
 def bangkok_now() -> datetime:
@@ -76,14 +78,83 @@ def _warranty_months_left(warranty_until: date | None, now: datetime) -> int | N
     return max(0, months_left)
 
 
-def _authorize(conn: Connection, context: ReadContext, purpose: str) -> None:
+def _authorize(conn: Connection, context: ReadContext | ReadableGrant, purpose: str) -> None:
+    if isinstance(context, ReadableGrant):
+        now = datetime.now(UTC)
+        row = (
+            conn.execute(
+                select(
+                    groups.c.group_key,
+                    groups.c.source,
+                    source_grants.c.group_id,
+                    source_grants.c.source_kind,
+                    source_grants.c.scopes,
+                    source_grants.c.valid_from,
+                    source_grants.c.valid_until,
+                    source_grants.c.revoked_at,
+                )
+                .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
+                .where(source_grants.c.id == context.grant_id)
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if (
+            row is None
+            or row["group_id"] != context.group_id
+            or row["group_key"] != context.group_key
+            or row["source"] != context.group_source
+            or row["source_kind"] != context.source_kind
+            or row["revoked_at"] is not None
+            or row["valid_from"] > now
+            or (row["valid_until"] is not None and row["valid_until"] <= now)
+            or purpose not in row["scopes"]
+        ):
+            raise GrantUnavailable()
+        return
     try:
         verify_fixture_scope(conn, context, purpose)
     except PermissionError as error:
         raise GrantUnavailable() from error
 
 
-def _evidence_row(conn: Connection, context: ReadContext, evidence_id: UUID) -> Mapping[str, Any]:
+def _active_readable_grants(
+    conn: Connection, grants: list[ReadableGrant], purpose: str = "read"
+) -> list[ReadableGrant]:
+    """Recheck a request's server-selected grants before using them in read queries."""
+    active: list[ReadableGrant] = []
+    seen: set[tuple[UUID, UUID]] = set()
+    for grant in grants:
+        key = (grant.group_id, grant.grant_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            _authorize(conn, grant, purpose)
+        except GrantUnavailable:
+            continue
+        active.append(grant)
+    if not active:
+        raise GrantUnavailable()
+    return active
+
+
+def verify_read_access(conn: Connection, context: ReadAccess) -> None:
+    """Recheck every grant in a request scope before a read outside this module."""
+    if isinstance(context, list):
+        _active_readable_grants(conn, context)
+    else:
+        _authorize(conn, context, "read")
+
+
+def active_readable_grants(conn: Connection, grants: list[ReadableGrant]) -> list[ReadableGrant]:
+    """Return only the still-active server-resolved read grants for this request."""
+    return _active_readable_grants(conn, grants)
+
+
+def _evidence_row(
+    conn: Connection, context: ReadContext | ReadableGrant, evidence_id: UUID
+) -> Mapping[str, Any]:
     row = (
         conn.execute(
             select(
@@ -129,7 +200,7 @@ def _evidence_row(conn: Connection, context: ReadContext, evidence_id: UUID) -> 
 
 def _readable_listing_item_projections(
     conn: Connection,
-    context: ReadContext,
+    context: ReadContext | ReadableGrant,
     item_rows: Sequence[Mapping[str, Any]],
     now: datetime,
 ) -> dict[UUID, dict[str, Any]]:
@@ -268,12 +339,19 @@ def _readable_listing_item_projections(
 
 def read_post(
     conn: Connection,
-    context: ReadContext,
+    context: ReadAccess,
     post_id: UUID,
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Return the post snapshot and its observations inside the trusted grant."""
+    if isinstance(context, list):
+        for grant in _active_readable_grants(conn, context):
+            try:
+                return read_post(conn, grant, post_id, now=now)
+            except NotFound:
+                continue
+        raise NotFound()
     _authorize(conn, context, "read")
     post = (
         conn.execute(
@@ -684,7 +762,7 @@ def _decode_post_cursor(cursor: str) -> tuple[datetime | None, UUID]:
 
 def _post_card(
     conn: Connection,
-    context: ReadContext,
+    context: ReadContext | ReadableGrant,
     post_id: UUID,
     *,
     watched: bool,
@@ -835,7 +913,7 @@ def _post_card_matches(
 
 def read_posts(
     conn: Connection,
-    context: ReadContext,
+    context: ReadAccess,
     *,
     sale_status: str | None = None,
     min_price: Decimal | None = None,
@@ -851,6 +929,43 @@ def read_posts(
     """List scoped post cards in last-success order with an opaque continuation cursor."""
     if not 1 <= limit <= 50:
         raise ValueError("limit must be between 1 and 50")
+    if isinstance(context, list):
+        grants = _active_readable_grants(conn, context)
+        pages = [
+            read_posts(
+                conn,
+                grant,
+                sale_status=sale_status,
+                min_price=min_price,
+                max_price=max_price,
+                model_key=model_key,
+                vram_gb=vram_gb,
+                condition=condition,
+                warranty=warranty,
+                limit=limit,
+                cursor=cursor,
+                now=now,
+            )
+            for grant in grants
+        ]
+        grant_cards = [card for page in pages for card in page["posts"]]
+        grant_cards.sort(
+            key=lambda card: (
+                card["last_success_at"] is None,
+                -card["last_success_at"].timestamp() if card["last_success_at"] is not None else 0,
+                str(card["post_id"]),
+            )
+        )
+        has_more = len(grant_cards) > limit or any(
+            page["next_cursor"] is not None for page in pages
+        )
+        page_cards = grant_cards[:limit]
+        next_cursor = (
+            _encode_post_cursor(page_cards[-1]["last_success_at"], page_cards[-1]["post_id"])
+            if has_more and page_cards
+            else None
+        )
+        return {"posts": page_cards, "next_cursor": next_cursor}
     _authorize(conn, context, "read")
     cursor_key = _decode_post_cursor(cursor) if cursor is not None else None
     read_at = now if now is not None else bangkok_now()
@@ -965,11 +1080,26 @@ def read_posts(
 
 def read_models(
     conn: Connection,
-    context: ReadContext,
+    context: ReadAccess,
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """List model keys whose current item projections are readable in this grant."""
+    if isinstance(context, list):
+        combined_counts: dict[str, int] = {}
+        for grant in _active_readable_grants(conn, context):
+            grant_result = read_models(conn, grant, now=now)
+            for model in grant_result["models"]:
+                grant_model_key = cast(str, model["model_key"])
+                combined_counts[grant_model_key] = combined_counts.get(grant_model_key, 0) + cast(
+                    int, model["item_count"]
+                )
+        return {
+            "models": [
+                {"model_key": model_key, "item_count": combined_counts[model_key]}
+                for model_key in sorted(combined_counts)
+            ]
+        }
     _authorize(conn, context, "read")
     last_observation = observations.alias("model_last_observation")
     item_rows = (
@@ -1025,9 +1155,17 @@ def read_models(
     }
 
 
-def read_groups(conn: Connection, context: ReadContext) -> dict[str, Any]:
+def read_groups(conn: Connection, context: ReadAccess) -> dict[str, Any]:
     """Return the one group selected by this read context and its latest run."""
+    if isinstance(context, list):
+        groups_by_id: dict[UUID, dict[str, Any]] = {}
+        for grant in _active_readable_grants(conn, context):
+            result = read_groups(conn, grant)
+            for group in result["groups"]:
+                groups_by_id[cast(UUID, group["group_id"])] = group
+        return {"groups": [groups_by_id[key] for key in sorted(groups_by_id, key=str)]}
     _authorize(conn, context, "read")
+    expected_source = context.group_source if isinstance(context, ReadableGrant) else "fixture"
     group = (
         conn.execute(
             select(
@@ -1035,7 +1173,7 @@ def read_groups(conn: Connection, context: ReadContext) -> dict[str, Any]:
                 groups.c.group_key,
                 groups.c.enabled,
                 groups.c.poll_minutes,
-            ).where(groups.c.id == context.group_id, groups.c.source == "fixture")
+            ).where(groups.c.id == context.group_id, groups.c.source == expected_source)
         )
         .mappings()
         .one_or_none()
@@ -1069,8 +1207,45 @@ def read_groups(conn: Connection, context: ReadContext) -> dict[str, Any]:
     }
 
 
-def read_seller(conn: Connection, context: ReadContext, seller_id: UUID) -> dict[str, Any]:
+def read_seller(conn: Connection, context: ReadAccess, seller_id: UUID) -> dict[str, Any]:
     """Return a seller's posts observed by the active group and grant only."""
+    if isinstance(context, list):
+        results: list[dict[str, Any]] = []
+        for grant in _active_readable_grants(conn, context):
+            try:
+                results.append(read_seller(conn, grant, seller_id))
+            except NotFound:
+                continue
+        if not results:
+            raise NotFound()
+        merged_posts: dict[UUID, dict[str, Any]] = {}
+        group_ids: set[UUID] = set()
+        display_name = None
+        for result in results:
+            group_ids.update(cast(list[UUID], result["group_ids"]))
+            if display_name is None:
+                display_name = result["display_name"]
+            for post in cast(list[dict[str, Any]], result["posts"]):
+                post_id = cast(UUID, post["post_id"])
+                existing = merged_posts.get(post_id)
+                if existing is None:
+                    merged_posts[post_id] = post
+                elif post["first_seen_at"] < existing["first_seen_at"]:
+                    merged_posts[post_id] = post
+                else:
+                    existing["has_sold_item"] = existing["has_sold_item"] or post["has_sold_item"]
+        merged = sorted(
+            merged_posts.values(), key=lambda post: (post["first_seen_at"], str(post["post_id"]))
+        )
+        return {
+            **results[0],
+            "display_name": display_name,
+            "first_seen_at": min(result["first_seen_at"] for result in results),
+            "group_ids": sorted(group_ids, key=str),
+            "post_count": len(merged),
+            "sold_post_count": sum(bool(post["has_sold_item"]) for post in merged),
+            "posts": merged,
+        }
     _authorize(conn, context, "read")
     seller_posts = (
         conn.execute(
@@ -1204,7 +1379,7 @@ def read_seller(conn: Connection, context: ReadContext, seller_id: UUID) -> dict
 
 def read_post_timeline(
     conn: Connection,
-    context: ReadContext,
+    context: ReadAccess,
     post_id: UUID,
     limit: int = 50,
     cursor: str | None = None,
@@ -1212,6 +1387,13 @@ def read_post_timeline(
     """Return a read-context-scoped timeline computed from a post's evidence rows."""
     if not 1 <= limit <= 100:
         raise ValueError("limit must be between 1 and 100")
+    if isinstance(context, list):
+        for grant in _active_readable_grants(conn, context):
+            try:
+                return read_post_timeline(conn, grant, post_id, limit=limit, cursor=cursor)
+            except NotFound:
+                continue
+        raise NotFound()
     _authorize(conn, context, "read")
 
     post = conn.execute(
@@ -1538,7 +1720,7 @@ def _decode_timeline_cursor(cursor: str) -> tuple[datetime, str, str]:
 
 def _read_evidence(
     conn: Connection,
-    context: ReadContext,
+    context: ReadContext | ReadableGrant,
     evidence_id: UUID,
     *,
     tolerate_unavailable_media: bool,
@@ -1586,8 +1768,15 @@ def _read_evidence(
     }
 
 
-def read_evidence(conn: Connection, context: ReadContext, evidence_id: UUID) -> dict[str, Any]:
+def read_evidence(conn: Connection, context: ReadAccess, evidence_id: UUID) -> dict[str, Any]:
     """Return scoped evidence metadata and its media descriptor, if captured."""
+    if isinstance(context, list):
+        for grant in _active_readable_grants(conn, context):
+            try:
+                return read_evidence(conn, grant, evidence_id)
+            except NotFound:
+                continue
+        raise NotFound()
     return _read_evidence(conn, context, evidence_id, tolerate_unavailable_media=False)
 
 
@@ -1598,8 +1787,15 @@ def read_evidence_for_mcp(
     return _read_evidence(conn, context, evidence_id, tolerate_unavailable_media=True)
 
 
-def read_evidence_media(conn: Connection, context: ReadContext, evidence_id: UUID) -> MediaContent:
+def read_evidence_media(conn: Connection, context: ReadAccess, evidence_id: UUID) -> MediaContent:
     """Return media only after rechecking scope and verifying content-addressed bytes."""
+    if isinstance(context, list):
+        for grant in _active_readable_grants(conn, context, "media"):
+            try:
+                return read_evidence_media(conn, grant, evidence_id)
+            except NotFound:
+                continue
+        raise NotFound()
     _authorize(conn, context, "media")
     row = _evidence_row(conn, context, evidence_id)
     if row["media_state"] != "captured":
@@ -1630,7 +1826,7 @@ def read_evidence_media(conn: Connection, context: ReadContext, evidence_id: UUI
 
 def read_group_runs(
     conn: Connection,
-    context: ReadContext,
+    context: ReadAccess,
     group_id: UUID,
     limit: int = 20,
     cursor: str | None = None,
@@ -1638,6 +1834,13 @@ def read_group_runs(
     """Read newest run summaries and gaps within the trusted fixture context."""
     if not 1 <= limit <= 100:
         raise ValueError("limit must be between 1 and 100")
+    if isinstance(context, list):
+        grants = [
+            grant for grant in _active_readable_grants(conn, context) if grant.group_id == group_id
+        ]
+        for grant in grants:
+            return read_group_runs(conn, grant, group_id, limit=limit, cursor=cursor)
+        raise NotFound()
     if group_id != context.group_id:
         raise NotFound()
     _authorize(conn, context, "read")
@@ -1733,11 +1936,23 @@ def read_group_runs(
     return {"group_id": context.group_id, "runs": runs, "gaps": gaps, "next_cursor": next_cursor}
 
 
-def read_watches(conn: Connection, context: ReadContext, now: datetime) -> dict[str, object]:
+def read_watches(conn: Connection, context: ReadAccess, now: datetime) -> dict[str, object]:
     """Return watches in the trusted group and whether their slow revisit is overdue."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
     normalized_now = now.astimezone(UTC)
+    if isinstance(context, list):
+        watches_by_post: dict[str, dict[str, object]] = {}
+        for grant in _active_readable_grants(conn, context):
+            grant_result = read_watches(conn, grant, normalized_now)
+            for watch in cast(list[dict[str, object]], grant_result["watches"]):
+                watches_by_post.setdefault(cast(str, watch["post_id"]), watch)
+        return {
+            "watches": sorted(
+                watches_by_post.values(),
+                key=lambda watch: (cast(str, watch["saved_at"]), cast(str, watch["post_id"])),
+            )
+        }
     _authorize(conn, context, "read")
     rows = (
         conn.execute(

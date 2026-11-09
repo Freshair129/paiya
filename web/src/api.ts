@@ -299,6 +299,52 @@ export class ApiError extends Error {
   }
 }
 
+let csrfToken: string | null = null
+
+function notifyIfSessionRequired(status: number, code: string | null): void {
+  if (status !== 401 || code !== 'session_required') return
+  csrfToken = null
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('paiya:session-required'))
+  }
+}
+
+async function responseError(response: Response, operation: string): Promise<ApiError> {
+  let code: string | null = null
+  try {
+    const body: unknown = await response.json()
+    if (body && typeof body === 'object' && 'detail' in body) {
+      const detail = body.detail
+      if (detail && typeof detail === 'object' && 'code' in detail) {
+        code = typeof detail.code === 'string' ? detail.code : null
+      }
+    }
+  } catch {
+    // The HTTP status remains enough to choose a Thai message.
+  }
+  notifyIfSessionRequired(response.status, code)
+
+  const message =
+    response.status === 401
+      ? 'ต้องปลดล็อกเจ้าของเครื่องเพื่ออ่านข้อมูล'
+      : response.status === 403 && code === 'csrf_invalid'
+        ? 'คำขอหมดอายุ กรุณาลองอีกครั้ง'
+        : response.status === 403
+          ? 'ไม่มีสิทธิ์ดำเนินการนี้ในขณะนี้'
+          : response.status === 404
+            ? 'ไม่พบรายการนี้ หรือรายการอยู่นอกกลุ่มที่เปิดอ่านได้'
+            : response.status === 429
+              ? 'ลองปลดล็อกอีกครั้งหลังจากรอสักครู่'
+              : `${operation}ไม่สำเร็จ (HTTP ${response.status})`
+  return new ApiError(response.status, code, message)
+}
+
+async function responseJson<T>(response: Response, operation: string): Promise<T> {
+  if (!response.ok) throw await responseError(response, operation)
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     method: 'GET',
@@ -306,33 +352,70 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
     credentials: 'same-origin',
     signal,
   })
+  return responseJson<T>(response, 'โหลดข้อมูล')
+}
 
-  if (!response.ok) {
-    let code: string | null = null
-    try {
-      const body: unknown = await response.json()
-      if (body && typeof body === 'object' && 'detail' in body) {
-        const detail = body.detail
-        if (detail && typeof detail === 'object' && 'code' in detail) {
-          code = typeof detail.code === 'string' ? detail.code : null
-        }
-      }
-    } catch {
-      // The HTTP status remains enough to choose a Thai message.
-    }
+export async function getCsrfToken(): Promise<string> {
+  if (csrfToken) return csrfToken
+  const body = await getJson<{ csrf_token: string }>('/v1/auth/csrf')
+  csrfToken = body.csrf_token
+  return csrfToken
+}
 
-    const message =
-      response.status === 401
-        ? 'ต้องเปิดใช้บริบทอ่านของกลุ่มสังเคราะห์ก่อน'
-        : response.status === 403
-          ? 'ไม่มีสิทธิ์อ่านข้อมูลกลุ่มนี้ในขณะนี้'
-          : response.status === 404
-            ? 'ไม่พบรายการนี้ หรือรายการอยู่นอกกลุ่มที่เปิดอ่านได้'
-            : `โหลดข้อมูลไม่สำเร็จ (HTTP ${response.status})`
-    throw new ApiError(response.status, code, message)
+export interface UnlockResponse {
+  session_id: string
+  csrf_token: string
+}
+
+export async function unlockOwner(passphrase: string): Promise<UnlockResponse> {
+  const challengeResponse = await fetch('/v1/auth/challenge', {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    credentials: 'same-origin',
+  })
+  const challenge = await responseJson<{ nonce: string }>(challengeResponse, 'פתหน้าปลดล็อก')
+  const response = await fetch('/v1/auth/unlock', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': challenge.nonce,
+    },
+    credentials: 'same-origin',
+    body: JSON.stringify({ passphrase }),
+  })
+  const result = await responseJson<UnlockResponse>(response, 'ปลดล็อก')
+  csrfToken = result.csrf_token
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('paiya:session-unlocked'))
   }
+  return result
+}
 
-  return (await response.json()) as T
+export type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export async function writeJson<T>(
+  path: string,
+  method: WriteMethod,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  const token = await getCsrfToken()
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-CSRF-Token': token,
+  }
+  const init: RequestInit = {
+    method,
+    headers,
+    credentials: 'same-origin',
+    signal,
+  }
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    init.body = JSON.stringify(body)
+  }
+  return responseJson<T>(await fetch(path, init), 'คำสั่ง')
 }
 
 export interface PostFilters {

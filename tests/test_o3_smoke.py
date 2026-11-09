@@ -84,6 +84,7 @@ def _run_smoke(
     environment = os.environ.copy()
     environment["PAIYA_FIXTURE_MEDIA_ROOT"] = str(media_root)
     environment["PAIYA_READ_CONTEXT_GROUP_KEY"] = "synthetic-demo"
+    environment.pop("PAIYA_DEV_FIXTURE_MODE", None)
     environment.pop("PAIYA_BACKUP_DIR", None)
     environment.pop("PAIYA_PURGE_LOG_PATH", None)
     if extra_env:

@@ -82,6 +82,8 @@ def test_context_endpoints_and_untrusted_group(pg_engine, client, monkeypatch):
 
 
 def test_invalid_context_rejected_at_server_and_dependency(monkeypatch, capsys):
+    from starlette.requests import Request
+
     from paiya import serve
 
     monkeypatch.setenv("PAIYA_READ_CONTEXT_GROUP_KEY", "real-group")
@@ -90,8 +92,23 @@ def test_invalid_context_rejected_at_server_and_dependency(monkeypatch, capsys):
     assert error.value.code == 2
     assert "PAIYA_READ_CONTEXT_GROUP_KEY must start with 'synthetic-'" in capsys.readouterr().err
     run.assert_not_called()
+    request = Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/v1/posts",
+            "raw_path": b"/v1/posts",
+            "query_string": b"",
+            "headers": [(b"host", b"127.0.0.1:8137")],
+            "server": ("127.0.0.1", 8137),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
     with pytest.raises(ValueError, match="must start with"):
-        api.require_read_context()
+        api.require_read_context(request)
     with pytest.raises(ValueError, match="must start with"), TestClient(app):
         pass
 

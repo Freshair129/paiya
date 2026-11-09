@@ -24,7 +24,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, BYTEA, JSONB, UUID
 
 metadata = MetaData()
 
@@ -191,6 +191,21 @@ backup_runs = Table(
         name="ck_backup_runs_nonnegative_sizes",
     ),
 )
+
+owner_sessions = Table(
+    "owner_sessions",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True),
+    Column("token_hash", BYTEA, nullable=False),
+    Column("csrf_token", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("last_seen_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint("expires_at > created_at", name="ck_owner_sessions_expiry_after_creation"),
+    UniqueConstraint("token_hash", name="uq_owner_sessions_token_hash"),
+)
+Index("ix_owner_sessions_expires_at", owner_sessions.c.expires_at)
 
 sellers = Table(
     "sellers",

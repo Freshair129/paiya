@@ -7,9 +7,10 @@
 ## 1. Read context เมื่อรัน server ในระยะ A (F2)
 
 - รัน API ด้วย `uv run python -m paiya.serve` ซึ่งผูกเฉพาะ `127.0.0.1` พอร์ตจาก `PAIYA_PORT` (ค่าเริ่มต้น 8000) และเสิร์ฟไฟล์ที่ build แล้วจาก `web/dist` ที่ `/` (เส้นทางที่ไม่ใช่ `/v1/*` คืน `index.html`) จาก origin เดียวกับ API ตาม SPEC ข้อ 1
-- `PAIYA_READ_CONTEXT_GROUP_KEY` ระบุกลุ่มสังเคราะห์หนึ่งกลุ่ม ค่าต้องขึ้นต้นด้วย `synthetic-` มิฉะนั้น server ไม่เริ่มทำงาน ทุกคำขอ server หา group ที่ `source = fixture` และ grant ของกลุ่มนั้นที่ใช้ได้และมี `read` แล้วสร้าง read context เอง ไม่รับค่าจาก header, query หรือ body
-- ไม่ตั้งค่านี้แล้วทุก endpoint ที่ต้องใช้ context ตอบ 401 `read_context_required` เหมือนเดิม กลุ่มไม่มี grant ที่ใช้ได้ตอบ 403 `grant_unavailable`
-- ห้ามใช้วิธีนี้กับข้อมูลที่ไม่ใช่ fixture การเปิดใช้ข้อมูลผู้ซื้อจริงต้องใช้ session ตาม [ADR 0004](../decisions/0004-local-access-and-mcp.md) ซึ่งเป็นงานความเสี่ยงสูงแยกต่างหาก
+- โหมด HTTP fixture เปิดใช้เฉพาะเมื่อกำหนด `PAIYA_DEV_FIXTURE_MODE=1` อย่างชัดเจนและตั้ง `PAIYA_READ_CONTEXT_GROUP_KEY` เป็นกลุ่มที่ขึ้นต้นด้วย `synthetic-`; server ปฏิเสธค่ากลุ่มที่ไม่ขึ้นต้นตามนี้ ไม่รับการเลือกกลุ่มจาก header, query หรือ body
+- เมื่อเปิดโหมด fixture server เลือกได้เฉพาะ `groups.source = fixture` และ grant ที่ใช้ได้และมี `read`; กลุ่มไม่มี grant ตอบ 403 `grant_unavailable`
+- เมื่อปิดโหมด fixture (ค่าปริยาย) endpoint ที่อ่านข้อมูลใช้ owner session และ readable grants ตาม [สัญญา session](owner-session.md); หากไม่มี session ตอบ 401 `session_required` และต้องปลดล็อกเจ้าของเครื่องก่อน
+- ห้ามใช้ fixture mode กับข้อมูลที่ไม่ใช่ fixture การเปิดข้อมูลผู้ซื้อจริงต้องใช้ owner session ตาม [ADR 0004](../decisions/0004-local-access-and-mcp.md) และ [สัญญา session](owner-session.md)
 - `uv run python -m paiya.cli demo seed` สร้างกลุ่ม `synthetic-demo` พร้อม grant และนำเข้า fixture สาธิต (ข้อ 6) ลงฐานที่ `PAIYA_DATABASE_URL` ชี้ เพื่อเปิดแอปและถ่ายภาพหลักฐาน
 
 ## 2. Endpoint ของหน้าจอ
