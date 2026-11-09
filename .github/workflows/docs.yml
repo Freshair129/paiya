@@ -97,6 +97,8 @@ jobs:
     env:
       PAIYA_DATABASE_URL: postgresql+psycopg://paiya:paiya_dev_only@127.0.0.1:5432/paiya_test
       PAIYA_READ_CONTEXT_GROUP_KEY: synthetic-demo
+      PAIYA_DEV_FIXTURE_MODE: "1"
+      XDG_DATA_HOME: ${{ runner.temp }}/paiya-e2e-auth-data
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:8000
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -116,6 +118,27 @@ jobs:
           mkdir -p "$media_root"
           echo "PAIYA_FIXTURE_MEDIA_ROOT=$media_root" >> "$GITHUB_ENV"
       - run: uv run --frozen python -m paiya.cli demo seed
+      - name: Prepare temporary owner authentication
+        run: |
+          uv run --frozen python - <<'PY'
+          import os
+          import secrets
+          from pathlib import Path
+
+          from paiya.auth.credentials import (
+              _secure_directory,
+              _secure_file,
+              create_auth_verifier,
+          )
+
+          passphrase_path = Path(os.environ["RUNNER_TEMP"]) / "paiya-e2e-passphrase"
+          _secure_directory(passphrase_path.parent)
+          passphrase = secrets.token_urlsafe(32)
+          with passphrase_path.open("x", encoding="utf-8") as output:
+              output.write(passphrase)
+          _secure_file(passphrase_path)
+          create_auth_verifier(passphrase)
+          PY
       - run: corepack enable && corepack prepare pnpm@10.20.0 --activate
       - name: Install web dependencies
         working-directory: web
@@ -146,7 +169,14 @@ jobs:
         run: corepack pnpm exec playwright install --with-deps chromium
       - name: Run browser tests
         working-directory: web
+        env:
+          PAIYA_E2E_PASSPHRASE_FILE: ${{ runner.temp }}/paiya-e2e-passphrase
         run: corepack pnpm e2e
+      - name: Remove temporary owner authentication
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/paiya-e2e-passphrase"
+          rm -rf "$RUNNER_TEMP/paiya-e2e-auth-data"
       - name: Upload Playwright report and screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

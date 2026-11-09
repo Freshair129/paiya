@@ -21,6 +21,7 @@ import {
   getSeller,
   getTimeline,
   getWatches,
+  unlockOwner,
   type CaptureGap,
   type EvidenceDetail,
   type Group,
@@ -155,6 +156,66 @@ function ErrorState({ message, retry }: { message: string; retry?: () => void })
           ลองอีกครั้ง
         </button>
       ) : null}
+    </div>
+  )
+}
+
+function UnlockScreen() {
+  const [passphrase, setPassphrase] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      await unlockOwner(passphrase)
+      setPassphrase('')
+    } catch (requestError) {
+      setError(
+        requestError instanceof ApiError && requestError.status === 401
+          ? 'รหัสผ่านไม่ถูกต้อง'
+          : errorMessage(requestError),
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="app-shell unlock-shell">
+      <header className="app-header">
+        <span className="brand-link">
+          <span className="brand-mark" aria-hidden="true">ป</span>
+          <span><strong>ป้ายยา</strong><small>ข้อมูลที่มีหลักฐาน</small></span>
+        </span>
+      </header>
+      <main className="unlock-main" id="main-content">
+        <section className="unlock-card" aria-labelledby="unlock-title">
+          <p className="eyebrow">API ในเครื่อง</p>
+          <h1 id="unlock-title">ปลดล็อกข้อมูลของคุณ</h1>
+          <p>กรอกรหัสผ่านเจ้าของเครื่องเพื่ออ่านข้อมูลที่จัดเก็บไว้</p>
+          <form className="unlock-form" onSubmit={submit}>
+            <label htmlFor="owner-passphrase">รหัสผ่านเจ้าของเครื่อง</label>
+            <input
+              id="owner-passphrase"
+              name="passphrase"
+              type="password"
+              autoComplete="current-password"
+              minLength={12}
+              required
+              value={passphrase}
+              onChange={(event) => setPassphrase(event.target.value)}
+              disabled={submitting}
+            />
+            {error ? <p className="unlock-error" role="alert">{error}</p> : null}
+            <button className="button button-primary" type="submit" disabled={submitting || passphrase.length < 12}>
+              {submitting ? 'กำลังปลดล็อก…' : 'ปลดล็อก'}
+            </button>
+          </form>
+        </section>
+      </main>
     </div>
   )
 }
@@ -1380,6 +1441,7 @@ function MainNavigation({ route }: { route: Route }) {
 
 export default function App() {
   const [path, setPath] = useState(() => (typeof window === 'undefined' ? '/' : window.location.pathname))
+  const [needsUnlock, setNeedsUnlock] = useState(false)
   const route = useMemo(() => parseRoute(path), [path])
 
   useEffect(() => {
@@ -1388,6 +1450,21 @@ export default function App() {
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    function requireUnlock() {
+      setNeedsUnlock(true)
+    }
+    function sessionUnlocked() {
+      setNeedsUnlock(false)
+    }
+    window.addEventListener('paiya:session-required', requireUnlock)
+    window.addEventListener('paiya:session-unlocked', sessionUnlocked)
+    return () => {
+      window.removeEventListener('paiya:session-required', requireUnlock)
+      window.removeEventListener('paiya:session-unlocked', sessionUnlocked)
+    }
   }, [])
 
   function navigate(to: string) {
@@ -1408,6 +1485,8 @@ export default function App() {
     case 'groups': page = <GroupsPage />; break
     default: page = <NotFoundPage />
   }
+
+  if (needsUnlock) return <UnlockScreen />
 
   return (
     <RouterContext.Provider value={{ navigate }}>

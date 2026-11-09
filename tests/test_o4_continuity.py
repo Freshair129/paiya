@@ -473,6 +473,7 @@ def test_continuity_drill_end_to_end():
     assert base_url.database == "paiya_test"
     admin = create_engine(base_url)
     environment = os.environ.copy()
+    environment.pop("PAIYA_DEV_FIXTURE_MODE", None)
     environment["UV_OFFLINE"] = "1"
     with admin.connect() as connection:
         before = set(

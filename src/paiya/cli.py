@@ -74,6 +74,12 @@ def _parser() -> argparse.ArgumentParser:
         action.add_argument("post_id", type=UUID)
     watch_actions.add_parser("list", help="list active-grant post watches")
 
+    auth = commands.add_parser("auth", help="manage owner API authentication")
+    auth_actions = auth.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    auth_actions.add_parser("set-passphrase", help="set or change the owner passphrase")
+
     demo = commands.add_parser("demo", help="manage the synthetic mobile demo data")
     demo_actions = demo.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
@@ -151,7 +157,34 @@ def _parse_worker_now(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _set_owner_passphrase() -> dict[str, bool]:
+    from paiya.auth.credentials import (
+        auth_verifier_path,
+        create_auth_verifier,
+        prompt_owner_passphrase,
+    )
+
+    already_configured = auth_verifier_path().is_file()
+    passphrase = prompt_owner_passphrase()
+    if already_configured:
+        from sqlalchemy import update
+
+        from paiya.store.tables import owner_sessions
+
+        now = datetime.now(UTC)
+        with get_database_engine().begin() as connection:
+            connection.execute(
+                update(owner_sessions)
+                .where(owner_sessions.c.revoked_at.is_(None))
+                .values(revoked_at=now)
+            )
+    create_auth_verifier(passphrase)
+    return {"configured": True, "sessions_revoked": already_configured}
+
+
 def _execute(args: argparse.Namespace) -> object:
+    if args.resource == "auth" and args.action == "set-passphrase":
+        return _set_owner_passphrase()
     if args.resource == "health":
         return get_health_report(get_database_engine())
     if args.resource == "backup":

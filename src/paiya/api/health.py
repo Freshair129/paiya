@@ -1,19 +1,17 @@
 """Admin health endpoint guarded by the existing v1 read context."""
 
-from typing import Annotated
+from fastapi import APIRouter
 
-from fastapi import APIRouter, Depends
-
-from paiya.api.evidence import require_read_context
+from paiya.api.evidence import Db, Scope
 from paiya.health.service import get_health_report
-from paiya.read.context import ReadContext
+from paiya.read.service import verify_read_access
 from paiya.settings import get_database_engine
 
 router = APIRouter(prefix="/v1")
-HealthScope = Annotated[ReadContext, Depends(require_read_context)]
 
 
 @router.get("/admin/health")
-def get_admin_health(_scope: HealthScope) -> dict[str, object]:
+def get_admin_health(scope: Scope, conn: Db) -> dict[str, object]:
     """Return system counts to callers with the same server-selected read access."""
+    verify_read_access(conn, scope)
     return get_health_report(get_database_engine())

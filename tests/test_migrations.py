@@ -2,6 +2,7 @@
 
 import json
 import os
+import secrets
 from pathlib import Path
 from uuid import uuid4
 
@@ -18,6 +19,7 @@ from paiya.ingest.service import ingest_fixture
 from paiya.store.fixture_scope import seed_fixture_scope
 
 ROOT = Path(__file__).resolve().parents[1]
+HEAD = "0011_owner_sessions"
 
 
 def test_upgrade_and_downgrade_on_postgres17(
@@ -48,7 +50,7 @@ def test_upgrade_and_downgrade_on_postgres17(
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        assert revision == "0010_backup_runs"
+        assert revision == HEAD
         command.downgrade(alembic, "0007_tags")
         command.upgrade(alembic, "head")
         command.downgrade(alembic, "0006_price_validation")
@@ -166,7 +168,7 @@ def test_upgrade_and_downgrade_on_postgres17(
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "0010_backup_runs"
+                == HEAD
             )
     finally:
         engine.dispose()
@@ -188,8 +190,38 @@ def test_downgrade_preserves_job_result(pg_engine, tmp_path):
     with pg_engine.connect() as connection:
         assert connection.execute(text("SELECT result FROM jobs")).scalar_one() == {"processed": 1}
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+            HEAD
+        )
+
+
+def test_owner_sessions_downgrade_refuses_rows(pg_engine):
+    session_id = uuid4()
+    with pg_engine.begin() as connection:
+        connection.execute(
+            text("""
+                INSERT INTO owner_sessions
+                    (id, token_hash, csrf_token, created_at, last_seen_at, expires_at)
+                VALUES (:id, :token_hash, :csrf_token, now(), now(), now() + interval '12 hours')
+            """),
+            {
+                "id": session_id,
+                "token_hash": secrets.token_bytes(32),
+                "csrf_token": secrets.token_urlsafe(32),
+            },
+        )
+
+    with pytest.raises(RuntimeError, match="owner_sessions contains 1"):
+        command.downgrade(Config(str(ROOT / "alembic.ini")), "0010_backup_runs")
+
+    with pg_engine.begin() as connection:
+        assert connection.execute(text("SELECT id FROM owner_sessions")).scalar_one() == session_id
+        connection.execute(text("DELETE FROM owner_sessions WHERE id = :id"), {"id": session_id})
+    command.downgrade(Config(str(ROOT / "alembic.ini")), "0010_backup_runs")
+    with pg_engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
             "0010_backup_runs"
         )
+        assert connection.execute(text("SELECT to_regclass('owner_sessions')")).scalar_one() is None
 
 
 def test_backup_runs_downgrade_refuses_records_and_allows_empty(pg_engine):
@@ -272,8 +304,8 @@ def test_downgrade_preserves_model_tags(pg_engine, tmp_path):
             ).scalar_one()
             == 1
         )
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-            "0010_backup_runs"
+        assert (
+            connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == HEAD
         )
     with pg_engine.begin() as connection:
         assert (

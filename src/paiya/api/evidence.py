@@ -6,14 +6,16 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import Connection
 
 from paiya.read.context import (
-    ReadContext,
-    read_context_group_key_from_env,
+    ReadAccess,
+    dev_fixture_group_key_from_env,
+    dev_fixture_mode_enabled,
     resolve_read_context,
+    resolve_readable_grants,
 )
 from paiya.read.errors import ReadContextRequired
 from paiya.read.service import (
@@ -34,13 +36,24 @@ from paiya.settings import get_database_engine
 router = APIRouter(prefix="/v1")
 
 
-def require_read_context() -> ReadContext:
-    """Resolve a trusted fixture context from server configuration for this request."""
-    group_key = read_context_group_key_from_env()
-    if group_key is None:
+def require_read_context(request: Request) -> ReadAccess:
+    """Resolve the explicit dev fixture scope or the authenticated owner's read grants."""
+    group_key = dev_fixture_group_key_from_env()
+    if group_key is not None:
+        with get_database_engine().connect() as connection:
+            return resolve_read_context(connection, group_key)
+
+    owner_session = getattr(request.state, "owner_session", None)
+    if owner_session is not None:
+        with get_database_engine().connect() as connection:
+            return resolve_readable_grants(connection)
+
+    if dev_fixture_mode_enabled():
         raise ReadContextRequired()
-    with get_database_engine().connect() as connection:
-        return resolve_read_context(connection, group_key)
+    raise HTTPException(
+        status_code=401,
+        detail={"code": "session_required", "message": "A valid owner session is required"},
+    )
 
 
 # Retain the existing dependency name for A2 test harnesses and callers.
@@ -53,7 +66,7 @@ def get_db_connection() -> Iterator[Connection]:
         yield connection
 
 
-Scope = Annotated[ReadContext, Depends(require_read_context)]
+Scope = Annotated[ReadAccess, Depends(require_read_context)]
 Db = Annotated[Connection, Depends(get_db_connection)]
 ReadNow = Annotated[datetime, Depends(bangkok_now)]
 

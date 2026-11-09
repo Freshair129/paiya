@@ -1,8 +1,8 @@
 # สัญญา session เจ้าของเครื่องและ CSRF ของ API ในเครื่อง
 
-**สถานะ** ร่าง / เสนอเพื่ออนุมัติ · ยังไม่อนุมัติให้เริ่ม implementation ที่จัดการ session · **ผู้ดูแล** Product owner, Backend และ QA
+**สถานะ** เจ้าของอนุมัติให้ทำ S1 ใน [Issue #94](https://github.com/Freshair129/paiya/issues/94) แล้ว · **ผู้ดูแล** Product owner, Backend และ QA
 
-เอกสารนี้เสนอรายละเอียดที่ [ADR 0004](../decisions/0004-local-access-and-mcp.md) กำหนดให้ตัดสินก่อนทำ session จริง ใช้คู่กับ [นโยบายการเข้าถึง](../SPEC.md), [สัญญาผู้ซื้อ](buyer-workflows.md), [สัญญาเส้นทางอ่านบนมือถือ](mobile-read-path.md), [SRS ข้อ 6](../../requirements/SRS.md), [ROADMAP O5](../../delivery/ROADMAP.md) และ [สัญญาสุขภาพระบบ](system-health.md) งานเอกสารนี้เป็นข้อเสนอเท่านั้น; implementation เป็นงานความเสี่ยงสูงและต้องมีคำอนุมัติเป็นลายลักษณ์อักษรใน Issue ก่อนเริ่ม
+เอกสารนี้กำหนดสัญญา S1 ตามการอนุมัติความเสี่ยงสูงของเจ้าของใน [Issue #94](https://github.com/Freshair129/paiya/issues/94#issuecomment-6731421313) ใช้คู่กับ [นโยบายการเข้าถึง](../SPEC.md), [สัญญาผู้ซื้อ](buyer-workflows.md), [สัญญาเส้นทางอ่านบนมือถือ](mobile-read-path.md), [SRS ข้อ 6](../../requirements/SRS.md), [ROADMAP O5](../../delivery/ROADMAP.md) และ [สัญญาสุขภาพระบบ](system-health.md) การอนุมัติครอบคลุม S1 และ DDL allowlist ในข้อ 10; งานนอกขอบเขตนั้นต้องขออนุมัติเพิ่มใน Issue ก่อนเริ่ม
 
 ## 1. ขอบเขตและ threat model
 
@@ -15,10 +15,10 @@
 
 ## 2. การตั้งค่าและปลดล็อกครั้งแรก
 
-**ข้อเสนอหลัก: ใช้ passphrase ของเจ้าของเครื่องและเก็บเฉพาะตัวตรวจสอบที่ได้จาก `hashlib.scrypt`.** ใช้ Python standard library (`getpass`, `secrets`, `hashlib`, `hmac`, `pathlib`) โดยไม่เพิ่ม dependency
+**แนวทางที่อนุมัติ: ใช้ passphrase ของเจ้าของเครื่องและเก็บเฉพาะตัวตรวจสอบที่ได้จาก `hashlib.scrypt`.** ใช้ Python standard library (`getpass`, `secrets`, `hashlib`, `hmac`, `pathlib`) โดยไม่เพิ่ม dependency
 
 - เมื่อเริ่ม `serve` ครั้งแรกและยังไม่มีข้อมูลยืนยันตัวตน ให้ตั้ง passphrase ผ่าน prompt แบบไม่แสดงข้อความบน terminal และถามซ้ำเพื่อยืนยัน หากไม่มี interactive terminal ให้หยุดแบบ fail closed พร้อมบอกวิธีตั้งค่าจาก terminal ห้ามสร้างค่าเริ่มต้นหรือปลดล็อกอัตโนมัติ
-- สร้าง salt ด้วย `secrets.token_bytes(16)` และตัวตรวจสอบด้วย `hashlib.scrypt`; เก็บรุ่น KDF, พารามิเตอร์, salt และผลลัพธ์เท่านั้น ไม่เก็บ passphrase ตรง ๆ ตัวเลือกตั้งต้นสำหรับทดลองคือ `N=2**15`, `r=8`, `p=1`, `dklen=32` และต้องวัดเวลา/หน่วยความจำบนเครื่องขั้นต่ำที่รองรับก่อนอนุมัติ implementation
+- สร้าง salt ด้วย `secrets.token_bytes(16)` และตัวตรวจสอบด้วย `hashlib.scrypt`; เก็บรุ่น KDF, พารามิเตอร์, salt และผลลัพธ์เท่านั้น ไม่เก็บ passphrase ตรง ๆ เจ้าของอนุมัติให้เริ่มวัดพารามิเตอร์จาก `N=2**15`, `r=8`, `p=1`, `dklen=32` ตาม Issue #94 และให้บันทึกค่าที่ใช้ไว้กับ verifier
 - เก็บไฟล์ เช่น `%LOCALAPPDATA%\Paiya\security\owner-auth.json` นอก repository โดยปิดการสืบทอด ACL และอนุญาตเฉพาะ SID ของเจ้าของเครื่องกับ `SYSTEM`; ห้ามให้ `Users` หรือ `Everyone` อ่านได้ เขียนไฟล์ด้วยวิธี atomic และตั้ง ACL ให้ถูกต้องตั้งแต่สร้างไฟล์ หากรองรับ POSIX ให้ใช้ directory `0700` และไฟล์ `0600`
 - ห้ามใส่ passphrase ใน argument, environment variable, repository, backup ที่ไม่เข้ารหัส หรือ log การตรวจ passphrase ใช้ `hmac.compare_digest`; เมื่อเปลี่ยน passphrase ต้องเพิกถอนทุก session
 - `/v1/auth/challenge` ออก pre-auth synchronizer nonce แบบสุ่ม ใช้ครั้งเดียวและหมดอายุใน 5 นาที เก็บเฉพาะ hash ในหน่วยความจำ คำขอ `POST /v1/auth/unlock` ต้องส่ง nonce ใน `X-CSRF-Token` พร้อม passphrase และผ่าน `Origin`/`Host` check ก่อนสร้าง session
@@ -30,9 +30,9 @@
 
 ## 3. Cookie และ server-side session
 
-สร้าง session token ด้วย `secrets.token_urlsafe(32)` (สุ่ม 32 bytes) และเก็บเพียง SHA-256 digest ของ token ใน PostgreSQL ตรวจ digest ด้วยการเปรียบเทียบแบบ constant-time ตารางใหม่นี้เป็น DDL แบบเพิ่มตารางและต้องอนุมัติแยกก่อน implementation:
+สร้าง session token ด้วย `secrets.token_urlsafe(32)` (สุ่ม 32 bytes) และเก็บเพียง SHA-256 digest ของ token ใน PostgreSQL ตรวจ digest ด้วยการเปรียบเทียบแบบ constant-time เจ้าของอนุมัติตารางใหม่นี้เป็น DDL เพิ่มเพียงรายการเดียวใน Issue #94:
 
-| ตาราง | คอลัมน์ที่เสนอ |
+| ตาราง | คอลัมน์ที่อนุมัติ |
 |---|---|
 | `owner_sessions` | `id UUID PRIMARY KEY` (ID ภายในสำหรับอ้างอิง log), `token_hash BYTEA NOT NULL UNIQUE`, `csrf_token TEXT NOT NULL`, `created_at TIMESTAMPTZ NOT NULL`, `last_seen_at TIMESTAMPTZ NOT NULL`, `expires_at TIMESTAMPTZ NOT NULL`, `revoked_at TIMESTAMPTZ NULL` |
 
@@ -45,7 +45,7 @@
 - `POST /v1/auth/logout` ต้องผ่าน CSRF แล้วตั้ง `revoked_at` ให้ session ปัจจุบันและลบ cookie ด้วย `Max-Age=0`; คำขอถัดไปด้วย cookie เดิมต้องได้ 401
 - `POST /v1/auth/revoke-all` ต้องผ่าน CSRF แล้วกำหนด `revoked_at` ให้ทุก session ที่ยังไม่เพิกถอน รวมถึง session ที่เรียก จากนั้นลบ cookie ของผู้เรียก คำขอที่ใช้ session เก่าทั้งหมดต้องได้ 401
 
-ทางเลือกแทนตารางคือ in-memory store ซึ่งไม่มี DDL แต่ restart แล้ว session ทั้งหมดหายและไม่เหมาะกับหลาย worker; file store อยู่นอก repository ได้แต่ต้องเพิ่ม atomic update, locking, recovery และการคุม ACL ตาราง PostgreSQL จึงเป็นข้อเสนอหลักเพื่อให้ตรวจ/เพิกถอน session ได้จากทุก request และทุก process ของ API
+เจ้าของเลือกตาราง PostgreSQL สำหรับ S1 เพื่อให้ตรวจและเพิกถอน session ได้จากทุก request และทุก process ของ API; ทางเลือก in-memory หรือ file store ไม่อยู่ในขอบเขตที่อนุมัติ
 
 ## 4. CSRF และการตรวจ `Origin`/`Host`
 
@@ -59,14 +59,14 @@
 
 ในโหมดใช้งานปกติ session ยืนยันว่าเป็นเจ้าของเครื่องเท่านั้น API ต้อง resolve รายการ `source_grants` ที่มี `read`, ยังไม่ถูกเพิกถอน และอยู่ในช่วง `valid_from`/`valid_until` ณ เวลาของ request แล้วส่ง `list[ReadableGrant]` ให้ read service ตาม ADR 0004 ทุก read รวม endpoint ภาพต้องตรวจ grant ซ้ำใน service layer ห้ามรับ group/grant จาก cookie, header, query หรือ body เพื่อเพิ่มสิทธิ์
 
-`PAIYA_READ_CONTEXT_GROUP_KEY` ใน `mobile-read-path.md` เป็น fixture context ปัจจุบัน ไม่ใช่การยืนยันตัวตนสำหรับข้อมูลจริง เส้นทางเปลี่ยนผ่านเมื่อทำ implementation ต้องเป็นดังนี้:
+`PAIYA_READ_CONTEXT_GROUP_KEY` ใน `mobile-read-path.md` เป็น fixture context ไม่ใช่การยืนยันตัวตนสำหรับข้อมูลจริง. S1 กำหนดเส้นทางเปลี่ยนผ่านดังนี้:
 
-1. โหมดปกติปิด fixture bypass และต้องมี owner session; ตั้ง `PAIYA_READ_CONTEXT_GROUP_KEY` อย่างเดียวต้องไม่ให้สิทธิ์อ่าน
-2. เพิ่ม dev-only fixture mode ที่ปิดโดยปริยายและเปิดโดยการตั้งค่าอย่างชัดเจน เช่น `PAIYA_DEV_FIXTURE_MODE=1` พร้อม `PAIYA_READ_CONTEXT_GROUP_KEY=synthetic-...`; mode นี้เลือกได้เฉพาะ `groups.source = fixture` และ grant `read` ที่ยังใช้ได้
-3. ปรับ e2e และ demo ให้เริ่มด้วย fixture mode นี้อย่างชัดเจน เพื่อให้ `paiya demo seed` และข้อมูลสาธิตทำงานต่อ; การทดสอบต้องยืนยันว่า default ปิดอยู่และการตั้ง group key อย่างเดียวไม่ bypass session
-4. ก่อนตัด implementation ให้ปรับ dependency ปัจจุบันใน `src/paiya/api/` จาก fixture-only context เป็น session + `list[ReadableGrant]`; คงการตรวจขอบเขตไว้ที่ read service ไม่ใช่ FastAPI dependency เพียงชั้นเดียว
+1. โหมดปกติปิด fixture bypass และต้องมี owner session; ตั้ง `PAIYA_READ_CONTEXT_GROUP_KEY` อย่างเดียวไม่ให้สิทธิ์อ่าน
+2. dev-only fixture mode ปิดโดยปริยายและเปิดได้ด้วยการตั้งค่าอย่างชัดเจน เช่น `PAIYA_DEV_FIXTURE_MODE=1` พร้อม `PAIYA_READ_CONTEXT_GROUP_KEY=synthetic-...`; mode นี้เลือกได้เฉพาะ `groups.source = fixture` และ grant `read` ที่ยังใช้ได้
+3. e2e และ demo ต้องเปิด fixture mode นี้อย่างชัดเจน เพื่อให้ `paiya demo seed` และข้อมูลสาธิตทำงานต่อ; การทดสอบยืนยันว่า default ปิดอยู่และการตั้ง group key อย่างเดียวไม่ bypass session
+4. dependency ใน `src/paiya/api/` ใช้ session และ `list[ReadableGrant]`; read service ตรวจขอบเขตซ้ำ ไม่ฝากการบังคับสิทธิ์ไว้กับ FastAPI dependency เพียงชั้นเดียว
 
-ข้อเสนอนี้ไม่เปลี่ยนสัญญา fixture ปัจจุบันก่อน implementation และไม่อนุญาตให้นำ dev fixture mode ไปใช้กับข้อมูลจริง
+fixture context ใช้ได้เฉพาะ dev opt-in สำหรับ fixture; ห้ามนำ dev fixture mode ไปใช้กับข้อมูลจริง
 
 ## 6. MCP และ CLI
 
@@ -86,6 +86,8 @@ MCP ไม่เปลี่ยน: ใช้ stdio, เรียก read servic
 
 คำขอ read ใต้ `/v1` ที่ไม่มี session ตอบ 401; หน้า unlock และ `GET /v1/auth/challenge` เป็นข้อยกเว้นที่ไม่คืนข้อมูลผู้ซื้อ `healthz` ตอบเฉพาะสถานะ process และไม่แทนการตรวจ session ส่วน CLI ใช้ error model เดิมของ CLI
 
+ข้อความที่ client แสดง: 401 `session_required` หมายถึงเจ้าของเครื่องต้องปลดล็อก; 403 หมายถึงไม่อนุญาตให้ดำเนินการนี้ โดยไม่แสดงรายละเอียดภายในของการตรวจ `Host`, `Origin`, CSRF หรือ grant
+
 ## 8. Logging
 
 ตาม [สัญญาสุขภาพระบบ](system-health.md) ให้ log เป็น JSON โดยคง `ts`, `level`, `event` และเพิ่มเฉพาะ ID ภายใน, status กับ reason code เช่น `request_id`, `session_id`, `reason`; ฟิลด์อื่นให้เป็น enum หรือจำนวนที่ไม่เปิดเผยข้อมูล ห้าม log passphrase, ผล KDF, setup/pre-auth nonce, CSRF token, cookie หรือ header ที่มี token ห้ามใส่ `Cookie`, `Set-Cookie`, `Authorization` หรือ request body ใน log
@@ -103,23 +105,19 @@ MCP ไม่เปลี่ยน: ใช้ stdio, เรียก read servic
 - ตรวจว่า default ปิด dev fixture mode; ตั้ง `PAIYA_READ_CONTEXT_GROUP_KEY` อย่างเดียวต้องยังได้ 401 และ demo/e2e ต้องเปิด fixture mode อย่างชัดเจน
 - ตรวจว่า unlock ออก session ID และ CSRF token ใหม่, logout ทำให้ session ปัจจุบันใช้ต่อไม่ได้ และ `revoke-all` ทำให้ session ที่ยัง active ทุกตัวใช้ต่อไม่ได้
 
-การตรวจข้างต้นเป็นเกณฑ์สำหรับ implementation ในอนาคต ไม่ใช่ผลทดสอบของร่างเอกสารนี้
+รายการข้างต้นเป็นเกณฑ์การยอมรับตามสัญญา ไม่ใช่บันทึกผลรันทดสอบ; ผลจริงของ implementation ต้องรายงานแยกใน Issue หรือ PR
 
-## 10. สิ่งที่ผู้ดูแลต้องระบุใน Issue เพื่ออนุมัติ
+## 10. การอนุมัติและขอบเขต
 
-Issue ต้องระบุครบสี่รายการนี้ก่อนเริ่มงาน session ความเสี่ยงสูง:
+เจ้าของอนุมัติ S1 ความเสี่ยงสูงใน [Issue #94](https://github.com/Freshair129/paiya/issues/94#issuecomment-6731421313) โดยกำหนด:
 
-1. **Design choice:** เลือกการปลดล็อกครั้งแรกและยืนยันว่าจะใช้ `hashlib.scrypt` passphrase ตามข้อเสนอ หรือเลือกทางเลือกใดพร้อมเหตุผล
-2. **Storage:** ยืนยัน `owner_sessions` และ allowlist ของตาราง/คอลัมน์/constraint/index ตามข้อ 3 หรือระบุ store ทางเลือกและ trade-off; หากเลือกตารางให้ระบุชัดว่าอนุมัติ DDL เฉพาะรายการใด
-3. **Cookie attributes:** ยืนยันชื่อ cookie, `HttpOnly`, `SameSite`, `Path`, host-only/`Domain`, อายุ `Max-Age` และเหตุผลที่ไม่มี `Secure` บน loopback HTTP
-4. **Dev-mode rule:** ยืนยันวิธีเปิด fixture mode ที่ off by default, ข้อกำหนด `synthetic-*`, และการบังคับใช้กับ e2e/demo เท่านั้น
+- **Unlock:** terminal passphrase กับ `hashlib.scrypt` verifier นอก repository; เริ่มวัด KDF จาก `N=2**15`; ขั้นต่ำ 12 ตัวอักษร; จำกัด 5 ครั้งต่อ 15 นาที
+- **Storage/DDL:** เพิ่มเฉพาะตาราง `owner_sessions` พร้อมคอลัมน์, constraint และ index ตามข้อ 3 ไม่มี DDL อื่น
+- **Cookie/session:** `paiya_owner_session`, `HttpOnly`, `SameSite=Strict`, `Path=/`, host-only, `Max-Age=43200`, ไม่มี `Secure` บน loopback HTTP; อายุสูงสุด 12 ชั่วโมงและ idle timeout 30 นาที
+- **Dev fixture mode:** ปิดโดยปริยายและเปิดด้วย opt-in เฉพาะ e2e และ demo
 
-การอนุมัติเอกสารนี้หรือการ merge เอกสารไม่ใช่การอนุมัติให้เขียนโค้ด session, migration หรือ cookie
+การอนุมัตินี้จำกัดอยู่ที่ขอบเขต S1 ใน Issue #94; การเพิ่มตารางหรือเปลี่ยนขอบเขตความเสี่ยงสูงต้องขออนุมัติใน Issue ก่อน
 
-## 11. คำถามที่รอคำตัดสิน
+## 11. งานติดตามใน M-phase
 
-1. **KDF:** ใช้ `N=2**14`, `2**15` หรือค่าที่วัดได้บนเครื่องขั้นต่ำ? **แนะนำ:** เริ่มวัดที่ `2**15`, เก็บพารามิเตอร์และรุ่นไว้กับ verifier แล้วใช้ค่าที่ผ่านเกณฑ์เวลา/หน่วยความจำของเจ้าของเครื่อง
-2. **Passphrase policy และการลองซ้ำ:** บังคับขั้นต่ำ 12 ตัวอักษร, ใช้ passphrase ที่ผู้ใช้เลือกโดยไม่มี minimum, หรือสร้างให้? จำกัดความพยายามด้วย lockout หรือ backoff? **แนะนำ:** ยอมรับ passphrase ยาวอย่างน้อย 12 ตัวโดยไม่มี composition rule, จำกัด 5 ครั้งต่อ 15 นาทีด้วย backoff และเก็บตัวนับนอก repository
-3. **Session store:** `owner_sessions` ใน PostgreSQL, in-memory, หรือ file store? **แนะนำ:** ตาราง PostgreSQL ตาม allowlist เพราะ revoke/expiry ใช้ได้ข้าม process; ยอมรับ DDL เพิ่มหนึ่งตารางในงาน implementation ที่ได้รับอนุมัติ
-4. **อายุ session:** 8 ชั่วโมง/idle 15 นาที, 12 ชั่วโมง/idle 30 นาที, หรือ 24 ชั่วโมง/idle 1 ชั่วโมง? **แนะนำ:** 12 ชั่วโมง/30 นาทีตามข้อ 3 และคงอายุสูงสุดแบบไม่เลื่อน
-5. **Fixture opt-in:** ใช้ `PAIYA_DEV_FIXTURE_MODE=1` คู่กับ group key หรือใช้ startup flag แยก? **แนะนำ:** ใช้ opt-in ที่เห็นชัดและ off by default; ไม่ว่าเลือกแบบใด key อย่างเดียวต้องไม่ bypass session และใช้ได้เฉพาะ fixture สำหรับ e2e/demo
+`GET /v1/prices/trends` คืน 409 `read_scope_ambiguous` เมื่อ session มี readable grant มากกว่าหนึ่งรายการใน S1; การเลือกกลุ่มเป็นงานต่อเนื่องของ M-phase และต้องเพิ่ม group selector ก่อนเปลี่ยนพฤติกรรมนี้
