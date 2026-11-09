@@ -93,6 +93,64 @@ export interface GroupsResponse {
   groups: Group[]
 }
 
+export interface ManualImportInput {
+  permalink: string
+  text: string
+}
+
+export interface ManualPriceFact {
+  kind: string
+  unit: string
+  currency: string
+  amount: string
+  amount_max?: string
+  evidence_key: string
+}
+
+export interface ManualImportItem {
+  source_item_key: string
+  model: string
+  price_facts: ManualPriceFact[]
+  evidence_keys: string[]
+}
+
+export interface ManualImportEvidence {
+  local_key: string
+  role: string
+  source_span: {
+    field: string
+    quote: string
+    start: number
+    end: number
+  }
+  media_state: string
+}
+
+export interface ManualImportUnresolvedField {
+  field: 'item_identity' | 'ask_price'
+  source_item_key: string
+}
+
+export interface ManualImportPreview {
+  source_kind: 'manual_share'
+  permalink: string
+  parser_version: string
+  preview_digest: string
+  items: ManualImportItem[]
+  unassigned_price_facts: ManualPriceFact[]
+  unresolved_item_keys: string[]
+  unresolved_fields: ManualImportUnresolvedField[]
+  evidence: ManualImportEvidence[]
+}
+
+export interface ManualImportResult {
+  post_id: string
+  observation_id: string
+  item_ids: string[]
+  source_kind: 'manual_share'
+  observed_at: string
+}
+
 export interface PostObservationItem {
   item_id: string | null
   source_item_key: string | null
@@ -290,12 +348,14 @@ export interface SystemHealth {
 export class ApiError extends Error {
   readonly status: number
   readonly code: string | null
+  readonly field: string | null
 
-  constructor(status: number, code: string | null, message: string) {
+  constructor(status: number, code: string | null, message: string, field: string | null = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.field = field
   }
 }
 
@@ -311,12 +371,14 @@ function notifyIfSessionRequired(status: number, code: string | null): void {
 
 async function responseError(response: Response, operation: string): Promise<ApiError> {
   let code: string | null = null
+  let field: string | null = null
   try {
     const body: unknown = await response.json()
     if (body && typeof body === 'object' && 'detail' in body) {
       const detail = body.detail
-      if (detail && typeof detail === 'object' && 'code' in detail) {
-        code = typeof detail.code === 'string' ? detail.code : null
+      if (detail && typeof detail === 'object') {
+        if ('code' in detail) code = typeof detail.code === 'string' ? detail.code : null
+        if ('field' in detail) field = typeof detail.field === 'string' ? detail.field : null
       }
     }
   } catch {
@@ -336,7 +398,7 @@ async function responseError(response: Response, operation: string): Promise<Api
             : response.status === 429
               ? 'ลองปลดล็อกอีกครั้งหลังจากรอสักครู่'
               : `${operation}ไม่สำเร็จ (HTTP ${response.status})`
-  return new ApiError(response.status, code, message)
+  return new ApiError(response.status, code, message, field)
 }
 
 async function responseJson<T>(response: Response, operation: string): Promise<T> {
@@ -399,11 +461,13 @@ export async function writeJson<T>(
   method: WriteMethod,
   body?: unknown,
   signal?: AbortSignal,
+  additionalHeaders: Record<string, string> = {},
 ): Promise<T> {
   const token = await getCsrfToken()
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-CSRF-Token': token,
+    ...additionalHeaders,
   }
   const init: RequestInit = {
     method,
@@ -416,6 +480,34 @@ export async function writeJson<T>(
     init.body = JSON.stringify(body)
   }
   return responseJson<T>(await fetch(path, init), 'คำสั่ง')
+}
+
+function importPath(groupId: string, endpoint: 'preview' | 'commit'): string {
+  const query = new URLSearchParams({ group_id: groupId })
+  const suffix = endpoint === 'preview' ? '/preview' : ''
+  return `/v1/imports${suffix}?${query.toString()}`
+}
+
+export function previewManualImport(
+  groupId: string,
+  input: ManualImportInput,
+): Promise<ManualImportPreview> {
+  return writeJson(importPath(groupId, 'preview'), 'POST', input)
+}
+
+export function commitManualImport(
+  groupId: string,
+  input: ManualImportInput,
+  previewDigest: string,
+  idempotencyKey: string,
+): Promise<ManualImportResult> {
+  return writeJson(
+    importPath(groupId, 'commit'),
+    'POST',
+    { ...input, preview_digest: previewDigest },
+    undefined,
+    { 'Idempotency-Key': idempotencyKey },
+  )
 }
 
 export interface PostFilters {

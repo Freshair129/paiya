@@ -90,6 +90,34 @@ class ManualImportService:
         with self.engine.connect() as conn:
             _load_grant(conn, grant_id)
 
+    def resolve_group_grant(self, group_id: UUID | str) -> UUID:
+        """Resolve the group's current active manual-share capture grant."""
+        try:
+            selected_group_id = group_id if isinstance(group_id, UUID) else UUID(str(group_id))
+        except (TypeError, ValueError) as error:
+            raise GrantError(
+                "grant_unavailable", "No active manual-share grant was found"
+            ) from error
+        with self.engine.connect() as conn:
+            return _resolve_group_grant(conn, selected_group_id)
+
+    def idempotency_key_exists(self, idempotency_key: str, grant: UUID | str) -> bool:
+        """Check for a prior key after revalidating the current write grant."""
+        grant_id = _grant_id(grant)
+        key = idempotency_key.strip()
+        if not key or len(key) > 200:
+            raise ManualImportError(
+                "invalid_idempotency_key", "Idempotency key must be 1-200 characters"
+            )
+        with self.engine.begin() as conn:
+            _load_grant(conn, grant_id, lock=True)
+            return (
+                conn.execute(
+                    select(jobs.c.id).where(jobs.c.logical_key == f"manual:{key}")
+                ).scalar_one_or_none()
+                is not None
+            )
+
     def preview(self, text: str, permalink: str, grant: UUID | str) -> dict[str, Any]:
         """Parse a direct permalink and pasted text without writing any rows."""
         grant_id = _grant_id(grant)
@@ -104,6 +132,16 @@ class ManualImportService:
         grant: UUID | str,
     ) -> dict[str, Any]:
         """Persist one observation, rechecking and locking its grant in-transaction."""
+        result, _ = self.commit_with_status(preview_input, idempotency_key, grant)
+        return result
+
+    def commit_with_status(
+        self,
+        preview_input: dict[str, Any],
+        idempotency_key: str,
+        grant: UUID | str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Commit and report whether the result is an idempotent replay."""
         grant_id = _grant_id(grant)
         key = idempotency_key.strip()
         if not key or len(key) > 200:
@@ -119,13 +157,6 @@ class ManualImportService:
             if not isinstance(body_text, str) or not isinstance(permalink, str):
                 raise ManualImportError("invalid_preview", "Preview input is incomplete")
             rebuilt = _make_preview(body_text, permalink, scope)
-            if (
-                preview_input.get("grant_id") != str(grant_id)
-                or preview_input.get("preview_digest") != rebuilt["preview_digest"]
-            ):
-                raise ManualImportError(
-                    "preview_changed", "Preview input no longer matches its digest"
-                )
 
             conn.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(logical_key, 0))))
             request_digest = cast(str, rebuilt["preview_digest"])
@@ -145,15 +176,30 @@ class ManualImportService:
                     or existing["request_digest"] != request_digest
                 ):
                     raise ManualImportConflict()
+                if (
+                    preview_input.get("grant_id") != str(grant_id)
+                    or preview_input.get("preview_digest") != request_digest
+                ):
+                    raise ManualImportError(
+                        "preview_changed", "Preview input no longer matches its digest"
+                    )
                 result = existing["result"]
                 if not isinstance(result, dict):
                     raise ManualImportError(
                         "idempotency_incomplete", "Saved import result is unavailable"
                     )
-                return cast(dict[str, Any], result)
+                return cast(dict[str, Any], result), True
+
+            if (
+                preview_input.get("grant_id") != str(grant_id)
+                or preview_input.get("preview_digest") != request_digest
+            ):
+                raise ManualImportError(
+                    "preview_changed", "Preview input no longer matches its digest"
+                )
 
             result = _persist_observation(conn, scope, rebuilt, key, logical_key, request_digest)
-            return result
+            return result, False
 
 
 def _grant_id(value: UUID | str) -> UUID:
@@ -206,6 +252,29 @@ def _load_grant(conn: Connection, grant_id: UUID, *, lock: bool = False) -> _Gra
     )
 
 
+def _resolve_group_grant(conn: Connection, group_id: UUID) -> UUID:
+    now = datetime.now(UTC)
+    grant_id = conn.execute(
+        select(source_grants.c.id)
+        .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
+        .where(
+            source_grants.c.group_id == group_id,
+            source_grants.c.source_kind == "manual_share",
+            source_grants.c.revoked_at.is_(None),
+            source_grants.c.valid_from <= now,
+            source_grants.c.valid_until.is_(None) | (source_grants.c.valid_until > now),
+            source_grants.c.scopes.contains(["capture"]),
+            source_grants.c.retention_days > 0,
+        )
+        .order_by(source_grants.c.valid_from.desc(), source_grants.c.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    if grant_id is None:
+        raise GrantError("grant_unavailable", "No active manual-share grant was found")
+    # Reuse the service's complete grant checks in case it changed after selection.
+    return _load_grant(conn, cast(UUID, grant_id)).grant_id
+
+
 def _parse_permalink(permalink: str) -> tuple[str, str, str]:
     try:
         parsed = urlsplit(permalink.strip())
@@ -235,6 +304,10 @@ def _parse_permalink(permalink: str) -> tuple[str, str, str]:
 def _make_preview(text: str, permalink: str, scope: _GrantScope) -> dict[str, Any]:
     if not isinstance(text, str) or not text.strip():
         raise ManualImportError("empty_text", "Pasted post text is required")
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ManualImportError("invalid_text", "Pasted post text is invalid") from error
     group_key, source_post_key, canonical_permalink = _parse_permalink(permalink)
     if group_key != scope.group_key:
         raise ManualImportError(
