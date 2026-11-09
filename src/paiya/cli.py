@@ -126,7 +126,29 @@ def _parser() -> argparse.ArgumentParser:
         ("status", "show enrichment queue status"),
     ):
         enrich_actions.add_parser(name, help=help_text)
+
+    worker = commands.add_parser("worker", help="run the synthetic fixture worker")
+    worker_actions = worker.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    worker_run = worker_actions.add_parser("run", help="process fixture jobs")
+    worker_run.add_argument("--once", action="store_true", help="run one schedule/claim cycle")
+    worker_run.add_argument(
+        "--now",
+        type=_parse_worker_now,
+        help="use a UTC ISO-8601 clock for one cycle; requires --once",
+    )
     return parser
+
+
+def _parse_worker_now(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("--now must be a UTC ISO-8601 timestamp") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise argparse.ArgumentTypeError("--now must include a UTC offset")
+    return parsed.astimezone(UTC)
 
 
 def _execute(args: argparse.Namespace) -> object:
@@ -203,6 +225,13 @@ def _execute(args: argparse.Namespace) -> object:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.resource == "worker":
+        if args.now is not None and not args.once:
+            _print_error("invalid_command", "--now requires --once")
+            return 2
+        from paiya.worker.service import main as worker_main
+
+        return worker_main(once=args.once, now=args.now)
     try:
         result = _execute(args)
     except BackupError as error:

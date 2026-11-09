@@ -33,6 +33,7 @@ from paiya.store.tables import (
     sale_events,
     watches,
 )
+from paiya.worker.faults import maybe_fault
 
 ACCESS_ERRORS = {
     "unavailable": "post_unavailable",
@@ -131,6 +132,7 @@ def execute_revisit(
             staged_assets or {},
             media_root or Path("."),
         )
+        maybe_fault("after_ingest_commit")
     except PermissionError:
         if _grant_currently_available(engine, scope):
             _record_failure(engine, claim, end_time, "adapter_error")
