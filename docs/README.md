@@ -27,7 +27,7 @@
 | [quality/evidence/AT-05/2026-11-07/README.md](quality/evidence/AT-05/2026-11-07/README.md) | ภาพและผลตรวจเส้นทางมือถือ AT-05 ด้วยข้อมูลสังเคราะห์ | QA + เจ้าของ PWA |
 | [quality/evidence/A9/2026-11-08/README.md](quality/evidence/A9/2026-11-08/README.md) | แผนที่ AT-01–AT-10 กับเทสต์อัตโนมัติ ช่องว่าง และรายการวัดใน pilot สำหรับรับมอบ A9 | QA + lead |
 | [architecture/decisions/0001-observation-store.md](architecture/decisions/0001-observation-store.md) | บันทึกการเลือก PostgreSQL และคลังภาพในเครื่อง รวมถึงเงื่อนไขที่ควรทบทวน | Tech lead |
-| [architecture/decisions/0002-source-strategy.md](architecture/decisions/0002-source-strategy.md) | **เสนอเพื่อรับรอง** ขอบเขตนำเข้าเองสำหรับทดลอง M และสิทธิ์แยกสำหรับ Collector ระยะ B | Product owner + Tech lead |
+| [architecture/decisions/0002-source-strategy.md](architecture/decisions/0002-source-strategy.md) | **รับรองแล้ว** ขอบเขตนำเข้าเองสำหรับทดลอง M และสิทธิ์แยกสำหรับ Collector ระยะ B | Product owner + Tech lead |
 | [architecture/decisions/0003-dev-tooling.md](architecture/decisions/0003-dev-tooling.md) | **เสนอเพื่อรับรอง** เครื่องมือพัฒนา โครงสร้างรีโป และวิธีรันเทสต์บน Linux กับ Windows | Tech lead |
 | [architecture/decisions/0004-local-access-and-mcp.md](architecture/decisions/0004-local-access-and-mcp.md) | **รับรองแล้ว** API เฉพาะในเครื่องกับ session เจ้าของเครื่อง, MCP เรียก service ใน process และจุดบังคับ `agent_export` | Product owner + Tech lead |
 | [quality/TRACEABILITY.md](quality/TRACEABILITY.md) | ตารางโยง PR → FR → AT และลิงก์ผลตรวจของแต่ละข้อ | QA |
