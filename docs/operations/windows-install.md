@@ -192,13 +192,17 @@ paiya health
 
 ## อัปเกรด
 
-ใช้ PowerShell session ที่มี environment เดิมและปิด process ที่เขียนฐานข้อมูลตามลำดับ:
+ใช้ PowerShell session ที่มี environment เดิม หยุด process ที่เขียนฐานข้อมูล ตรวจ revision ปัจจุบัน และสำรองก่อนสั่ง `alembic upgrade head` เสมอ ชุดสำรองต้องตรงกับ revision เก่าก่อน migration:
+
+ถ้า revision ปัจจุบันยังอยู่ก่อน `0010_backup_runs` อย่ารัน `paiya backup create` ในตัวอย่างนี้ ให้ทำทางครั้งเดียวด้านล่างก่อน แล้วทำขั้นตอนต่อจาก `git switch --detach <new-ref>`
 
 ```powershell
 # หยุด worker และ serve ด้วย Ctrl+C หรือหยุด task/service ที่เจ้าของตั้งไว้
+uv run alembic current
 paiya backup create
 $backupSet = 'F:\PaiyaBackup\<set-name-from-create-output>'
 paiya backup verify --set $backupSet
+# ตรวจ manifest ว่าฐานสำรองมาจาก revision ปัจจุบันก่อนอัปเกรด
 git switch --detach <new-ref>
 uv sync --frozen
 uv run alembic upgrade head
@@ -207,23 +211,105 @@ uv run python scripts/smoke_test.py
 
 ถ้าทุก check ใน JSON smoke report ผ่าน ให้เริ่ม `paiya worker run` และ `uv run python -m paiya.serve` ใหม่ โดยตั้ง `PAIYA_PORT` เป็นพอร์ต loopback ที่เจ้าของเลือกไว้
 
-ข้อจำกัดจาก rehearsal ด้านล่าง: ฐานก่อน migration `0010_backup_runs` ยังสั่ง `paiya backup create` ไม่ได้ เพราะคำสั่งต้องเขียนตาราง `backup_runs` ซึ่ง migration นี้เป็นผู้สร้าง จนกว่าจะแก้ O1a หรือมีวิธีสำรองฐานก่อน `0010` ที่อนุมัติแล้ว อย่าใช้ขั้นตอนนี้เป็นหลักฐานว่าการอัปเกรดจาก `0009_purge_jobs` มี backup ก่อน migrate
+### ทางครั้งเดียวสำหรับฐานข้อมูลก่อน migration 0010
+
+ใช้ทางนี้เฉพาะการอัปเกรดครั้งแรกจาก revision ก่อน `0010_backup_runs` ซึ่งโดยทั่วไปคือ `0009_purge_jobs` ก่อน O1a เท่านั้น ฐานดังกล่าวยังใช้ `paiya backup create` ไม่ได้ เพราะตาราง `backup_runs` เกิดจาก migration 0010 ให้สำรองด้วยมือก่อน migration โดยเก็บทั้ง archive ฐานข้อมูลและสำเนาคลัง media ไว้นอก media root, repository และ purge log:
+
+```powershell
+# หยุด worker และ serve แล้วตรวจ revision เก่า
+uv run alembic current
+
+# ตั้งค่า PostgreSQL client ให้ใช้ credential จาก pgpass หรือ credential store
+# โดยไม่ใส่รหัสผ่านใน command line
+$pgDsn = 'host=127.0.0.1 port=5432 dbname=paiya user=paiya'
+$mediaSource = (Resolve-Path $env:PAIYA_FIXTURE_MEDIA_ROOT).Path.TrimEnd('\')
+$manualRoot = 'F:\PaiyaPre0010-<timestamp>'
+$manualRootFull = [IO.Path]::GetFullPath($manualRoot).TrimEnd('\')
+if ($manualRootFull -eq $mediaSource -or
+    $manualRootFull.StartsWith($mediaSource + '\', [StringComparison]::OrdinalIgnoreCase) -or
+    $mediaSource.StartsWith($manualRootFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+  throw 'Manual backup must be outside the media root'
+}
+if (Test-Path -LiteralPath $manualRoot) { throw 'Manual backup target already exists' }
+New-Item -ItemType Directory -Path $manualRoot | Out-Null
+$manualArchive = Join-Path $manualRoot 'database.dump'
+$mediaCopy = Join-Path $manualRoot 'media'
+pg_dump --format=custom --file $manualArchive --dbname $pgDsn
+if ($LASTEXITCODE -ne 0) { throw 'pg_dump failed' }
+
+$sourceHashes = @(Get-ChildItem -LiteralPath $mediaSource -File -Recurse | ForEach-Object {
+  $relative = $_.FullName.Substring($mediaSource.Length).TrimStart('\').Replace('\', '/')
+  '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash, $relative
+} | Sort-Object)
+robocopy $mediaSource $mediaCopy /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /XJ
+if ($LASTEXITCODE -ge 8) { throw 'Media copy failed' }
+$copiedHashes = @(Get-ChildItem -LiteralPath $mediaCopy -File -Recurse | ForEach-Object {
+  $relative = $_.FullName.Substring($mediaCopy.Length).TrimStart('\').Replace('\', '/')
+  '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash, $relative
+} | Sort-Object)
+if (Compare-Object -ReferenceObject $sourceHashes -DifferenceObject $copiedHashes) {
+  throw 'Media copy hash verification failed'
+}
+$sourceHashes | Set-Content -Encoding ascii (Join-Path $manualRoot 'media-sha256.txt')
+```
+
+เลือก `$manualRoot` ให้อยู่นอกคลัง media, repository และ purge log บันทึก revision เก่าและเก็บ archive, media copy และ hash manifest ไว้ด้วยกันจนตรวจการกู้คืนเสร็จ หาก `pg_dump` หรือการเทียบ hash ล้มเหลว ให้หยุดและอย่าเริ่ม migration
+
+เมื่อจำเป็นต้องกู้คืนชุด manual นี้ ให้ใช้โค้ดก่อน O1a ที่ตรงกับ revision ใน archive สร้างฐานเป้าหมายใหม่กับ media directory ว่าง จากนั้นกู้ฐานด้วย `pg_restore` และคัดลอก media พร้อมตรวจ hash กับ manifest ก่อนเปลี่ยน settings:
+
+```powershell
+# หยุดทุก process; checkout โค้ดก่อน O1a ที่ตรงกับ archive แล้วติดตั้ง lockfile
+git switch --detach <pre-0010-ref>
+uv sync --frozen
+
+$restoreDsn = 'host=127.0.0.1 port=5432 dbname=paiya_pre0010_restore user=paiya'
+$restoreDatabaseUrl = 'postgresql+psycopg://<user>:<password>@127.0.0.1:5432/paiya_pre0010_restore'
+$targetMedia = 'C:\PaiyaData\media-pre0010-restore'
+docker compose exec -T db createdb -U paiya paiya_pre0010_restore
+New-Item -ItemType Directory -Path $targetMedia | Out-Null
+pg_restore --exit-on-error --no-owner --no-privileges --dbname $restoreDsn $manualArchive
+if ($LASTEXITCODE -ne 0) { throw 'pg_restore failed' }
+robocopy $mediaCopy $targetMedia /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /XJ
+if ($LASTEXITCODE -ge 8) { throw 'Media restore copy failed' }
+$restoredHashes = @(Get-ChildItem -LiteralPath $targetMedia -File -Recurse | ForEach-Object {
+  $relative = $_.FullName.Substring($targetMedia.Length).TrimStart('\').Replace('\', '/')
+  '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash, $relative
+} | Sort-Object)
+$expectedHashes = @(Get-Content (Join-Path $manualRoot 'media-sha256.txt'))
+if (Compare-Object -ReferenceObject $expectedHashes -DifferenceObject $restoredHashes) {
+  throw 'Restored media hash verification failed'
+}
+$env:PAIYA_DATABASE_URL = $restoreDatabaseUrl
+$env:PAIYA_FIXTURE_MEDIA_ROOT = $targetMedia
+uv run alembic current
+# Confirm current equals the revision recorded before the original upgrade.
+uv run python -c "from fastapi.testclient import TestClient; from paiya.api.app import app; from paiya.read.context import read_context_group_key_from_env; key=read_context_group_key_from_env(); assert key is not None; client=TestClient(app); groups=client.get('/v1/groups'); health=client.get('/healthz'); assert groups.status_code == 200 and any(row['group_key']==key for row in groups.json()['groups']); assert health.status_code == 200; print({'GET /v1/groups':groups.status_code,'GET /healthz':health.status_code})"
+```
+
+Do not run `alembic upgrade head` during this manual restore: restore the old revision first and validate it with the matching old code. The first release tag `v0.1.0` already contains migration 0010, so this one-time path does not apply to upgrades between release tags that both contain O1a.
 
 ## Rollback
 
-O1a restore เขียนได้เฉพาะฐานข้อมูลและ media ปลายทางใหม่ที่ว่าง ขั้นตอน rollback จึงเก็บระบบเดิมไว้ก่อนและเตรียมชื่อฐานใหม่กับไดเรกทอรี media ใหม่:
+O1a restore เขียนได้เฉพาะฐานข้อมูลและ media ปลายทางใหม่ที่ว่าง และคำสั่ง restore จะรัน `alembic upgrade head` ด้วยโค้ดของ ref ที่เรียกมัน (สัญญา [backup-and-restore.md](../architecture/contracts/backup-and-restore.md) `4.3` ขั้น 3) ดังนั้น rollback ต้องใช้ลำดับนี้:
 
-1. หยุด worker และ serve
-2. ตรวจ set ก่อน restore และสร้างฐานว่างกับโฟลเดอร์ปลายทางใหม่บน PostgreSQL 17:
+1. หยุด worker, serve, MCP และ process อื่นที่เขียนฐานเดิม
+2. checkout ref ก่อนหน้าและติดตั้ง dependency จาก lockfile ของ ref นั้น:
+
+   ```powershell
+   git switch --detach <previous-ref>
+   uv sync --frozen
+   ```
+
+3. ตรวจชุดที่สร้างก่อนอัปเกรด แล้วสร้างฐานว่างและ media directory ใหม่บน PostgreSQL 17:
 
    ```powershell
    paiya backup verify --set $backupSet
    docker compose exec -T db createdb -U paiya paiya_rollback
    $targetMedia = 'C:\PaiyaData\media-rollback'
-   New-Item -ItemType Directory $targetMedia
+   New-Item -ItemType Directory -Path $targetMedia
    ```
 
-3. Restore ไป target ใหม่ด้วย CLI ของรุ่นที่มี O1a:
+4. เรียก `paiya backup restore` จาก ref ก่อนหน้า โดยใช้ชุดที่สำรองไว้ก่อน migration และ restore ไป target ใหม่:
 
    ```powershell
    $targetDatabaseUrl = 'postgresql+psycopg://<user>:<password>@127.0.0.1:5432/paiya_rollback'
@@ -232,27 +318,26 @@ O1a restore เขียนได้เฉพาะฐานข้อมูล�
      --target-media-root $targetMedia
    ```
 
-   Restore ตรวจ hash, replay purge log ปัจจุบัน และ migrate target ไป head ของโค้ดที่รันคำสั่ง หากไม่ผ่านทุกขั้น อย่าเปิด target ให้ค้น
+   Restore ตรวจ hash, replay purge log ปัจจุบัน และ migrate target ไป head ของโค้ดที่รันคำสั่ง ซึ่งตอนนี้เป็น ref ก่อนหน้า ตรวจผล JSON ว่าทุกขั้นผ่านแล้วจึงดำเนินต่อ
 
-4. เปลี่ยน `PAIYA_DATABASE_URL` และ `PAIYA_FIXTURE_MEDIA_ROOT` ไปยัง target ที่พร้อมแล้ว และตรวจ read API ด้วยโค้ดรุ่นก่อนหน้าที่ต้องการกลับไป:
+5. เปลี่ยน settings ให้ชี้ไปยัง target ที่ restore เสร็จ และตรวจด้วยเครื่องมือ smoke/read ของ ref ก่อนหน้า:
 
    ```powershell
    $env:PAIYA_DATABASE_URL = $targetDatabaseUrl
    $env:PAIYA_FIXTURE_MEDIA_ROOT = $targetMedia
-   git switch --detach <previous-ref>
-   uv sync --frozen
    uv run alembic current
+   uv run python -m paiya.cli health
    ```
 
-   ใน rehearsal นี้ restore ได้อัปเกรด target ไปถึง `0010_backup_runs` แล้ว ref ก่อน migration นี้ตอบ `alembic current` ไม่ได้เพราะ revision ไม่อยู่ใน migration graph ของ ref นั้น ส่วน read API sample ของ ref เก่ายังตอบ 200 ได้ การทดสอบอ่านอย่างเดียวจึงไม่ยืนยันว่า rollback พร้อมใช้
+   ชุด backup ต้องถูกสร้างก่อน `alembic upgrade head` ขณะฐานยังอยู่ revision เก่า หาก ref ก่อนหน้าไม่มี `scripts/smoke_test.py` ให้ใช้ smoke/read checks ที่มีใน ref นั้น ใน rehearsal `0edc221` ใช้ `alembic current` ซึ่งได้ `0010_backup_runs`, `uv run python -m paiya.cli health` ซึ่งคืน JSON สำเร็จ และ read API sample ที่ผ่าน หาก ref ไม่มี health command ให้บันทึกข้อจำกัดและตรวจ `/healthz` ผ่าน read API sample แทน
 
-   ref ก่อน O3 ไม่มี `scripts/smoke_test.py`; ตรวจ read context กับ TestClient ด้วย sample สังเคราะห์นี้:
+   read API sample ด้วยข้อมูลสังเคราะห์:
 
    ```powershell
    uv run python -c "from fastapi.testclient import TestClient; from paiya.api.app import app; from paiya.read.context import read_context_group_key_from_env; key=read_context_group_key_from_env(); assert key is not None; client=TestClient(app); groups=client.get('/v1/groups'); health=client.get('/healthz'); assert groups.status_code == 200 and any(row['group_key']==key for row in groups.json()['groups']); assert health.status_code == 200; print({'GET /v1/groups':groups.status_code,'GET /healthz':health.status_code})"
    ```
 
-   หากรุ่นก่อนหน้าอ่าน schema หรือข้อมูลไม่ได้ ให้หยุดและคง target/backup ไว้เพื่อวิเคราะห์
+   หาก smoke/read check ใดที่มีใน ref ก่อนหน้าไม่ผ่าน ให้หยุดและคง target กับ backup ไว้เพื่อวิเคราะห์
 
 การ restore ทับ live database หรือ media ที่มีข้อมูลไม่มีให้ใช้ใน O1a; นั่นเป็น O1b ที่ยังไม่รวมในขอบเขตนี้
 
@@ -268,26 +353,72 @@ uv run python scripts/continuity_drill.py
 
 ## ผลซ้อม upgrade/rollback
 
-ซ้อมด้วยสคริปต์ชั่วคราวใน system temp directory (`paiya-o3-rehearsal.py`) จาก `a748f44` ซึ่งอยู่ก่อน commit `d65744c` ที่เพิ่ม migration `0010_backup_runs` ไปยัง HEAD ของ worktree O3/O4 โดยใช้ PostgreSQL 17.11 และ fixture `synthetic-demo` เท่านั้น ใช้ virtualenv ที่ติดตั้งไว้แล้วเพื่อทำตามข้อกำหนด no-packages; ไม่ติดตั้ง dependency เพิ่ม ไม่มี release tag ในขณะซ้อม จึงเป็น commit-to-commit rehearsal ไม่ใช่ tag-to-tag
+ซ้อมระหว่าง ref ที่มี O1a ทั้งคู่: ref เก่า `0edc221` (main หลัง PR #80, head `0010_backup_runs`) และ ref ใหม่ HEAD ของสาขานี้ `b839dc7` ใช้ PostgreSQL 17.11, fixture `synthetic-demo`, `UV_OFFLINE=1` และปิด network ภายนอก ไม่มี release tag ในการซ้อม จึงเป็น commit-to-commit rehearsal ไม่ใช่ tag-to-tag ตรวจ diff ของ migrations แล้วไม่พบความเปลี่ยนแปลงระหว่าง ref; `alembic upgrade head` บน ref ใหม่จึงเป็น no-op และไม่มี migration รันระหว่างสอง ref
 
-คำสั่งหลักที่สคริปต์รันและผลจริง:
+ก่อนเริ่ม C: มีพื้นที่ว่าง `102,111,981,568` bytes; หัก write bound `500,000,000` bytes แล้วยังเหลือ `101,611,981,568` bytes สูงกว่า floor `70,000,000,000` bytes ผลซ้อมใช้ฐานข้อมูลและ media ชั่วคราวที่สร้างใหม่
+
+คำสั่งกับผลจริงที่สำคัญ:
 
 ```text
-git worktree add --detach <system-temp>\pre-0010 a748f44       -> exit 0
-python -m alembic -c <old-ref>\alembic.ini upgrade 0009_purge_jobs -> exit 0
-python -m paiya.cli demo seed                                  -> synthetic-demo seeded
-python -m paiya.cli backup create  (HEAD, at 0009)             -> exit 1, database_error
-python -m alembic upgrade head                                 -> exit 0; current=0010_backup_runs
-python scripts/smoke_test.py                                   -> exit 0; all 5 checks passed
-python -m paiya.cli backup create  (after 0010, control only)   -> exit 0; 2 media files, 10,548 media bytes
-python -m paiya.cli backup verify --set <backup-set>            -> exit 0; verified=true, missing_files=[], extra_files=[]
-python -m paiya.cli backup restore --set <backup-set> ...       -> exit 0; all 8 restore steps true
-python -m alembic -c <old-ref>\alembic.ini current             -> failed; old ref does not recognize 0010_backup_runs
-old-ref TestClient GET /v1/groups and GET /healthz              -> 200 and 200; synthetic-demo context matched
-git worktree remove <system-temp>\pre-0010                     -> exit 0
-DROP DATABASE <two temporary rehearsal databases>              -> both dropped
+git worktree add --detach <system-temp>\old-ref 0edc221
+  -> exit 0; detached at 0edc2214eab08166f367772bf8ebcb449f728da1
+uv sync --frozen                              (old ref, UV_OFFLINE=1)
+  -> exit 0; Checked 53 packages
+uv run alembic upgrade head                   (old ref)
+  -> exit 0; applied 0009_purge_jobs -> 0010_backup_runs
+uv run alembic current                        (old ref)
+  -> exit 0; 0010_backup_runs (head)
+uv run python -m paiya.cli demo seed
+  -> exit 0; group_key=synthetic-demo, 4 observations
+uv run python -m paiya.cli backup create     (old ref; before new-ref upgrade)
+  -> exit 0; backup_run_id=51d045c2-a26e-4f2f-9fc1-2be5c4cbca50
+     set=20261109T012156Z-51d045c2-a26e-4f2f-9fc1-2be5c4cbca50
+     db_bytes=71660, media_count=2, media_bytes=10548
+uv run python -m paiya.cli backup verify --set <set>
+  -> exit 0; verified=true, missing_files=[], extra_files=[]
+git switch --detach b839dc7                  (same temp worktree)
+  -> exit 0
+uv sync --frozen                              (new ref, UV_OFFLINE=1)
+  -> exit 0; Checked 53 packages
+uv run alembic current                        (before upgrade)
+  -> exit 0; 0010_backup_runs (head)
+uv run alembic upgrade head                   (new ref)
+  -> exit 0; no migration ran
+uv run alembic current                        (after upgrade)
+  -> exit 0; 0010_backup_runs (head)
+uv run python scripts/smoke_test.py           (new ref)
+  -> exit 0; all 5 checks true:
+     alembic_head, purge_log, paiya_health_json,
+     read_api_sample, testclient_read_routes
+     GET /v1/groups=200, GET /healthz=200
+git switch --detach 0edc221                   (rollback; old ref first)
+  -> exit 0
+uv sync --frozen                              (old ref, before restore)
+  -> exit 0; Checked 53 packages
+docker exec paiya-pg17 createdb -U paiya paiya_o3_r1b_restore_e84fc9b11981
+  -> exit 0; new empty target database
+uv run python -m paiya.cli backup verify --set <set> (old ref)
+  -> exit 0; verified=true, missing_files=[], extra_files=[]
+uv run python -m paiya.cli backup restore --set <set> --target-database-url <new-target> --target-media-root <new-media>
+  -> exit 0; ready=true; all 8 steps true:
+     verify, target_check, pg_restore, media_copy, alembic_upgrade,
+     purge_replay, orphan_check, api_sample
+     migration_upgrade_performed=false, pending_count=0,
+     database/media orphans=0, posts=3, timelines=3, images=2
+uv run alembic current                        (restored target, old ref)
+  -> exit 0; 0010_backup_runs (head)
+uv run python -m paiya.cli health             (restored target, old ref)
+  -> exit 0; JSON returned; media disk=ok, backup disk=ok,
+     backup state=ok
+uv run python -c <synthetic read API sample> (restored target, old ref)
+  -> exit 0; GET /v1/groups=200, GET /healthz=200,
+     read_context_matches=true
 ```
 
-Rehearsal output: pre-`0010` backup returned `{"ok":false,"error":{"code":"database_error","message":"The database operation failed"}}`; post-migration smoke returned `ok=true` with `alembic_head`, `purge_log`, `paiya_health_json`, `read_api_sample` and `testclient_read_routes` all passing. Post-migration backup verification had no missing or extra files. Restore reported all eight steps true, zero pending purge commands and zero media orphans. The old-ref `alembic current` command failed (PowerShell exit `4294967295`) because the target was at `0010_backup_runs`; the old ref's read sample still returned 200 for both endpoints.
+ใน PowerShell ของ rehearsal ไม่มี `paiya` console launcher ให้ `uv run paiya health` จึงจบด้วย exit 2 (`Failed to spawn: paiya`); ใช้ module entry point `uv run python -m paiya.cli health` ซึ่งทำงานบน ref เก่าแทน Health JSON มี `last_failure_reason=backup_destination_not_permitted` จากการลองตั้ง backup directory ชั่วคราวที่ไม่ผ่าน path policy ก่อนการซ้อมรอบสำเร็จ; backup set ที่ใช้ในผลด้านบนสร้างและ verify สำเร็จ ส่วน old ref ไม่มี `scripts/smoke_test.py` จึงตรวจ rollback ด้วย revision, health และ read API sample ตามข้างต้น
 
-The pre-`0010` backup failure means the passed backup/verify/restore control is not a backup-before-upgrade or a successful rollback rehearsal. O1a currently writes `backup_runs` before starting the snapshot, while migration `0010` creates that table. Restore also advances its target to current HEAD, which the prior migration graph cannot inspect. These are open points for O1a/rollback compatibility; do not claim upgrade and rollback acceptance from `0009_purge_jobs` until resolved. Cleanup completed: the temporary worktree was removed with `git worktree remove`, both temporary databases were dropped, and media, backup set and worktree directory were deleted. The rehearsal script was run from system temp and was not committed.
+ผล limitation จาก round 1 ยังคงไว้: ref ก่อน O1a ที่ revision `0009_purge_jobs` สั่ง `paiya backup create` ไม่ได้ เพราะ migration `0010_backup_runs` ยังไม่สร้างตาราง `backup_runs`; คำสั่งจบด้วย exit 1 และ `database_error` ในการซ้อมรอบนั้น นี่เป็นข้อจำกัดของลำดับ runbook และ rehearsal ก่อนข้าม 0010 ไม่ใช่ code bug ทาง manual backup ก่อน 0010 ในหัวข้ออัปเกรดใช้สำหรับข้ามครั้งแรกเท่านั้น; tag แรก `v0.1.0` มี 0010 อยู่แล้ว จึงไม่กระทบ upgrade ระหว่าง release tags ที่มี O1a
+
+ผลนี้ยืนยันเส้นทาง upgrade/rollback ระหว่างสอง commit ที่มี O1a เท่านั้น ไม่ใช่การซ้อมก่อน 0010 และไม่ใช่ tag-to-tag release rehearsal การเก็บ worktree, ฐานข้อมูล และไฟล์ชั่วคราวเป็น cleanup แยกจากผล verification
+
+Cleanup ที่ทำจริง: `git worktree remove` ของ old-ref exit 0, `dropdb` ของฐานชั่วคราวทั้งสอง exit 0 และลบ `rehearsal.ps1` กับ `pg_client_bridge.py` แล้ว ตรวจซ้ำพบว่า worktree และฐานทั้งสองไม่อยู่แล้ว ระบบอนุมัติอัตโนมัติปฏิเสธคำสั่งลบ directory แบบ recursive ก่อนเริ่มทำงาน จึงยังมีเฉพาะ backup/media และ transcript ของ rehearsal นี้ใน `<system-temp>\paiya-o3-r1b-c2430aacc9b549a086b17c2e4d575a0c` และ directory backup ข้างเคียง รวมประมาณ 149 KB; ไม่ได้อยู่ใต้ F:
