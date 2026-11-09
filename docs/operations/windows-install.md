@@ -106,7 +106,7 @@ pg_restore --version
 
    ```powershell
    uv run alembic upgrade head
-   paiya demo seed
+   uv run python -m paiya.cli demo seed
    ```
 
    หากยังไม่ได้ประกาศ helper `paiya` ให้ใช้ `uv run python -m paiya.cli demo seed` แทน `paiya demo seed` ข้อมูล demo ใช้กลุ่ม `synthetic-demo` และไม่มีข้อมูลจากแหล่งจริง
@@ -133,7 +133,7 @@ uv run python -m paiya.mcp
 เริ่ม worker fixture ใน PowerShell อีกหน้าต่างหนึ่ง โดยกำหนด `PAIYA_FIXTURE_FEED_DIR` และ `PAIYA_FIXTURE_MEDIA_ROOT`:
 
 ```powershell
-paiya worker run
+uv run python -m paiya.cli worker run
 ```
 
 หากยังไม่มี helper ให้เรียก `uv run python -m paiya.cli worker run` หรือเพิ่ม `--once` เพื่อประมวลผลหนึ่งรอบแล้วจบ Worker ระยะ A ใช้ fixture adapter เท่านั้น
@@ -146,7 +146,7 @@ paiya worker run
 2. ตรวจว่า `PAIYA_DATABASE_URL` และ `PAIYA_PURGE_LOG_PATH` ชี้ไปยังระบบกับ log คู่ที่ถูกต้อง แล้วรัน:
 
    ```powershell
-   paiya purge replay
+   uv run python -m paiya.cli purge replay
    ```
 
 3. ตรวจ JSON ผลลัพธ์ว่ามี `pending_count: 0` แล้วค่อยเริ่ม process ใหม่
@@ -158,13 +158,13 @@ paiya worker run
 คำสั่ง O1a สร้าง snapshot ฐานและ media พร้อม manifest/hash:
 
 ```powershell
-paiya backup create
+uv run python -m paiya.cli backup create
 ```
 
 ตั้ง `PAIYA_BACKUP_DIR` ไปยัง disk คนละลูกกับ media จริง เช่น media อยู่ `C:` และ backup อยู่ `F:` ตรวจว่าโฟลเดอร์ปลายทางอยู่นอก repository และไม่ได้อยู่ใต้ media หรือโฟลเดอร์ purge log บันทึก set name จาก JSON เพื่อใช้กับ `backup verify`:
 
 ```powershell
-paiya backup verify --set 'F:\PaiyaBackup\<set-name>'
+uv run python -m paiya.cli backup verify --set 'F:\PaiyaBackup\<set-name>'
 ```
 
 ### ตัวอย่างสร้างงานด้วย Task Scheduler
@@ -185,7 +185,7 @@ Task Scheduler ไม่รับค่าจาก `$env:` ใน PowerShell wi
 คำสั่ง CLI พิมพ์ health report เป็น JSON:
 
 ```powershell
-paiya health
+uv run python -m paiya.cli health
 ```
 
 เมื่อ serve ทำงาน ให้เปิดหน้า UI `/admin/health` เช่น `http://127.0.0.1:8765/admin/health` ส่วน endpoint JSON คือ `/v1/admin/health` รายงานจำนวนคิว coverage media disk และ backup โดยไม่คืนเนื้อหาประกาศ
@@ -199,9 +199,9 @@ paiya health
 ```powershell
 # หยุด worker และ serve ด้วย Ctrl+C หรือหยุด task/service ที่เจ้าของตั้งไว้
 uv run alembic current
-paiya backup create
+uv run python -m paiya.cli backup create
 $backupSet = 'F:\PaiyaBackup\<set-name-from-create-output>'
-paiya backup verify --set $backupSet
+uv run python -m paiya.cli backup verify --set $backupSet
 # ตรวจ manifest ว่าฐานสำรองมาจาก revision ปัจจุบันก่อนอัปเกรด
 git switch --detach <new-ref>
 uv sync --frozen
@@ -303,7 +303,7 @@ O1a restore เขียนได้เฉพาะฐานข้อมูล�
 3. ตรวจชุดที่สร้างก่อนอัปเกรด แล้วสร้างฐานว่างและ media directory ใหม่บน PostgreSQL 17:
 
    ```powershell
-   paiya backup verify --set $backupSet
+   uv run python -m paiya.cli backup verify --set $backupSet
    docker compose exec -T db createdb -U paiya paiya_rollback
    $targetMedia = 'C:\PaiyaData\media-rollback'
    New-Item -ItemType Directory -Path $targetMedia
@@ -313,7 +313,7 @@ O1a restore เขียนได้เฉพาะฐานข้อมูล�
 
    ```powershell
    $targetDatabaseUrl = 'postgresql+psycopg://<user>:<password>@127.0.0.1:5432/paiya_rollback'
-   paiya backup restore --set $backupSet `
+   uv run python -m paiya.cli backup restore --set $backupSet `
      --target-database-url $targetDatabaseUrl `
      --target-media-root $targetMedia
    ```
