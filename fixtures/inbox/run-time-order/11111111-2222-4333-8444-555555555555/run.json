@@ -1,0 +1,18 @@
+{
+  "run_id": "11111111-2222-4333-8444-555555555555",
+  "group_key": "synthetic-group",
+  "grant_id": "22222222-3333-4444-8555-666666666666",
+  "job_kind": "discover",
+  "adapter_version": "synthetic-adapter/1",
+  "started_at": "2026-11-09T00:02:00Z",
+  "ended_at": "2026-11-09T00:01:00Z",
+  "session_result": "ok",
+  "sort_result": "verified_latest",
+  "coverage": "complete",
+  "partial_reasons": [],
+  "stop_reason": "feed_end",
+  "cards_seen": 1,
+  "cards_parsed": 1,
+  "scroll_steps": 0,
+  "error_code": null
+}

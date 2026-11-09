@@ -19,6 +19,7 @@ from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.health.service import get_health_report
+from paiya.inbox.validation import validate_inbox
 from paiya.purge.errors import PurgeError
 from paiya.purge.service import replay_purge_log, run_purge, validate_scope_format
 from paiya.purge.startup import check_purge_log
@@ -109,6 +110,13 @@ def _parser() -> argparse.ArgumentParser:
     backup_actions.add_parser("status", help="show the latest successful backup and latest failure")
 
     commands.add_parser("health", help="show system health as JSON")
+
+    inbox = commands.add_parser("inbox", help="validate a Collector inbox run offline")
+    inbox_actions = inbox.add_subparsers(
+        dest="action", required=True, parser_class=_JsonArgumentParser
+    )
+    inbox_validate = inbox_actions.add_parser("validate", help="validate one inbox run directory")
+    inbox_validate.add_argument("run_dir")
 
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
@@ -225,6 +233,24 @@ def _execute(args: argparse.Namespace) -> object:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.resource == "inbox":
+        try:
+            report = validate_inbox(Path(args.run_dir))
+        except Exception:
+            report = {
+                "ok": False,
+                "run_id": None,
+                "envelopes_checked": 0,
+                "problems": [
+                    {
+                        "path": ".",
+                        "code": "validation_error",
+                        "message": "Inbox validation failed",
+                    }
+                ],
+            }
+        print(json.dumps(report, ensure_ascii=False, separators=(",", ":")))
+        return 0 if report.get("ok") is True else 1
     if args.resource == "worker":
         if args.now is not None and not args.once:
             _print_error("invalid_command", "--now requires --once")
