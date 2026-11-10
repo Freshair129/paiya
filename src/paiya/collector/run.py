@@ -36,6 +36,7 @@ class RunResult:
     stop_reason: str
     cards_seen: int
     cards_parsed: int
+    duplicate_cards_skipped: int
     scroll_steps: int
     error_code: str | None
     checkpoint_advanced: bool
@@ -117,10 +118,12 @@ def execute_discovery(
     stop_reason = "feed_end"
     cards_seen = 0
     cards_parsed = 0
+    duplicate_cards_skipped = 0
     scroll_steps = 0
     parse_failures = False
     consecutive_overlap = 0
     top_keys: list[str] = []
+    seen_keys_in_run: set[str] = set()
     ingested_keys: list[str] = []
     started_clock = monotonic_clock()
     blocked_error = _blocked_error(feed_run)
@@ -151,6 +154,10 @@ def execute_discovery(
 
                 cards_parsed += 1
                 key = card.source_post_key
+                if key in seen_keys_in_run:
+                    duplicate_cards_skipped += 1
+                    continue
+                seen_keys_in_run.add(key)
                 if (
                     not card.pinned
                     and not card.suggested
@@ -183,6 +190,7 @@ def execute_discovery(
                         reason=reason,
                         cards_seen=cards_seen,
                         cards_parsed=cards_parsed,
+                        duplicate_cards_skipped=duplicate_cards_skipped,
                     )
                     raise
                 except Exception:
@@ -195,6 +203,7 @@ def execute_discovery(
                         reason="adapter_error",
                         cards_seen=cards_seen,
                         cards_parsed=cards_parsed,
+                        duplicate_cards_skipped=duplicate_cards_skipped,
                     )
                     raise
                 ingested_keys.append(key)
@@ -281,6 +290,7 @@ def execute_discovery(
             reason="grant_unavailable",
             cards_seen=cards_seen,
             cards_parsed=cards_parsed,
+            duplicate_cards_skipped=duplicate_cards_skipped,
         )
         raise
 
@@ -292,6 +302,7 @@ def execute_discovery(
         reason=error_code or stop_reason,
         cards_seen=cards_seen,
         cards_parsed=cards_parsed,
+        duplicate_cards_skipped=duplicate_cards_skipped,
     )
     return RunResult(
         run_id=claim.run_id,
@@ -300,6 +311,7 @@ def execute_discovery(
         stop_reason=stop_reason,
         cards_seen=cards_seen,
         cards_parsed=cards_parsed,
+        duplicate_cards_skipped=duplicate_cards_skipped,
         scroll_steps=scroll_steps,
         error_code=error_code,
         checkpoint_advanced=checkpoint_advanced,
@@ -316,6 +328,7 @@ def _log_capture_finished(
     reason: str,
     cards_seen: int,
     cards_parsed: int,
+    duplicate_cards_skipped: int = 0,
 ) -> None:
     queue_wait_ms = max(0, int((started_at - _utc(claim.due_at)).total_seconds() * 1000))
     emit_event(
@@ -330,6 +343,7 @@ def _log_capture_finished(
         queue_wait_ms=queue_wait_ms,
         cards_seen=cards_seen,
         cards_parsed=cards_parsed,
+        duplicate_cards_skipped=duplicate_cards_skipped,
     )
 
 

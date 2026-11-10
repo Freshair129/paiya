@@ -10,7 +10,7 @@
 
 | `event` | ฟิลด์ |
 |---|---|
-| `capture_run_finished` | `run_id`, `group_id`, `job_kind`, `adapter_version`, `result` (`coverage`), `reason` (`stop_reason` หรือ `error_code`), `duration_ms`, `queue_wait_ms`, `cards_seen`, `cards_parsed` |
+| `capture_run_finished` | `run_id`, `group_id`, `job_kind`, `adapter_version`, `result` (`coverage`), `reason` (`stop_reason` หรือ `error_code`), `duration_ms`, `queue_wait_ms`, `cards_seen`, `cards_parsed`, `duplicate_cards_skipped` (จำนวนการ์ด stable key ซ้ำที่ข้ามใน discovery; งาน revisit เป็น 0) |
 | `media_failed` | `run_id`, `evidence_local_key`, `reason` (`media_reason`) |
 | `disk_low` | `path_kind` (`media` หรือ `backup`), `free_bytes`, `min_free_bytes` |
 | `enrich_job_finished` | `job_id`, `result`, `reason`, `duration_ms` |

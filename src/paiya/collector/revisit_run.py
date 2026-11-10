@@ -253,6 +253,7 @@ def _log_capture_finished(
         queue_wait_ms=queue_wait_ms,
         cards_seen=cards_seen,
         cards_parsed=cards_parsed,
+        duplicate_cards_skipped=0,
     )
 
 
