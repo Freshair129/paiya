@@ -21,6 +21,8 @@ import {
   getSeller,
   getTimeline,
   getWatches,
+  commitManualImport,
+  previewManualImport,
   unlockOwner,
   type CaptureGap,
   type EvidenceDetail,
@@ -32,6 +34,11 @@ import {
   type HealthJobKind,
   type SystemHealth,
   type ItemCondition,
+  type ManualImportEvidence,
+  type ManualImportInput,
+  type ManualImportPreview,
+  type ManualImportResult,
+  type ManualPriceFact,
   type ModelOption,
   type PostCard,
   type PostCurrentItem,
@@ -66,6 +73,7 @@ type Route =
   | { name: 'seller'; id: string }
   | { name: 'watches' }
   | { name: 'groups' }
+  | { name: 'imports' }
   | { name: 'not-found' }
 
 interface RouterValue {
@@ -79,6 +87,7 @@ function parseRoute(path: string): Route {
   if (path === '/admin/health') return { name: 'admin-health' }
   if (path === '/watches') return { name: 'watches' }
   if (path === '/groups') return { name: 'groups' }
+  if (path === '/imports') return { name: 'imports' }
   const match = path.match(/^\/(posts|evidence|sellers)\/([^/]+)$/)
   if (!match) return { name: 'not-found' }
   let id: string
@@ -1106,6 +1115,407 @@ function GroupRuns({
   )
 }
 
+const IMPORT_IDEMPOTENCY_STORAGE_KEY = 'paiya.import.idempotency-key'
+
+function storedImportKey(): string | null {
+  try {
+    return typeof window === 'undefined'
+      ? null
+      : window.sessionStorage.getItem(IMPORT_IDEMPOTENCY_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function persistImportKey(value: string | null): void {
+  try {
+    if (typeof window === 'undefined') return
+    if (value) window.sessionStorage.setItem(IMPORT_IDEMPOTENCY_STORAGE_KEY, value)
+    else window.sessionStorage.removeItem(IMPORT_IDEMPOTENCY_STORAGE_KEY)
+  } catch {
+    // The in-memory key still protects retries for this mounted form.
+  }
+}
+
+function newImportKey(): string {
+  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID()
+  }
+  return `import-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function importPriceLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    ask: 'ราคาตั้งขาย',
+    shipping: 'ค่าส่ง',
+    deposit: 'มัดจำ',
+    installment: 'ผ่อน',
+    offer: 'ราคารับซื้อ',
+  }
+  return labels[kind] ?? 'ราคา'
+}
+
+function importAmount(value: string): string {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return value
+  return new Intl.NumberFormat('th-TH', { maximumFractionDigits: 2 }).format(amount)
+}
+
+function importFactAmount(fact: ManualPriceFact): string {
+  const low = importAmount(fact.amount)
+  const high = fact.amount_max ? `–${importAmount(fact.amount_max)}` : ''
+  const currency = fact.currency === 'THB' ? 'บาท' : fact.currency
+  return `${low}${high} ${currency}`
+}
+
+function importRequestError(error: unknown): { message: string; field: string | null } {
+  if (!(error instanceof ApiError)) {
+    return { message: 'เชื่อมต่อข้อมูลไม่ได้ กรุณาลองอีกครั้ง', field: null }
+  }
+  if (error.status === 401) {
+    return { message: 'ต้องปลดล็อกเจ้าของเครื่องก่อนนำเข้าข้อมูล', field: null }
+  }
+  if (error.status === 403) {
+    return { message: 'ไม่มีสิทธิ์ดำเนินการนี้ในขณะนี้', field: null }
+  }
+  if (error.status === 404) {
+    return { message: 'ไม่พบกลุ่มหรือสิทธิ์นำเข้าที่ใช้งานได้', field: null }
+  }
+  if (error.status === 409 && error.code === 'idempotency_conflict') {
+    return {
+      message: 'หากข้อมูลเปลี่ยน ให้ตรวจตัวอย่างใหม่และใช้คีย์การยืนยันใหม่',
+      field: 'Idempotency-Key',
+    }
+  }
+  if (error.status === 409) {
+    return {
+      message: 'หากข้อมูลเปลี่ยน ให้ตรวจตัวอย่างใหม่และใช้คีย์การยืนยันใหม่',
+      field: 'preview_digest',
+    }
+  }
+  if (error.status === 413) {
+    return { message: 'ข้อความเกินขนาดที่กำหนด กรุณาลดขนาดแล้วลองใหม่', field: 'text' }
+  }
+  if (error.status === 415) {
+    return { message: 'ส่งข้อมูลนำเข้าในรูปแบบที่รองรับไม่ได้', field: 'body' }
+  }
+  if (error.status === 422) {
+    if (error.field === 'permalink' || error.code === 'invalid_permalink') {
+      return { message: 'ลิงก์ระบุตัวโพสต์ไม่ได้ กรุณาใช้ permalink ตรงของโพสต์ในกลุ่ม', field: 'permalink' }
+    }
+    if (error.field === 'text' || error.code === 'empty_text' || error.code === 'invalid_text') {
+      return { message: 'กรุณาตรวจข้อความประกาศ แล้วคงข้อความร่างไว้เพื่อแก้ไข', field: 'text' }
+    }
+    if (error.field === 'Idempotency-Key') {
+      return { message: 'คีย์การยืนยันไม่ถูกต้อง กรุณาเริ่มรายการใหม่', field: 'Idempotency-Key' }
+    }
+    return { message: 'ตรวจข้อมูลนำเข้าอีกครั้ง โดยระบบคงข้อความร่างไว้', field: error.field }
+  }
+  return { message: 'นำเข้าข้อมูลไม่สำเร็จ กรุณาลองอีกครั้ง', field: error.field }
+}
+
+function ImportPriceFact({
+  fact,
+  evidence,
+}: {
+  fact: ManualPriceFact
+  evidence: ManualImportEvidence[]
+}) {
+  const quote = evidence.find((entry) => entry.local_key === fact.evidence_key)?.source_span.quote
+  return (
+    <div className="import-fact">
+      <p><strong>{importPriceLabel(fact.kind)}:</strong> {importFactAmount(fact)}</p>
+      {quote ? <blockquote>{quote}</blockquote> : <p className="muted-text">ไม่มีข้อความอ้างอิง</p>}
+    </div>
+  )
+}
+
+function ImportPreviewCard({
+  preview,
+  result,
+  confirming,
+  onConfirm,
+}: {
+  preview: ManualImportPreview
+  result: ManualImportResult | null
+  confirming: boolean
+  onConfirm: () => void
+}) {
+  const unresolved = new Set(preview.unresolved_item_keys)
+  return (
+    <section className="import-preview" aria-labelledby="import-preview-title">
+      <div className="import-section-heading">
+        <div>
+          <p className="eyebrow">ดูตัวอย่างก่อนบันทึก</p>
+          <h2 id="import-preview-title">รายการและหลักฐานที่แยกได้</h2>
+        </div>
+        <span className="import-source-badge">ข้อความที่ผู้ซื้อส่ง</span>
+      </div>
+      {preview.items.length ? (
+        <div className="import-item-list">
+          {preview.items.map((item) => (
+            <article className="import-item-card" key={item.source_item_key}>
+              <div className="import-item-heading">
+                <h3>{item.model}</h3>
+                {unresolved.has(item.source_item_key)
+                  ? <span className="import-unresolved-badge">ยังจับคู่รายการไม่ชัดเจน</span>
+                  : null}
+              </div>
+              {item.price_facts.length ? item.price_facts.map((fact) => (
+                <ImportPriceFact
+                  key={`${item.source_item_key}-${fact.evidence_key}`}
+                  fact={fact}
+                  evidence={preview.evidence}
+                />
+              )) : <p className="muted-text">ยังระบุราคาตั้งขายของรายการนี้ไม่ได้</p>}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="muted-text">ยังแยกรุ่นสินค้าไม่ได้จากข้อความนี้</p>
+      )}
+      {preview.unassigned_price_facts.length ? (
+        <section className="import-unresolved" aria-labelledby="import-unassigned-title">
+          <h3 id="import-unassigned-title">ราคาที่ยังจับคู่กับชิ้นสินค้าไม่ได้</h3>
+          {preview.unassigned_price_facts.map((fact) => (
+            <ImportPriceFact
+              key={`unassigned-${fact.evidence_key}`}
+              fact={fact}
+              evidence={preview.evidence}
+            />
+          ))}
+        </section>
+      ) : null}
+      {preview.unresolved_fields.length ? (
+        <section className="import-unresolved" aria-labelledby="import-fields-title">
+          <h3 id="import-fields-title">ช่องที่ยังระบุไม่ได้</h3>
+          <ul>
+            {preview.unresolved_fields.map((field) => (
+              <li key={`${field.field}-${field.source_item_key}`}>
+                {field.field === 'item_identity' ? 'การแยกรายการ' : 'ราคาตั้งขาย'} · {field.source_item_key}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <p className="import-author-note" role="note">
+        การที่ผู้ซื้อเห็นตัวเลข ไม่ได้พิสูจน์ว่าผู้แสดงความคิดเห็นเป็นผู้ขาย
+      </p>
+      {result ? (
+        <div className="import-success" role="status" aria-live="polite">
+          <strong>บันทึกการนำเข้าแล้ว</strong>
+          <span>รหัส observation: {result.observation_id}</span>
+        </div>
+      ) : (
+        <button className="button button-primary import-confirm" type="button" onClick={onConfirm} disabled={confirming}>
+          {confirming ? 'กำลังบันทึก…' : 'ยืนยันและบันทึก'}
+        </button>
+      )}
+    </section>
+  )
+}
+
+function ImportPage() {
+  const [groups, setGroups] = useState<Group[]>([])
+  const [groupId, setGroupId] = useState('')
+  const [permalink, setPermalink] = useState('')
+  const [text, setText] = useState('')
+  const [preview, setPreview] = useState<ManualImportPreview | null>(null)
+  const [result, setResult] = useState<ManualImportResult | null>(null)
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(storedImportKey)
+  const [groupLoading, setGroupLoading] = useState(true)
+  const [groupError, setGroupError] = useState('')
+  const [error, setError] = useState<{ message: string; field: string | null } | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [renewKeyOnNextPreview, setRenewKeyOnNextPreview] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setGroupLoading(true)
+    setGroupError('')
+    getGroups(controller.signal)
+      .then((response) => {
+        setGroups(response.groups)
+        setGroupId((current) => current || response.groups[0]?.group_id || '')
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof Error && cause.name === 'AbortError') return
+        setGroupError(errorMessage(cause))
+      })
+      .finally(() => setGroupLoading(false))
+    return () => controller.abort()
+  }, [loadAttempt])
+
+  function clearKey() {
+    setIdempotencyKey(null)
+    persistImportKey(null)
+  }
+
+  function updateDraft(update: () => void) {
+    update()
+    setPreview(null)
+    setResult(null)
+    setError(null)
+    setRenewKeyOnNextPreview(false)
+    if (idempotencyKey) clearKey()
+  }
+
+  function startNewSubmission() {
+    clearKey()
+    setPermalink('')
+    setText('')
+    setPreview(null)
+    setResult(null)
+    setError(null)
+    setRenewKeyOnNextPreview(false)
+  }
+
+  async function requestPreview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError(null)
+    setResult(null)
+    if (!groupId) {
+      setError({ message: 'เลือกกลุ่มที่เปิดอ่านได้ก่อนดูตัวอย่าง', field: 'group_id' })
+      return
+    }
+    if (!permalink.trim()) {
+      setPreview(null)
+      setError({ message: 'กรุณาวาง permalink ตรงของโพสต์ในกลุ่ม', field: 'permalink' })
+      return
+    }
+    if (!text.trim()) {
+      setPreview(null)
+      setError({ message: 'กรุณาวางข้อความประกาศ', field: 'text' })
+      return
+    }
+    setPreviewing(true)
+    setPreview(null)
+    try {
+      const input: ManualImportInput = { permalink, text }
+      const nextPreview = await previewManualImport(groupId, input)
+      if (renewKeyOnNextPreview) {
+        clearKey()
+        setRenewKeyOnNextPreview(false)
+      }
+      setPreview(nextPreview)
+    } catch (cause) {
+      setError(importRequestError(cause))
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  async function confirmImport() {
+    if (!preview || !groupId || confirming) return
+    setConfirming(true)
+    setError(null)
+    const key = idempotencyKey ?? newImportKey()
+    setIdempotencyKey(key)
+    persistImportKey(key)
+    try {
+      const input: ManualImportInput = { permalink, text }
+      const saved = await commitManualImport(groupId, input, preview.preview_digest, key)
+      clearKey()
+      setResult(saved)
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) setRenewKeyOnNextPreview(true)
+      setError(importRequestError(cause))
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  if (groupLoading) return <LoadingState label="กำลังโหลดกลุ่มสำหรับนำเข้า…" />
+  if (groupError) {
+    return <ErrorState message={groupError} retry={() => setLoadAttempt((attempt) => attempt + 1)} />
+  }
+
+  return (
+    <section className="page-section import-page" aria-labelledby="import-title">
+      <div className="page-heading-row">
+        <div>
+          <p className="eyebrow">นำเข้าด้วยข้อความที่ผู้ซื้อส่ง</p>
+          <h1 id="import-title">นำเข้าประกาศ</h1>
+        </div>
+        {idempotencyKey || permalink || text || result ? (
+          <button className="button button-secondary import-reset" type="button" onClick={startNewSubmission}>
+            เริ่มรายการใหม่
+          </button>
+        ) : null}
+      </div>
+      {!groups.length ? (
+        <div className="empty-state">
+          <h2>ยังไม่มีกลุ่มที่เปิดอ่านได้</h2>
+          <p>กลุ่มที่มีสิทธิ์อ่านจะแสดงที่นี่</p>
+        </div>
+      ) : (
+        <form className="import-form" onSubmit={(event) => void requestPreview(event)}>
+          <label className="import-field" htmlFor="import-group">
+            <span>กลุ่ม</span>
+            <select
+              id="import-group"
+              value={groupId}
+              onChange={(event) => updateDraft(() => setGroupId(event.target.value))}
+              disabled={previewing || confirming}
+              aria-invalid={error?.field === 'group_id'}
+            >
+              {groups.map((group) => (
+                <option key={group.group_id} value={group.group_id}>{group.group_key}</option>
+              ))}
+            </select>
+          </label>
+          <label className="import-field" htmlFor="import-permalink">
+            <span>Permalink ตรงของโพสต์</span>
+            <input
+              id="import-permalink"
+              type="url"
+              inputMode="url"
+              autoComplete="url"
+              placeholder="https://www.facebook.com/groups/.../posts/.../"
+              value={permalink}
+              onChange={(event) => updateDraft(() => setPermalink(event.target.value))}
+              disabled={previewing || confirming}
+              aria-invalid={error?.field === 'permalink'}
+              aria-describedby={error?.field === 'permalink' ? 'import-error' : undefined}
+              required
+            />
+          </label>
+          <label className="import-field" htmlFor="import-text">
+            <span>ข้อความประกาศที่คัดลอกมา</span>
+            <textarea
+              id="import-text"
+              rows={7}
+              value={text}
+              onChange={(event) => updateDraft(() => setText(event.target.value))}
+              disabled={previewing || confirming}
+              aria-invalid={error?.field === 'text'}
+              aria-describedby={error?.field === 'text' ? 'import-error' : undefined}
+              required
+            />
+          </label>
+          <p className="import-local-note">ระบบแยกลิงก์บนเครื่องและไม่เปิดหน้าโพสต์ต้นทาง</p>
+          {error ? <p id="import-error" className="field-error" role="alert">{error.message}</p> : null}
+          <div className="import-actions">
+            <button className="button button-primary" type="submit" disabled={previewing || confirming}>
+              {previewing ? 'กำลังตรวจตัวอย่าง…' : 'ดูตัวอย่าง'}
+            </button>
+          </div>
+        </form>
+      )}
+      {preview ? (
+        <ImportPreviewCard
+          preview={preview}
+          result={result}
+          confirming={confirming}
+          onConfirm={() => void confirmImport()}
+        />
+      ) : null}
+    </section>
+  )
+}
+
 function GroupsPage() {
   const [groups, setGroups] = useState<Group[]>([])
   const [runs, setRuns] = useState<Record<string, GroupRunsResponse>>({})
@@ -1426,6 +1836,7 @@ function MainNavigation({ route }: { route: Route }) {
     { to: '/', label: 'สินค้า', icon: '◈', active: route.name === 'feed' || route.name === 'post' || route.name === 'evidence' || route.name === 'seller' },
     { to: '/watches', label: 'ติดตาม', icon: '☆', active: route.name === 'watches' },
     { to: '/groups', label: 'กลุ่ม', icon: '▦', active: route.name === 'groups' },
+    { to: '/imports', label: 'นำเข้า', icon: '＋', active: route.name === 'imports' },
   ]
   return (
     <nav className="bottom-navigation" aria-label="เมนูหลัก">
@@ -1483,6 +1894,7 @@ export default function App() {
     case 'seller': page = <SellerPage id={route.id} />; break
     case 'watches': page = <WatchesPage />; break
     case 'groups': page = <GroupsPage />; break
+    case 'imports': page = <ImportPage />; break
     default: page = <NotFoundPage />
   }
 

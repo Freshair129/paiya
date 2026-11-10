@@ -120,6 +120,36 @@ jobs:
           # The runner context is not available in job-level env, so set it here.
           echo "XDG_DATA_HOME=$RUNNER_TEMP/paiya-e2e-auth-data" >> "$GITHUB_ENV"
       - run: uv run --frozen python -m paiya.cli demo seed
+      - name: Add synthetic manual-share grant for the import test
+        run: |
+          uv run --frozen python - <<'PY'
+          import os
+          from datetime import UTC, datetime, timedelta
+          from uuid import uuid4
+
+          from sqlalchemy import create_engine, insert, select
+
+          from paiya.store.tables import groups, source_grants
+
+          engine = create_engine(os.environ["PAIYA_DATABASE_URL"])
+          with engine.begin() as conn:
+              group_id = conn.execute(
+                  select(groups.c.id).where(groups.c.group_key == "synthetic-demo")
+              ).scalar_one()
+              conn.execute(
+                  insert(source_grants).values(
+                      id=uuid4(),
+                      group_id=group_id,
+                      source_kind="manual_share",
+                      scopes=["capture"],
+                      authority_ref="synthetic:m1b-e2e",
+                      valid_from=datetime.now(UTC) - timedelta(minutes=1),
+                      valid_until=None,
+                      retention_days=30,
+                  )
+              )
+          engine.dispose()
+          PY
       - name: Prepare temporary owner authentication
         run: |
           uv run --frozen python - <<'PY'
