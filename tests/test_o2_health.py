@@ -657,3 +657,39 @@ def test_o2_logger_emits_each_contract_event_as_json_without_payload_fields(
     assert "synthetic-evidence" in captured.err
     assert "permalink" not in captured.err
     assert "secret" not in captured.err
+
+
+def test_revisit_completion_log_reports_no_discovery_duplicates(capsys) -> None:
+    from time import perf_counter
+
+    from paiya.collector.revisit_run import _log_capture_finished
+    from paiya.scheduler.models import JobClaim
+
+    now = datetime.now(UTC)
+    claim = JobClaim(
+        job_id=uuid4(),
+        group_id=uuid4(),
+        grant_id=uuid4(),
+        run_id=uuid4(),
+        kind="revisit",
+        logical_key="revisit:synthetic-post",
+        target_key="synthetic-post",
+        due_at=now,
+        lease_token=uuid4(),
+        lease_until=now + timedelta(minutes=5),
+    )
+
+    _log_capture_finished(
+        claim,
+        started_at=now,
+        started_clock=perf_counter(),
+        result="none",
+        reason="post_unavailable",
+        cards_seen=1,
+        cards_parsed=0,
+    )
+
+    event = json.loads(capsys.readouterr().err)
+    assert event["event"] == "capture_run_finished"
+    assert event["job_kind"] == "revisit"
+    assert event["duplicate_cards_skipped"] == 0
