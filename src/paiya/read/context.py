@@ -6,11 +6,13 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, exists, select
+from sqlalchemy.sql import ColumnElement
 
+from paiya.grants.collector import RETENTION, SOURCE_KIND
 from paiya.read.errors import GrantUnavailable
 from paiya.store.fixture_scope import FixtureScope, verify_fixture_scope
-from paiya.store.tables import groups, source_grants
+from paiya.store.tables import capture_runs, groups, source_grants
 
 ReadContext = FixtureScope
 READ_CONTEXT_GROUP_KEY_ENV = "PAIYA_READ_CONTEXT_GROUP_KEY"
@@ -55,6 +57,17 @@ def dev_fixture_group_key_from_env() -> str | None:
     return group_key if dev_fixture_mode_enabled() else None
 
 
+def collector_retention_allows_read(current: datetime) -> ColumnElement[bool]:
+    """Close reads for a Collector group until overdue projections are removed."""
+    return (source_grants.c.source_kind != SOURCE_KIND) | ~exists(
+        select(1).where(
+            capture_runs.c.group_id == source_grants.c.group_id,
+            capture_runs.c.source_kind == SOURCE_KIND,
+            capture_runs.c.started_at <= current - RETENTION,
+        )
+    )
+
+
 def resolve_readable_grants(
     conn: Connection, *, now: datetime | None = None
 ) -> list[ReadableGrant]:
@@ -75,6 +88,7 @@ def resolve_readable_grants(
                 source_grants.c.valid_from <= current,
                 (source_grants.c.valid_until.is_(None) | (source_grants.c.valid_until > current)),
                 source_grants.c.scopes.contains(["read"]),
+                collector_retention_allows_read(current),
             )
             .order_by(groups.c.id, source_grants.c.valid_from.desc(), source_grants.c.id)
         )

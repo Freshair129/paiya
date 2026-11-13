@@ -1,6 +1,6 @@
 # สัญญาส่งข้อมูลจาก Collector ภายนอกเข้า paiya (inbox)
 
-**ร่าง · เสนอเพื่ออนุมัติ** · หน้านี้กำหนดรูปแบบที่ Collector ภายนอกใช้ส่งผลการเก็บเข้า paiya ผ่านไดเรกทอรีในเครื่อง และสิ่งที่ paiya ทำเมื่อรับ ใช้คู่กับ [สัญญา Collector และ API](collector-and-query.md) ซึ่งเป็นเจ้าของ envelope `observation v1` ([schema](observation.v1.schema.json)) และ [สัญญาคิวค้นพบ](discovery-queue.md) ข้อ 4 ซึ่งเป็นเจ้าของ run summary
+หน้านี้กำหนดรูปแบบที่ Collector ภายนอกใช้ส่งผลการเก็บเข้า paiya ผ่านไดเรกทอรีในเครื่อง และสิ่งที่ paiya ทำเมื่อรับ ใช้คู่กับ [สัญญา Collector และ API](collector-and-query.md) ซึ่งเป็นเจ้าของ envelope `observation v1` ([schema](observation.v1.schema.json)) และ [สัญญาคิวค้นพบ](discovery-queue.md) ข้อ 4 ซึ่งเป็นเจ้าของ run summary
 
 Collector เป็นโปรแกรมแยกที่เจ้าของรีโปพัฒนาและรันเอง โค้ดอยู่ใน subproject `collector/` ตาม [ADR 0006](../decisions/0006-collector-monorepo.md) ส่วน paiya runtime ไม่เปิดหรือส่งคำขอไปยังแหล่งต้นทางในขั้นใดของสัญญานี้
 
@@ -9,7 +9,7 @@ Collector เป็นโปรแกรมแยกที่เจ้าขอ�
 | ส่วน | สถานะ | ระดับตาม AGENTS.md |
 |---|---|---|
 | รูปแบบ inbox และ `paiya inbox validate` ที่ตรวจไฟล์โดยไม่เขียนฐาน | ทำได้ทันที | ต่ำ |
-| `paiya inbox ingest` ที่บันทึก envelope `source_kind = facebook_live` ลงฐาน และการสร้าง grant ของแหล่งจริง | รอเจ้าของรีโปเขียนอนุมัติใน Issue | สูง (เปิดรับข้อมูลแหล่งจริงตามเงื่อนไขระยะ B) |
+| `paiya inbox ingest` ที่บันทึก envelope `source_kind = facebook_live` ลงฐาน และการสร้าง grant ของแหล่งจริง | อนุมัติให้พัฒนาและทดสอบสังเคราะห์ใน [Issue #91](https://github.com/Freshair129/paiya/issues/91#issuecomment-6837742892) | สูง (เปิดรับข้อมูลแหล่งจริงตามเงื่อนไขระยะ B) |
 | ตัว Collector ที่เปิด Facebook | โค้ดอยู่ใน `collector/` แต่รันแยกจาก paiya และเจ้าของรีโปตัดสินใจ/รับความเสี่ยงตาม ADR 0005–0006 และข้อ 6 | นอกขอบเขตของ paiya runtime |
 
 ## 2. โครงสร้าง inbox
@@ -60,14 +60,17 @@ Collector เป็นโปรแกรมแยกที่เจ้าขอ�
   - พิมพ์รายงาน JSON
   - ไม่เขียนฐานข้อมูลและไม่ย้ายไฟล์
   - Collector ใช้คำสั่งนี้ตรวจผลของตัวเองได้
-- **`paiya inbox ingest`** (รออนุมัติ) ย้ายรอบไป `processing/` แล้วทำตามลำดับ:
-  1. ตรวจแบบเดียวกับ validate
-  2. ตรวจ grant ว่าใช้ได้และมี `capture` ทั้งตอนเริ่มและก่อน commit ตาม A2
-  3. บันทึก `capture_runs` จาก `run.json`
-  4. ingest ทีละ envelope ผ่านเส้นทางเดิม `capture_id` เดิมกับ `payload_hash` เดิมได้ผลเดิม ส่วน hash ต่างเป็น conflict ของ envelope นั้น
-  5. ย้ายไป `done/` พร้อม `result.json` (สถานะราย envelope) หรือ `rejected/` พร้อมเหตุผล
-  - grant ที่ถูกเพิกถอนทำให้ทั้งรอบถูกปฏิเสธ
-  - การลบและการ replay หลังกู้คืนใช้กติกาเดิม
+- **`paiya grant create-collector --authority-ref <local-ref>`** บันทึกการอนุมัติในเครื่องสำหรับกลุ่ม `owner-group-01` วัตถุประสงค์เพื่อค้นสินค้าสำหรับซื้อเอง ใช้สิทธิ์ `capture`, `read`, `media` และเก็บ 7 วัน คืน UUID เพื่อใส่ใน config ของ Collector โดยเจ้าของเก็บ URL จริงและการจับคู่กลุ่มไว้ในเครื่อง
+- **`paiya inbox ingest <run_id>`** ใช้ `PAIYA_COLLECTOR_INBOX`, `PAIYA_FIXTURE_MEDIA_ROOT` และ `PAIYA_PURGE_LOG_PATH` ย้ายรอบที่มี `READY` ไป `processing/` แบบ atomic แล้วทำตามลำดับ
+  1. ตรวจแบบเดียวกับ validate และใช้ข้อมูลชุดเดียวกับที่ตรวจ
+  2. ตรวจว่า grant ตรงกับกลุ่ม มีสิทธิ์ครบ และยังใช้ได้ตั้งแต่รอบเริ่มจนถึงก่อน commit ปฏิเสธรอบที่เริ่มมาแล้วตั้งแต่ 7 วันขึ้นไป
+  3. บันทึก `capture_runs` จาก `run.json` และช่วงที่ขาดสำหรับรอบ `coverage=none` ที่มีช่วงเวลาบวก
+  4. บันทึก observation และหลักฐานผ่านเส้นทางเดิมในธุรกรรมเดียวกัน หาก capture เดิมมี hash ต่าง ให้รายงาน conflict ของ envelope นั้น
+  5. เขียน `done/<run_id>/result.json` หรือ `rejected/<run_id>/result.json` แล้วลบชุดไฟล์ที่ใช้ส่ง เก็บเฉพาะ UUID สถานะและรายงานตรวจสอบที่ปกปิดข้อมูลต้นทางเพื่อรับมือการส่งซ้ำ
+  - หากคำสั่งหยุดก่อนเสร็จ ให้เรียกซ้ำด้วย UUID เดิมเพื่อดำเนินการต่อจาก `processing/`
+- **`paiya inbox prune-expired`** ลบข้อมูลของรอบที่ครบ 7 วันนับจาก `started_at` สร้างผลอนุพันธ์ใหม่จาก observation ที่ยังเหลือและเก็บไฟล์ที่ยังมีรายการอ้างถึง API ปิดการอ่านกลุ่มชั่วคราวเมื่อมีรอบเกินอายุจนกว่าจะลบเสร็จ Worker ของ Paiya ที่กำหนด `PAIYA_COLLECTOR_INBOX` จะตรวจการหมดอายุทุกนาที ใช้ `paiya purge replay` ทำคำสั่งลบที่ค้างให้เสร็จ
+- **`paiya grant revoke <grant_id>`** ปิดสิทธิ์ก่อนใช้ `paiya purge run --scope grant:<grant_id>` เพื่อลบข้อมูลทั้งหมดภายใต้ grant นั้น คำสั่งลบถูกบันทึกเพื่อ replay หลังกู้คืน
+- การสร้าง full backup จะถูกปฏิเสธเมื่อฐานมีรอบ Collector เพราะชุดสำรองปัจจุบันเก็บได้นานเกินขอบเขต 7 วัน
 - paiya ไม่เปิด URL ใน envelope และไม่ติดต่อแหล่งต้นทาง
 
 ## 6. ข้อกำหนดฝั่ง Collector

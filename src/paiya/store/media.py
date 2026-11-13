@@ -47,9 +47,11 @@ def unlock_media_asset_for_session(conn: Connection, storage_key: str) -> None:
     )
 
 
-def validate_media(staging_key: str, meta: Mapping[str, object], data: bytes) -> str:
+def validate_media(
+    staging_key: str, meta: Mapping[str, object], data: bytes, *, inbox_validated: bool = False
+) -> str:
     """Reject a forged staging key, digest, length, media type, or image signature."""
-    if not STAGING_KEY.fullmatch(staging_key):
+    if not inbox_validated and not STAGING_KEY.fullmatch(staging_key):
         raise ValueError("Invalid staging_key (no path segments or traversal)")
     size = len(data)
     if size == 0 or size > MAX_MEDIA_BYTES or size != meta["bytes"]:
@@ -80,8 +82,10 @@ def media_path(root: Path, sha256: str, mime: str) -> Path:
     return root / "assets" / (sha256 + ext)
 
 
-def write_media(root: Path, meta: Mapping[str, object], data: bytes, key: str) -> Path:
-    digest = validate_media(key, meta, data)
+def write_media(
+    root: Path, meta: Mapping[str, object], data: bytes, key: str, *, inbox_validated: bool = False
+) -> Path:
+    digest = validate_media(key, meta, data, inbox_validated=inbox_validated)
     destination = media_path(root, digest, str(meta["mime"]))
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():

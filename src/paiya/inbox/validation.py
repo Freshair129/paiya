@@ -6,6 +6,7 @@ import os
 import re
 import stat
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -14,6 +15,7 @@ from uuid import UUID, uuid5
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from paiya.ingest.validation import SCHEMA, validate_observation
+from paiya.store.media import MAX_MEDIA_BYTES
 
 _RUN_FIELDS = (
     "run_id",
@@ -95,8 +97,20 @@ _SECRET_VALUE_PATTERNS = (
 )
 
 
+@dataclass(frozen=True)
+class ValidatedRun:
+    summary: dict[str, Any]
+    envelopes: list[dict[str, Any]]
+    assets: dict[str, bytes]
+
+
 def validate_inbox(run_dir: Path) -> dict[str, object]:
-    """Return a JSON-safe report after reading, but never changing, a run directory."""
+    """Return a JSON-safe report without changing the run directory."""
+    return read_inbox(run_dir)[0]
+
+
+def read_inbox(run_dir: Path) -> tuple[dict[str, object], ValidatedRun | None]:
+    """Return the report and the exact data validated, without reopening its files."""
     problems: list[dict[str, str]] = []
     problem_keys: set[tuple[str, str, str]] = set()
 
@@ -108,17 +122,17 @@ def validate_inbox(run_dir: Path) -> dict[str, object]:
             problems.append({"path": safe_path, "code": code, "message": message})
 
     raw_root = Path(run_dir)
-    if raw_root.is_symlink():
+    if raw_root.is_symlink() or raw_root.is_junction():
         add_problem(".", "run_dir_symlink", "Run directory must not be a symlink")
-        return _report(None, 0, problems)
+        return _report(None, 0, problems), None
     try:
         root = raw_root.resolve(strict=True)
     except (OSError, RuntimeError):
         add_problem(".", "run_dir_unavailable", "Run directory is unavailable")
-        return _report(None, 0, problems)
+        return _report(None, 0, problems), None
     if not root.is_dir():
         add_problem(".", "run_dir_invalid", "Run path must be a directory")
-        return _report(None, 0, problems)
+        return _report(None, 0, problems), None
     if root.name.startswith("."):
         add_problem(".", "layout_hidden", "Names starting with a dot are not allowed")
 
@@ -155,6 +169,11 @@ def validate_inbox(run_dir: Path) -> dict[str, object]:
     unreadable: set[Path] = set()
     for file_path in files:
         try:
+            if file_path.is_relative_to(assets_dir) and file_path.stat().st_size > MAX_MEDIA_BYTES:
+                add_problem(
+                    _relative_path(root, file_path), "asset_too_large", "Asset exceeds 5 MiB"
+                )
+                continue
             data = file_path.read_bytes()
         except OSError:
             unreadable.add(file_path)
@@ -294,7 +313,14 @@ def validate_inbox(run_dir: Path) -> dict[str, object]:
         problems,
         key=lambda problem: (problem["path"], problem["code"], problem["message"]),
     )
-    return _report(run_id, len(envelope_files), ordered_problems)
+    report = _report(run_id, len(envelope_files), ordered_problems)
+    if problems or run_document is None:
+        return report, None
+    return report, ValidatedRun(
+        run_document,
+        [parsed_json[path] for path in envelope_files],
+        {path.relative_to(assets_dir).as_posix(): contents[path] for path in referenced_assets},
+    )
 
 
 def _report(

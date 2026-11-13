@@ -22,6 +22,10 @@
 
 [แบบจำลองข้อมูล](../architecture/data-model.md) และ [ERD](../architecture/views/erd.md) ใช้ตรวจคีย์และเส้นทางจากชิ้นสินค้าถึงหลักฐาน ส่วน [สัญญาสำหรับผู้ซื้อ](../architecture/contracts/buyer-workflows.md) ระบุเงื่อนไขรับคำขอและข้อผิดพลาดที่ผู้ทดสอบต้องครอบคลุม
 
+## I2 Collector inbox
+
+[Issue #91](https://github.com/Freshair129/paiya/issues/91) เชื่อม FR-02/03 กับการรับผลรอบและหลักฐานตาม AT-02 และ FR-07/13 กับการปฏิเสธสิทธิ์และการลบตาม AT-09 ชุด [test_i2_inbox_ingest.py](../../tests/test_i2_inbox_ingest.py) ใช้ข้อมูลจำลองบน PostgreSQL 17 ผลจากกลุ่มจริงต้องตรวจใน pilot แยกต่างหาก
+
 ## บันทึกหลักฐานเมื่อส่งงาน
 
 1. ผู้ทำงานใส่รหัส PR, FR และ AT ที่เกี่ยวข้องใน GitHub issue และ pull request เมื่อแก้ขอบเขต ให้อัปเดตแถวที่ได้รับผลพร้อมเอกสารต้นทางใน pull request เดียวกัน
