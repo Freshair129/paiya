@@ -66,7 +66,7 @@ def parse_purge_log_line(line: bytes) -> PurgeLogEntry:
             raise ValueError("scope_key must be a string")
         if not isinstance(raw_requested_at, str):
             raise ValueError("record fields must be strings")
-        if raw_kind not in {"grant", "post"}:
+        if raw_kind not in {"grant", "post", "collector_run"}:
             raise ValueError("unknown scope kind")
 
         purge_id = UUID(raw_id)

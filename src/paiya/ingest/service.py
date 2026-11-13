@@ -1,9 +1,10 @@
-"""Fixture-only, transactional ingest; never performs requests to source websites."""
+"""Transactional observation ingest; never performs requests to source websites."""
 
 import hashlib
 import json
 import shutil
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -12,6 +13,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from sqlalchemy import Connection, Engine, insert, select, text, update
 
 from paiya.extract.service import create_tags_and_rebuild_listing_items
+from paiya.grants.collector import SOURCE_KIND
 from paiya.ingest.validation import validate_observation
 from paiya.logging import emit_event, safe_token
 from paiya.scheduler.queue import enqueue_enrich_job
@@ -123,8 +125,45 @@ def ingest_fixture(
     validate_observation(document)
     if document["source_kind"] != "fixture" or document["grant_id"] is not None:
         raise PermissionError("A2 ingest accepts fixture sources with null source grant only")
+    return _ingest_observation(
+        engine, scope, document, staged_assets, media_root, disk_usage_fn=disk_usage_fn
+    )
+
+
+def persist_collector_observation(
+    conn: Connection,
+    group_id: UUID,
+    grant_id: UUID,
+    group_key: str,
+    document: dict[str, Any],
+    staged_assets: Mapping[str, bytes],
+    media_root: Path,
+) -> UUID:
+    """Persist within the Collector run transaction after the caller checks its grant."""
+    if document["source_kind"] != SOURCE_KIND or UUID(document["grant_id"]) != grant_id:
+        raise PermissionError("Observation does not match the Collector grant")
+    return _ingest_observation(
+        conn,
+        FixtureScope(group_id=group_id, grant_id=grant_id, group_key=group_key),
+        document,
+        staged_assets,
+        media_root,
+    )
+
+
+def _ingest_observation(
+    database: Engine | Connection,
+    scope: FixtureScope,
+    document: dict[str, Any],
+    staged_assets: Mapping[str, bytes],
+    media_root: Path,
+    *,
+    disk_usage_fn: Callable[[Path], tuple[int, int, int]] | None = None,
+) -> UUID:
+    validate_observation(document)
+    fixture = isinstance(database, Engine)
     payload = document["payload"]
-    enrich_enabled = get_enrich_enabled()
+    enrich_enabled = fixture and get_enrich_enabled()
     if payload["group_key"] != scope.group_key:
         raise PermissionError("Ingest group does not match the trusted fixture grant")
 
@@ -136,7 +175,7 @@ def ingest_fixture(
         staging_key = meta["staging_key"]
         if staging_key not in staged_assets:
             raise ValueError(f"Missing staged asset: {staging_key}")
-        validate_media(staging_key, meta, staged_assets[staging_key])
+        validate_media(staging_key, meta, staged_assets[staging_key], inbox_validated=not fixture)
 
     observed_at = _at(payload["observed_at"])
     posted_at_data = payload.get("posted_at")
@@ -148,8 +187,10 @@ def ingest_fixture(
     media_failure_logs: list[tuple[str, str, str]] = []
     disk_usage = disk_usage_fn or shutil.disk_usage
 
-    with engine.begin() as conn:
-        verify_fixture_scope(conn, scope, "capture")
+    transaction = database.begin() if isinstance(database, Engine) else nullcontext(database)
+    with transaction as conn:
+        if fixture:
+            verify_fixture_scope(conn, scope, "capture")
         _lock_capture_id(conn, document["capture_id"])
         duplicate = (
             conn.execute(
@@ -165,7 +206,7 @@ def ingest_fixture(
         )
         if duplicate is not None:
             if duplicate["group_id"] != scope.group_id or duplicate["grant_id"] != scope.grant_id:
-                raise PermissionError("capture_id belongs to another fixture scope")
+                raise PermissionError("capture_id belongs to another grant scope")
             if duplicate["payload_hash"] != digest:
                 raise CaptureConflict("capture_id reused with different envelope content")
             if (
@@ -183,14 +224,15 @@ def ingest_fixture(
                     grant_id=scope.grant_id,
                     observation_id=cast(UUID, duplicate["id"]),
                 )
-            verify_fixture_scope_for_commit(conn, scope, "capture")
+            if fixture:
+                verify_fixture_scope_for_commit(conn, scope, "capture")
             return cast(UUID, duplicate["id"])
 
         raw_seller = payload.get("seller")
         seller_id = None
         if isinstance(raw_seller, dict) and raw_seller.get("external_actor_key"):
             stable_identity = {
-                "source": "fixture",
+                "source": document["source_kind"],
                 "identity_scope": raw_seller["identity_scope"],
                 "external_actor_key": raw_seller["external_actor_key"],
             }
@@ -231,6 +273,8 @@ def ingest_fixture(
             .one_or_none()
         )
         if existing_run is None:
+            if not fixture:
+                raise ValueError("Collector run must already exist")
             job_id = uuid5(NAMESPACE_URL, f"paiya:fixture:job:{scope.group_id}:{run_id}")
             conn.execute(
                 insert(jobs).values(
@@ -260,7 +304,7 @@ def ingest_fixture(
         elif (
             existing_run["group_id"] != scope.group_id or existing_run["grant_id"] != scope.grant_id
         ):
-            raise PermissionError("run_id belongs to another fixture grant")
+            raise PermissionError("run_id belongs to another grant")
 
         observation_id = uuid4()
         conn.execute(
@@ -408,7 +452,13 @@ def ingest_fixture(
                     measured_disk_low.append((free_bytes, min_free_bytes))
                     continue
 
-            write_media(media_root, meta, staged_assets[staging_key], staging_key)
+            write_media(
+                media_root,
+                meta,
+                staged_assets[staging_key],
+                staging_key,
+                inbox_validated=not fixture,
+            )
             maybe_fault("after_media_write")
             if existing_media:
                 media_id = cast(UUID, existing_media["id"])
@@ -506,7 +556,8 @@ def ingest_fixture(
             )
 
         # This is deliberately the final DB operation before transaction commit.
-        verify_fixture_scope_for_commit(conn, scope, "capture")
+        if fixture:
+            verify_fixture_scope_for_commit(conn, scope, "capture")
     for free_bytes, min_free_bytes in measured_disk_low:
         emit_event(
             "disk_low",

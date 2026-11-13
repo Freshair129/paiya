@@ -18,7 +18,7 @@ from sqlalchemy import Connection, and_, case, func, or_, select
 
 from paiya.enrich import ENRICH_RULE_VERSION
 from paiya.extract.rules import RULE_VERSION
-from paiya.read.context import ReadableGrant, ReadContext
+from paiya.read.context import ReadableGrant, ReadContext, collector_retention_allows_read
 from paiya.read.errors import (
     GrantUnavailable,
     MediaIntegrityFailure,
@@ -94,7 +94,10 @@ def _authorize(conn: Connection, context: ReadContext | ReadableGrant, purpose: 
                     source_grants.c.revoked_at,
                 )
                 .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
-                .where(source_grants.c.id == context.grant_id)
+                .where(
+                    source_grants.c.id == context.grant_id,
+                    collector_retention_allows_read(now),
+                )
             )
             .mappings()
             .one_or_none()

@@ -167,7 +167,9 @@ purge_jobs = Table(
     Column("completed_at", DateTime(timezone=True), nullable=True),
     Column("reason", Text, nullable=True),
     Column("result_counts", JSONB, nullable=False),
-    CheckConstraint("scope_kind IN ('grant', 'post')", name="ck_purge_jobs_scope_kind"),
+    CheckConstraint(
+        "scope_kind IN ('grant', 'post', 'collector_run')", name="ck_purge_jobs_scope_kind"
+    ),
     CheckConstraint("state IN ('running', 'succeeded', 'failed')", name="ck_purge_jobs_state"),
 )
 

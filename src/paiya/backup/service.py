@@ -26,6 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
 from paiya.backup.errors import BackupError
+from paiya.grants.collector import SOURCE_KIND
 from paiya.logging import emit_event, safe_token
 from paiya.purge.errors import PurgeError
 from paiya.purge.service import (
@@ -40,6 +41,7 @@ from paiya.store.media import (
 )
 from paiya.store.tables import (
     backup_runs,
+    capture_runs,
     evidence,
     groups,
     media_assets,
@@ -487,6 +489,18 @@ def create_backup(engine: Engine) -> dict[str, object]:
                 if not isinstance(revision, str) or not revision:
                     raise BackupError(
                         "database_revision_missing", "The database revision is unavailable"
+                    )
+                if (
+                    connection.execute(
+                        select(capture_runs.c.id)
+                        .where(capture_runs.c.source_kind == SOURCE_KIND)
+                        .limit(1)
+                    ).first()
+                    is not None
+                ):
+                    raise BackupError(
+                        "collector_retention_unsupported",
+                        "Full backup cannot enforce the Collector seven-day retention limit",
                     )
                 media_rows = (
                     connection.execute(

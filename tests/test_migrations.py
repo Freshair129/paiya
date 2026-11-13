@@ -19,7 +19,7 @@ from paiya.ingest.service import ingest_fixture
 from paiya.store.fixture_scope import seed_fixture_scope
 
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "0011_owner_sessions"
+HEAD = "0012_collector_retention"
 
 
 def test_upgrade_and_downgrade_on_postgres17(

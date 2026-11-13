@@ -15,11 +15,14 @@ from paiya.backup.prune import prune_backup_sets
 from paiya.backup.service import backup_status, create_backup, restore_backup, verify_backup
 from paiya.demo import seed_demo
 from paiya.extract.service import rebuild_extractions
+from paiya.grants.collector import create_collector_grant
 from paiya.grants.errors import GrantError
 from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.health.service import get_health_report
+from paiya.inbox.retention import prune_collector_runs
+from paiya.inbox.service import InboxError, ingest_inbox_run
 from paiya.inbox.validation import validate_inbox
 from paiya.manual.service import ManualImportError, ManualImportService
 from paiya.purge.errors import PurgeError
@@ -93,7 +96,11 @@ def _parser() -> argparse.ArgumentParser:
     grant_actions = grant.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
     )
-    revoke = grant_actions.add_parser("revoke", help="revoke a synthetic source grant")
+    collector_grant = grant_actions.add_parser(
+        "create-collector", help="create a grant for the approved Collector group"
+    )
+    collector_grant.add_argument("--authority-ref", required=True)
+    revoke = grant_actions.add_parser("revoke", help="revoke a fixture or Collector grant")
     revoke.add_argument("grant_id")
 
     manual_import = commands.add_parser("import", help="import a locally pasted post")
@@ -112,13 +119,13 @@ def _parser() -> argparse.ArgumentParser:
             import_action.add_argument("--idempotency-key", required=True)
             import_action.add_argument("--preview-digest", required=True)
 
-    purge = commands.add_parser("purge", help="purge a synthetic grant or post scope")
+    purge = commands.add_parser("purge", help="purge an authorized data scope")
     purge_actions = purge.add_subparsers(
         dest="action", required=True, parser_class=_JsonArgumentParser
     )
     purge_run = purge_actions.add_parser("run", help="purge one synthetic data scope")
     purge_run.add_argument("--scope", required=True)
-    purge_actions.add_parser("replay", help="replay pending synthetic purge commands")
+    purge_actions.add_parser("replay", help="replay pending purge commands")
 
     backup = commands.add_parser("backup", help="create, verify, restore or inspect a backup")
     backup_actions = backup.add_subparsers(
@@ -145,6 +152,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     inbox_validate = inbox_actions.add_parser("validate", help="validate one inbox run directory")
     inbox_validate.add_argument("run_dir")
+    inbox_ingest = inbox_actions.add_parser("ingest", help="import one READY Collector run")
+    inbox_ingest.add_argument("run_id", type=UUID)
+    inbox_actions.add_parser("prune-expired", help="remove expired Collector content")
 
     extract = commands.add_parser("extract", help="rebuild rule-based extraction tags")
     extract_actions = extract.add_subparsers(
@@ -258,6 +268,12 @@ def _execute(args: argparse.Namespace) -> object:
     engine = get_database_engine()
     if args.resource == "extract" and args.action == "rebuild":
         return rebuild_extractions(engine)
+    if args.resource == "inbox" and args.action == "prune-expired":
+        return prune_collector_runs(get_database_engine())
+    if args.resource == "inbox" and args.action == "ingest":
+        return ingest_inbox_run(get_database_engine(), args.run_id)
+    if args.resource == "grant" and args.action == "create-collector":
+        return create_collector_grant(get_database_engine(), args.authority_ref)
     if args.resource == "grant" and args.action == "revoke":
         try:
             grant_id = UUID(args.grant_id)
@@ -302,7 +318,7 @@ def _execute(args: argparse.Namespace) -> object:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.resource == "inbox":
+    if args.resource == "inbox" and args.action == "validate":
         try:
             report = validate_inbox(Path(args.run_dir))
         except Exception:
@@ -338,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     except WatchError as error:
         _print_error(error.code, error.message)
         return 1
-    except GrantError as error:
+    except (GrantError, InboxError) as error:
         _print_error(error.code, error.message)
         return 1
     except ManualImportError as error:
@@ -383,6 +399,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":")))
         return 0
+    if args.resource == "inbox":
+        ok = cast(dict[str, object], result)["state"] in {"done", "succeeded"}
+        print(json.dumps({"ok": ok, "result": result}, ensure_ascii=False))
+        return 0 if ok else 1
     if args.resource == "health":
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         return 0
