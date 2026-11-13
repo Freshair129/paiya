@@ -1,0 +1,30 @@
+{
+  "group_key": "owner-group-01",
+  "grant_id": "44444444-5555-4666-8777-888888888888",
+  "group_url": "https://example.invalid/groups/owner-group-01",
+  "identity_scope": "owner-group-01",
+  "adapter_version": "paiya-collector/0.1.0",
+  "grant": {
+    "active": true,
+    "scopes": ["capture", "read", "media"],
+    "retention_days": 7
+  },
+  "page_size": 5,
+  "overlap": 3,
+  "scroll_budget": 30,
+  "time_budget_seconds": 120,
+  "selectors": {
+    "post_card": "article[data-testid='feed-card']",
+    "post_text": "[data-role='post-text']",
+    "permalink": "a[data-role='permalink']",
+    "seller_name": "[data-role='seller']",
+    "comment": "[data-comment-key]",
+    "comment_text": "[data-role='comment-text']",
+    "comment_author": "[data-role='comment-author']",
+    "image": "img[data-role='product-image']",
+    "sort_indicator": "[data-role='sort']",
+    "feed_end": "[data-role='feed-end']",
+    "pinned": "[data-role='pinned']",
+    "suggested": "[data-role='suggested']"
+  }
+}

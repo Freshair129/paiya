@@ -37,6 +37,9 @@ extend-exclude = ["scripts/"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.mypy]
 python_version = "3.12"
 mypy_path = "src"

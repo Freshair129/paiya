@@ -15,7 +15,22 @@ SOURCE = {
     "FR": DOCS / "requirements/SRS.md",
     "AT": DOCS / "requirements/SRS.md",
 }
-IGNORE = {".git", ".venv", ".pytest_cache", "node_modules", "dist", "build"}
+IGNORE = {
+    ".git",
+    ".venv",
+    ".uv-cache",
+    ".uv-python",
+    ".tmp",
+    ".paiya-validator-env",
+    ".collector-state",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "artifacts",
+    "node_modules",
+    "dist",
+    "build",
+}
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 INLINE_CODE = re.compile(r"(`+)(.+?)\1")
 IDS = re.compile(r"(?<![\w-])(PR|FR|AT)-(\d{2}(?:/\d{2})*)(?![\w-])")

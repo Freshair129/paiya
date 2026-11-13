@@ -37,7 +37,7 @@
 
 ## ระยะ B · Collector อัตโนมัติตามคำตัดสินของเจ้าของ
 
-เงื่อนไขเปิดใช้เป็นไปตาม [ADR 0005](../architecture/decisions/0005-owner-directed-collection.md): เจ้าของบันทึกคำตัดสินและขอบเขตต่อกลุ่มใน grant แทนหลักฐานสิทธิ์จากแพลตฟอร์ม Collector อยู่นอกรีโปและส่งผลผ่าน [inbox](../architecture/contracts/collector-inbox.md)
+เงื่อนไขเปิดใช้เป็นไปตาม [ADR 0005](../architecture/decisions/0005-owner-directed-collection.md) และตำแหน่งโค้ดตาม [ADR 0006](../architecture/decisions/0006-collector-monorepo.md): เจ้าของบันทึกคำตัดสินและขอบเขตต่อกลุ่มใน grant แทนหลักฐานสิทธิ์จากแพลตฟอร์ม โค้ด Collector อยู่ใน `collector/` แต่รันแยกจาก paiya และส่งผลผ่าน [inbox](../architecture/contracts/collector-inbox.md)
 
 | งาน | ต้องมีก่อน | หลักฐานก่อนขยับขั้น |
 |---|---|---|

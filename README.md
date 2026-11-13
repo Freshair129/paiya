@@ -9,6 +9,7 @@
 | เข้าใจผู้ใช้ ขอบเขต MVP และหน้าจอ | [ข้อกำหนดผลิตภัณฑ์](docs/product/PRD.md) |
 | ดูว่าแต่ละส่วนรันที่ไหนและส่งข้อมูลอย่างไร | [ข้อกำหนดสถาปัตยกรรม](docs/architecture/SPEC.md) |
 | เริ่มเขียนโค้ดจากสัญญาข้อมูล API และเกณฑ์รับมอบ | [สัญญาข้อมูลและ API](docs/architecture/contracts/collector-and-query.md) · [ข้อกำหนดระบบ](docs/requirements/SRS.md) |
+| ทดลอง Collector จาก HTML สังเคราะห์และส่ง inbox | [คู่มือ Collector](collector/README.md) · [สเปก Collector](docs/architecture/external-collector.md) |
 | ออกแบบฐานข้อมูล PostgreSQL | [ERD](docs/architecture/views/erd.md) · [Data model และข้อบังคับ](docs/architecture/data-model.md) |
 | พัฒนาเส้นทางผู้ซื้อ | [สัญญา API ที่เสนอ](docs/architecture/contracts/buyer-workflows.md) · [ตัวอย่างตรวจรับทีละขั้น](docs/quality/buyer-acceptance.md) |
 | หางานชิ้นแรกและหลักฐานที่ต้องใช้ปิดงาน | [แผนส่งมอบ](docs/delivery/ROADMAP.md) · [ตารางตรวจย้อนกลับ](docs/quality/TRACEABILITY.md) |
