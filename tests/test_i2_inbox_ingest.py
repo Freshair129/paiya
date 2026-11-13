@@ -12,6 +12,7 @@ from test_a2_ingest import pg_engine as _pg_engine
 from test_i1_inbox_validate import fixture_run_dir
 
 from paiya.cli import main
+from paiya.inbox.validation import validate_inbox
 from paiya.store.tables import capture_runs, media_assets, observations, source_grants
 
 pg_engine = _pg_engine
@@ -31,8 +32,10 @@ def collector_db(pg_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Engine: 
 
 
 def _call(capsys: pytest.CaptureFixture[str], *args: str, expected: int = 0) -> dict:
-    assert main(list(args)) == expected
-    return json.loads(capsys.readouterr().out)
+    code = main(list(args))
+    result = json.loads(capsys.readouterr().out)
+    assert code == expected, result
+    return result
 
 
 @pytest.fixture
@@ -48,6 +51,7 @@ def inbox_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, 
 
 
 def _publish(inbox: Path, grant_id: UUID, started: datetime) -> Path:
+    started = started.replace(microsecond=0)
     run_id = uuid4()
     path = inbox / "incoming" / str(run_id)
     source = fixture_run_dir("valid-complete")
@@ -65,7 +69,9 @@ def _publish(inbox: Path, grant_id: UUID, started: datetime) -> Path:
     for envelope in (path / "envelopes").glob("*.json"):
         doc = json.loads(envelope.read_text(encoding="utf-8"))
         payload = doc["payload"]
-        payload.update(group_key="owner-group-01", observed_at=started.isoformat())
+        payload.update(
+            group_key="owner-group-01", observed_at=started.strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
         seller = payload.get("seller")
         if seller is not None:
             seller["identity_scope"] = "owner-group-01"
@@ -74,6 +80,13 @@ def _publish(inbox: Path, grant_id: UUID, started: datetime) -> Path:
         envelope.unlink()
         envelope.with_name(f"{capture_id}.json").write_text(json.dumps(doc), encoding="utf-8")
     return path
+
+
+def test_synthetic_bundle_matches_i1_contract(inbox_setup: tuple[Path, Path]) -> None:
+    inbox, _media = inbox_setup
+    path = _publish(inbox, uuid4(), datetime.now(UTC) - timedelta(minutes=1))
+    report = validate_inbox(path)
+    assert report["ok"] is True, report
 
 
 def _grant(capsys: pytest.CaptureFixture[str]) -> UUID:

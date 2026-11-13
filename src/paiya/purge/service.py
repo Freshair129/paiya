@@ -1062,7 +1062,7 @@ def _execute_purge_command(
                     if (
                         not scope_exists
                         and existing is not None
-                        and existing["result_counts"]["pending_storage_keys"]
+                        and existing["result_counts"].get("pending_storage_keys")
                     ):
                         previous = dict(existing)
 
