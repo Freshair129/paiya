@@ -61,8 +61,10 @@ jobs:
       - run: uv run --frozen mypy src
       - run: uv run --frozen alembic upgrade head
       - run: uv run --frozen pytest
-      - run: uv sync --project collector --frozen --group dev
-      - run: uv run --project collector --frozen python -m pytest
+      - run: uv sync --frozen --group dev
+        working-directory: collector
+      - run: uv run --frozen python -m pytest
+        working-directory: collector
 
   web:
     runs-on: ubuntu-latest
