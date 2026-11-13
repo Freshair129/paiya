@@ -1,0 +1,9 @@
+.venv/
+.uv-cache/
+.uv-python/
+.tmp/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.collector-state/
+artifacts/

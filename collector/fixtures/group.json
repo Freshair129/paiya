@@ -1,0 +1,10 @@
+{
+  "group_key": "synthetic-thai-gpu-group",
+  "grant_id": "22222222-3333-4444-8555-666666666666",
+  "adapter_version": "paiya-collector/0.1.0",
+  "identity_scope": "synthetic-thai-gpu-group",
+  "page_size": 5,
+  "overlap": 3,
+  "scroll_budget": 30,
+  "time_budget_seconds": 120
+}

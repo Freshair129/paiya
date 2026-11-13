@@ -16,7 +16,7 @@ Collector ทำงานบน Windows เครื่องเดียวก�
 | ตัวเขียน inbox | ตรวจความสัมพันธ์ของ ID สร้างไฟล์ผลรอบและไฟล์ภาพ แล้วเผยแพร่ไดเรกทอรีที่เขียนเสร็จด้วยการ rename ครั้งเดียว |
 | paiya | I1 เปิดไฟล์ที่ระบุและรายงานผลตรวจแบบออฟไลน์ ส่วน I2 ซึ่งจะตรวจ grant กับฐานข้อมูลและนำเข้าข้อมูลจริงอยู่ใน [Issue #91](https://github.com/Freshair129/paiya/issues/91) |
 
-เสนอให้เริ่ม producer ด้วย Python 3.12, Chromium โปรไฟล์เฉพาะงาน และ parser ที่รันกับไฟล์สังเคราะห์ได้ Scrapling เป็นตัวเลือกสำหรับ PoC ตาม SPEC ให้วัดผลกับ fixture ก่อนตรึงเวอร์ชันและเลือกวิธีควบคุมเบราว์เซอร์ที่ไม่ใช้ stealth โปรแกรมนี้ไม่ต้องเชื่อม PostgreSQL, Ollama หรือ MCP การตัดสินสถานะขาย การรวมประวัติผู้ขาย และการคำนวณแนวโน้มราคาอยู่ฝั่ง paiya โค้ดใน [src/paiya/collector](../../src/paiya/collector) ใช้เป็นตัวอ้างอิงพฤติกรรมของ fixture worker ส่วนโปรแกรมที่เปิดแหล่งจริงพัฒนาแยกต่างหากตาม [ADR 0005](decisions/0005-owner-directed-collection.md)
+โค้ด producer อยู่ใน subproject [`collector/`](../../collector/) ของรีโปเดียวกับ paiya ตาม [ADR 0006](decisions/0006-collector-monorepo.md) แต่ติดตั้งและรันเป็น process แยก ใช้ Python 3.12, Chromium โปรไฟล์เฉพาะงาน และ parser ที่ทดสอบด้วยไฟล์สังเคราะห์ โปรแกรมไม่เชื่อม PostgreSQL หรือ MCP; จะใช้ Ollama ในเครื่องได้ตามที่ผู้ใช้เปิดเอง การตัดสินสถานะขาย การรวมประวัติผู้ขาย และการคำนวณแนวโน้มราคาอยู่ฝั่ง paiya โค้ดใน [src/paiya/collector](../../src/paiya/collector) ยังคงเป็น worker สำหรับ fixture ภายในแอป ส่วน Collector ภายนอกส่งผลผ่าน inbox เท่านั้น
 
 ## 2. สิ่งที่เจ้าของควบคุมได้
 
