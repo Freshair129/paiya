@@ -1,4 +1,5 @@
-import { pathToFileURL } from 'node:url'
+import process from 'node:process'
+import { pathToFileURL, URL } from 'node:url'
 
 export function createO5VercelConfig(ingress) {
   const url = new URL(ingress)
