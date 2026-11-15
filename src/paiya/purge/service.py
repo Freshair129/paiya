@@ -552,13 +552,13 @@ def _purge_rows(
     )
     expired_sellers: set[UUID] = set()
     if collector_post_ids:
-        documents = conn.execute(
+        rows = conn.execute(
             select(observations.c.normalized_json).where(
                 observations.c.id.in_(target_observation_ids),
                 observations.c.post_id.in_(collector_post_ids),
             )
-        ).scalars()
-        for document in documents:
+        )
+        for (document,) in rows:
             seller_id = _collector_seller_id(conn, document["payload"])
             if seller_id is not None:
                 expired_sellers.add(seller_id)
