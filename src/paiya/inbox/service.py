@@ -212,12 +212,12 @@ def media_journal(inbox: Path, run_id: UUID) -> Path:
 
 def ingest_inbox_run(engine: Engine, run_id: UUID) -> dict[str, Any]:
     inbox, media = inbox_paths()
-    check_purge_log(engine)
     name = str(run_id)
     incoming = _directory(inbox / "incoming" / name)
     processing = _directory(inbox / "processing" / name)
 
     with collector_inbox_lock(engine) as conn:
+        check_purge_log(engine)
         for stage in ("processing", "done", "rejected"):
             _directory(inbox / stage).mkdir(exist_ok=True)
         done = _directory(inbox / "done" / name / "result.json")
@@ -275,7 +275,9 @@ def ingest_inbox_run(engine: Engine, run_id: UUID) -> dict[str, Any]:
                     report, bundle = read_inbox(processing)
                     if bundle is None:
                         result = _rejected(run_id, "validation_failed")
-                        result["problems"] = report["problems"]
+                        # Paths and JSON field names can contain producer-controlled text.
+                        problems = cast(list[dict[str, str]], report["problems"])
+                        result["problem_codes"] = sorted({problem["code"] for problem in problems})
                     else:
                         journal.mkdir(exist_ok=True)
                         result = _persist(conn, run_id, bundle, media, journal)

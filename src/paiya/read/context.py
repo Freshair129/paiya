@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import Connection, exists, select
+from sqlalchemy import Connection, exists, or_, select
 from sqlalchemy.sql import ColumnElement
 
 from paiya.grants.collector import RETENTION, SOURCE_KIND
@@ -58,12 +58,19 @@ def dev_fixture_group_key_from_env() -> str | None:
 
 
 def collector_retention_allows_read(current: datetime) -> ColumnElement[bool]:
-    """Close reads for a Collector group until overdue projections are removed."""
+    """Close Collector reads while shared projections include disallowed source runs."""
+    run_grant = source_grants.alias("collector_run_grant")
     return (source_grants.c.source_kind != SOURCE_KIND) | ~exists(
-        select(1).where(
+        select(1)
+        .select_from(capture_runs.join(run_grant, run_grant.c.id == capture_runs.c.grant_id))
+        .where(
             capture_runs.c.group_id == source_grants.c.group_id,
             capture_runs.c.source_kind == SOURCE_KIND,
-            capture_runs.c.started_at <= current - RETENTION,
+            or_(
+                capture_runs.c.started_at <= current - RETENTION,
+                run_grant.c.revoked_at.is_not(None),
+                run_grant.c.valid_until <= current,
+            ),
         )
     )
 

@@ -21,7 +21,7 @@ from paiya.grants.service import revoke_grant
 from paiya.groups.errors import GroupError
 from paiya.groups.service import add_group, list_groups, pause, resume, set_interval
 from paiya.health.service import get_health_report
-from paiya.inbox.retention import prune_collector_runs
+from paiya.inbox.retention import clean_pending_for_grant_purge, prune_collector_runs
 from paiya.inbox.service import InboxError, ingest_inbox_run
 from paiya.inbox.validation import validate_inbox
 from paiya.manual.service import ManualImportError, ManualImportService
@@ -260,7 +260,9 @@ def _execute(args: argparse.Namespace) -> object:
         return seed_demo(get_database_engine())
     if args.resource == "purge" and args.action == "run":
         validate_scope_format(args.scope)
-        return run_purge(get_database_engine(), args.scope)
+        engine = get_database_engine()
+        clean_pending_for_grant_purge(engine, args.scope)
+        return run_purge(engine, args.scope)
     if args.resource == "purge" and args.action == "replay":
         return replay_purge_log(get_database_engine())
 

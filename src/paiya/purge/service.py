@@ -491,6 +491,43 @@ def _rebuild_collector_posts(
         conn.execute(update(posts).where(posts.c.id == post_id).values(**values))
 
 
+def _rebuild_collector_comment_parents(
+    conn: Connection, post_ids: set[UUID], observation_ids: list[UUID]
+) -> None:
+    if not post_ids:
+        return
+    active = conn.execute(
+        select(comments.c.id, comments.c.post_id, comments.c.source_comment_key).where(
+            comments.c.post_id.in_(post_ids),
+            comments.c.source_comment_key.is_not(None),
+            exists(select(1).where(comment_versions.c.comment_id == comments.c.id)),
+        )
+    )
+    comment_ids: dict[tuple[UUID, str], UUID] = {
+        (post_id, key): comment_id for comment_id, post_id, key in active
+    }
+    conn.execute(update(comments).where(comments.c.post_id.in_(post_ids)).values(parent_id=None))
+    retained = conn.execute(
+        select(observations.c.post_id, observations.c.normalized_json)
+        .where(observations.c.id.in_(observation_ids), observations.c.post_id.in_(post_ids))
+        .order_by(observations.c.observed_at.desc(), observations.c.id.desc())
+    )
+    resolved: set[UUID] = set()
+    for post_id, document in retained:
+        payload = cast(Mapping[str, Any], document)["payload"]
+        for comment in payload.get("comments", []):
+            comment_id = comment_ids.get((post_id, comment.get("source_comment_key")))
+            if comment_id is None or comment_id in resolved:
+                continue
+            resolved.add(comment_id)
+            parent_key = comment.get("parent_key")
+            parent_id = comment_ids.get((post_id, parent_key)) if parent_key else None
+            if parent_id is not None:
+                conn.execute(
+                    update(comments).where(comments.c.id == comment_id).values(parent_id=parent_id)
+                )
+
+
 def _purge_rows(
     conn: Connection, scope_kind: str, scope_id: UUID
 ) -> tuple[dict[str, object], list[tuple[str, str]]]:
@@ -552,14 +589,14 @@ def _purge_rows(
     )
     expired_sellers: set[UUID] = set()
     if collector_post_ids:
-        rows = conn.execute(
+        target_documents = conn.execute(
             select(observations.c.normalized_json).where(
                 observations.c.id.in_(target_observation_ids),
                 observations.c.post_id.in_(collector_post_ids),
             )
         )
-        for (document,) in rows:
-            seller_id = _collector_seller_id(conn, document["payload"])
+        for (document,) in target_documents:
+            seller_id = _collector_seller_id(conn, cast(Mapping[str, Any], document)["payload"])
             if seller_id is not None:
                 expired_sellers.add(seller_id)
 
@@ -841,6 +878,9 @@ def _purge_rows(
             comments.c.id,
         )
     surviving_posts = affected_post_ids - removed_post_ids
+    _rebuild_collector_comment_parents(
+        conn, collector_post_ids & surviving_posts, remaining_observation_ids
+    )
     if surviving_posts:
         counts["comments"] = cast(int, counts["comments"]) + _comments_without_versions(
             conn, list(surviving_posts)

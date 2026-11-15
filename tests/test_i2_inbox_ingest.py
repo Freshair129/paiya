@@ -16,8 +16,10 @@ from paiya.cli import main
 from paiya.grants.service import revoke_grant
 from paiya.inbox import service as inbox_service
 from paiya.inbox.validation import validate_inbox
+from paiya.read.context import resolve_readable_grants
 from paiya.store.tables import (
     capture_runs,
+    comments,
     media_assets,
     observations,
     posts,
@@ -175,6 +177,17 @@ def test_rejects_whole_run_without_database_writes(
         assert conn.execute(select(func.count()).select_from(observations)).scalar_one() == 0
 
 
+def _put_comments(run: Path, entries: list[dict]) -> None:
+    envelope = next((run / "envelopes").glob("*.json"))
+    document = json.loads(envelope.read_text(encoding="utf-8"))
+    payload = document["payload"]
+    payload["comments"] = entries
+    payload["activity"]["distinct_comments_seen"] = len(entries)
+    envelope.write_text(json.dumps(document), encoding="utf-8")
+    report = validate_inbox(run)
+    assert report["ok"], report
+
+
 def test_prune_expired_run_preserves_newer_observation_and_shared_media(
     collector_db: Engine,
     inbox_setup: tuple[Path, Path],
@@ -200,6 +213,17 @@ def test_prune_expired_run_preserves_newer_observation_and_shared_media(
         "precision": "exact",
     }
     envelope.write_text(json.dumps(document), encoding="utf-8")
+    child = {
+        "source_comment_key": "child",
+        "actor_key": None,
+        "role": "unknown",
+        "text": "Synthetic reply",
+        "source_time": {"source_text": None, "value": None, "precision": "unknown"},
+    }
+    _put_comments(
+        old, [dict(child, source_comment_key="old-parent"), dict(child, parent_key="old-parent")]
+    )
+    _put_comments(fresh, [child])
     _call(capsys, "inbox", "ingest", old.name)
     _call(capsys, "inbox", "ingest", fresh.name)
     with collector_db.begin() as conn:
@@ -218,6 +242,10 @@ def test_prune_expired_run_preserves_newer_observation_and_shared_media(
         assert conn.execute(select(capture_runs.c.id)).scalar_one() == UUID(fresh.name)
         assert conn.execute(select(posts.c.seller_id, posts.c.posted_at)).one() == (None, None)
         assert conn.execute(select(func.count()).select_from(sellers)).scalar_one() == 0
+        assert conn.execute(select(comments.c.source_comment_key, comments.c.parent_id)).one() == (
+            "child",
+            None,
+        )
     assert len(list((media / "assets").iterdir())) == 1
     assert _call(capsys, "purge", "replay")["pending_count"] == 0
 
@@ -251,7 +279,9 @@ def test_expiry_removes_damaged_claim(
     else:
         (claimed / "run.json").unlink()
         (claimed / "READY").unlink()
-    os.utime(claimed, (started.timestamp(), started.timestamp()))
+    if damage == "ready":
+        for file in (claimed / "assets").iterdir():
+            os.utime(file, (started.timestamp(), started.timestamp()))
     if (claimed / "READY").exists():
         os.utime(claimed / "READY", (started.timestamp(), started.timestamp()))
     newer = _publish(inbox, uuid4(), datetime.now(UTC) - timedelta(minutes=1))
@@ -310,3 +340,64 @@ def test_failed_ingest_recovers_media(
     with collector_db.connect() as conn:
         assert conn.execute(select(func.count()).select_from(media_assets)).scalar_one() == 0
         assert conn.execute(select(func.count()).select_from(observations)).scalar_one() == 0
+
+
+def test_rejection_receipt_does_not_retain_untrusted_names(
+    collector_db: Engine, inbox_setup: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    inbox, _ = inbox_setup
+    run = _publish(inbox, uuid4(), datetime.now(UTC) - timedelta(minutes=1))
+    (run / "synthetic-private-post-text.txt").write_text("synthetic", encoding="utf-8")
+    rejected = _call(capsys, "inbox", "ingest", run.name, expected=1)["result"]
+    assert "layout_unexpected" in rejected["problem_codes"]
+    receipt = (inbox / "rejected" / run.name / "result.json").read_text(encoding="utf-8")
+    assert "synthetic-private-post-text" not in receipt
+
+
+def test_revoked_grant_purge_removes_pending_and_unblocks_other_grant(
+    collector_db: Engine, inbox_setup: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    inbox, _ = inbox_setup
+    grant = _grant(capsys)
+    other_grant = _grant(capsys)
+    now = datetime.now(UTC)
+    with collector_db.begin() as conn:
+        conn.execute(update(source_grants).values(valid_from=now - timedelta(days=9)))
+    completed = _publish(inbox, grant, now - timedelta(minutes=1))
+    _call(capsys, "inbox", "ingest", completed.name)
+    incoming = _publish(inbox, grant, now - timedelta(minutes=1))
+    claimed = _publish(inbox, grant, now - timedelta(minutes=1))
+    (inbox / "processing").mkdir(exist_ok=True)
+    claimed = claimed.rename(inbox / "processing" / claimed.name)
+    fresh = _publish(inbox, other_grant, now - timedelta(minutes=1))
+
+    with collector_db.connect() as conn:
+        assert len(resolve_readable_grants(conn)) == 2
+    _call(capsys, "grant", "revoke", str(grant))
+    with collector_db.connect() as conn:
+        assert resolve_readable_grants(conn) == []
+    _call(capsys, "purge", "run", "--scope", f"grant:{grant}")
+    assert not incoming.exists()
+    assert not claimed.exists()
+    assert fresh.is_dir()
+    with collector_db.connect() as conn:
+        assert [row.grant_id for row in resolve_readable_grants(conn)] == [other_grant]
+
+
+def test_prune_leaves_foreign_and_unpublished_uuid_directories(
+    collector_db: Engine, inbox_setup: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    inbox, _ = inbox_setup
+    started = datetime.now(UTC) - timedelta(days=8)
+    foreign = _publish(inbox, uuid4(), started)
+    path = foreign / "run.json"
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    summary["group_key"] = "unapproved-synthetic-group"
+    path.write_text(json.dumps(summary), encoding="utf-8")
+    os.utime(foreign / "READY", (started.timestamp(), started.timestamp()))
+    unpublished = inbox / "incoming" / str(uuid4())
+    unpublished.mkdir()
+    os.utime(unpublished, (started.timestamp(), started.timestamp()))
+    result = _call(capsys, "inbox", "prune-expired")["result"]
+    assert result["expired_bundles"] == 0
+    assert foreign.is_dir() and unpublished.is_dir()

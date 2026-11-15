@@ -17,7 +17,7 @@ I2 เพิ่มการเพิกถอนและลบ grant ของ�
 
 `uv run python -m paiya.cli grant revoke <grant_id>`
 
-1. ใน transaction เดียว: lock แถว `source_grants` แบบ `FOR UPDATE` ตั้ง `revoked_at = now` ถ้ายังว่าง แล้วตั้งงาน `queued` และ `leased` ทุกชนิดของ grant นั้นเป็น `cancelled` และล้าง lease
+1. ใน transaction เดียว: lock แถว `source_grants` แบบ `FOR NO KEY UPDATE` ตั้ง `revoked_at = now` ถ้ายังว่าง แล้วตั้งงาน `queued` และ `leased` ทุกชนิดของ grant นั้นเป็น `cancelled` และล้าง lease
 2. การ lock นี้ชนกับ `FOR SHARE` ที่ ingest, collector และ MCP ใช้ตอน commit
    - ถ้า commit ของงานอื่นถือ lock อยู่ก่อน การเพิกถอนรอให้ commit นั้นเสร็จ
    - หลังการเพิกถอน commit ใหม่ทุกครั้งล้มด้วย `grant_unavailable` และไม่มีแถวใหม่
@@ -65,7 +65,7 @@ I2 เพิ่มการเพิกถอนและลบ grant ของ�
 
 สถิติราคา หน้าผู้ขาย และ `/v1/models` คำนวณตอนอ่าน จึงไม่นับข้อมูลที่ลบเองโดยไม่ต้องมีขั้นเพิ่ม
 
-**ไฟล์** ลบไฟล์ไม่สำเร็จ (เช่น ถูกล็อก) ไม่ทำให้ transaction ย้อน ให้นับใน `result_counts.files_pending` และตั้งสถานะ `succeeded`
+**ไฟล์** ลบไฟล์ไม่สำเร็จ (เช่น ถูกล็อก) ไม่ทำให้ transaction ย้อน ให้นับใน `result_counts.files_pending` และตั้งสถานะ `succeeded` สำหรับขอบเขต A8 ขอบเขต `collector_run` จะค้างให้ replay จนกว่าจะลบครบ
 - สั่ง `purge run` ด้วยขอบเขตเดิมซ้ำจะลองลบไฟล์ที่ค้างอีกครั้ง โดยใช้รายการ storage key ที่เก็บใน `result_counts.pending_storage_keys`
 - ค่าในรายการเป็น opaque key ไม่ใช่เนื้อหา
 
@@ -73,7 +73,7 @@ I2 เพิ่มการเพิกถอนและลบ grant ของ�
 - ลบขอบเขตเดิมซ้ำหลังสำเร็จ ได้ `purge_jobs` ใหม่ที่จำนวนแถวทุกตารางเป็นศูนย์ และไม่แก้แถวใดในฐานข้อมูล ผลข้างเคียงเดียวที่ยอมให้มีคือการลองลบไฟล์ที่ค้างจากคำสั่งก่อนหน้าของขอบเขตเดียวกัน ซึ่งนับใน `files_deleted` และ `files_pending` ของแถวใหม่ ถ้าไม่มีไฟล์ค้างก็ไม่มีผลข้างเคียงใด
 - ถ้า transaction ล้ม `purge_jobs` เป็น `failed` พร้อมเหตุ ไม่มีแถวใดถูกลบ สั่งซ้ำได้
 
-**`purge_jobs`** (migration ใหม่ เพิ่มตารางอย่างเดียว) คอลัมน์ `id uuid`, `scope_kind` (`grant`, `post`), `scope_key text`, `requested_at`, `state` (`running`, `succeeded`, `failed`), `completed_at?`, `reason?`, `result_counts jsonb` downgrade ปฏิเสธเมื่อตารางมีแถว แทนการลบ
+**`purge_jobs`** (migration ใหม่ เพิ่มตารางอย่างเดียว) คอลัมน์ `id uuid`, `scope_kind` (`grant`, `post`, `collector_run`), `scope_key text`, `requested_at`, `state` (`running`, `succeeded`, `failed`), `completed_at?`, `reason?`, `result_counts jsonb` downgrade ปฏิเสธเมื่อตารางมีแถว แทนการลบ
 
 ## 4. บันทึกคำสั่งลบและการ replay หลังกู้คืน (A8c)
 
