@@ -148,6 +148,19 @@ jobs:
       - run: pnpm --dir web typecheck
       - run: pnpm --dir web test
       - run: pnpm --dir web build
+      - name: Package the static dashboard for local preview
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/local-dashboard"
+          tar -C web/dist -czf "$RUNNER_TEMP/local-dashboard/paiya-web-dist.tar.gz" .
+          cd "$RUNNER_TEMP/local-dashboard"
+          sha256sum paiya-web-dist.tar.gz > SHA256SUMS
+      - name: Upload the static dashboard
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: paiya-web-dist
+          path: ${{ runner.temp }}/local-dashboard/
+          retention-days: 3
 
   e2e:
     runs-on: ubuntu-latest
