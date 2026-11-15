@@ -61,9 +61,15 @@ jobs:
       - run: uv run --frozen mypy src
       - run: uv run --frozen alembic upgrade head
       - run: uv run --frozen pytest
-      - run: uv sync --frozen --group dev
+      - run: uv sync --frozen --group dev --extra browser
         working-directory: collector
-      - run: uv run --frozen python -m pytest
+      - run: uv run --frozen --extra browser python -m playwright install chromium
+        working-directory: collector
+      - run: uv run --frozen --extra browser python -m pytest
+        working-directory: collector
+      - run: uv run --frozen --extra browser python -m pytest -q tests/b1_browser_origin_integration.py
+        working-directory: collector
+      - run: PYTHONPATH=. uv run --frozen python scripts/score_b1a.py
         working-directory: collector
 
   web:

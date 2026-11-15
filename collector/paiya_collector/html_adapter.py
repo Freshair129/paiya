@@ -122,6 +122,42 @@ _THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 _AMOUNT = r"([0-9๐-๙][0-9๐-๙,]*(?:\.[0-9๐-๙]{1,2})?)\s*(?:บาท|฿)"
 
 
+_MODEL = re.compile(
+    r"\bRTX\s*([0-9๐-๙]{3,4})(?:\s*(Ti(?:\s+SUPER)?|SUPER))?"
+    r"(?:\s*([0-9๐-๙]{1,2})\s*GB)?\b",
+    re.IGNORECASE,
+)
+_MONEY_NUMBER = r"[0-9๐-๙]+(?:,[0-9๐-๙]{3})*(?:\.[0-9๐-๙]{1,2})?"
+_THB_MARKER = r"บาท|฿|THB\b"
+_USD_MARKER = r"USD\b|US\$|ดอลลาร์สหรัฐ"
+_MONEY_MARKER = rf"{_THB_MARKER}|{_USD_MARKER}"
+_ASK_MONEY = (
+    rf"(?:(?P<prefix>{_MONEY_MARKER})\s*(?P<prefix_amount>{_MONEY_NUMBER})(?![\d.,])"
+    rf"|(?P<amount>{_MONEY_NUMBER})\s*(?P<suffix>{_MONEY_MARKER}))"
+)
+_ASK_LABEL = r"ราคาตั้งขาย|ราคาขาย|ขายราคา|ขายที่|ราคา|ปล่อย(?:ที่)?"
+_BUY_INTENT = re.compile(
+    r"(?m)^\s*หา\s+RTX|รับซื้อ|ตามหา|ตั้งรับ|เสนอซื้อ|งบซื้อ",
+    re.IGNORECASE,
+)
+_BUNDLE = re.compile(r"ยกชุด|ทั้งชุด|ต่อชุด|/ชุด|ไม่แยกขาย|เหมาหมด")
+_MONEY_START = rf"(?:{_MONEY_MARKER})?\s*[0-9๐-๙]"
+_NON_ASK_SUFFIX = re.compile(
+    rf"^\s*(?:[-–—~]|(?:ถึง|หรือ)\s*{_MONEY_START}"
+    rf"|เป็นมัดจำ|\(\s*มัดจำ|มัดจำ(?!\s*[:：]?\s*{_MONEY_START})"
+    r"|/เดือน|ต่อเดือน|/งวด|ต่องวด)",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class AskingPrice:
+    quote: str
+    amount: str
+    currency: str
+    unit: str
+
+
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -202,8 +238,8 @@ def parse_card(
     post_text_node = node.first(lambda child: child.attrs.get("data-role") == "post-text")
     post_text = post_text_node.text_content().strip() if post_text_node else ""
     claims = evidence_agent.extract(post_text) if evidence_agent is not None else EvidenceClaims()
-    model_match = _extract_model(post_text)
-    parsed_model, parsed_model_quote = model_match if model_match is not None else (None, None)
+    models = _extract_models(post_text)
+    parsed_model, parsed_model_quote = models[0] if len(models) == 1 else (None, None)
     agent_model = _verified_text_claim(
         claims.product_model, claims.product_model_quote, "product_model", post_text
     )
@@ -213,17 +249,9 @@ def parse_card(
         and _model_key(parsed_model) != _model_key(agent_model[0])
     ):
         agent_model = None
-    model = parsed_model or (agent_model[0] if agent_model else None)
-    model_quote = parsed_model_quote or (agent_model[1] if agent_model else None)
-
-    parsed_ask = _extract_amount(post_text, r"(?:ราคา(?:ขาย)?|ขายราคา)\s*" + _AMOUNT)
-    ask = _merge_price_claim(
-        post_text,
-        parsed_ask,
-        claims.ask_amount_thb,
-        claims.ask_price_quote,
-        r"(?:ราคา(?:ขาย)?|ขายราคา)",
-    )
+    model = parsed_model or (agent_model[0] if agent_model and not models else None)
+    model_quote = parsed_model_quote or (agent_model[1] if agent_model and not models else None)
+    ask = _extract_asking_price(post_text, model_quote) if model and len(models) <= 1 else None
     parsed_shipping = _extract_amount(post_text, r"(?:ค่าส่ง|ค่า\s*ส่ง|ค่าจัดส่ง)\s*" + _AMOUNT)
     shipping = _merge_price_claim(
         post_text,
@@ -244,13 +272,13 @@ def parse_card(
     evidence: list[dict[str, object]] = []
     assets: dict[str, dict[str, object]] = {}
     asset_bytes: dict[str, bytes] = {}
-    post_quote = model_quote or (ask[0] if ask else post_text[:160])
+    post_quote = model_quote or (ask.quote if ask else post_text[:160])
     if post_quote:
         evidence.append(_evidence("e-post", "seller", "post_text", post_text, post_quote))
 
     item_evidence = ["e-post"] if post_quote else []
     if ask:
-        evidence.append(_evidence("e-ask", "seller", "post_text", post_text, ask[0]))
+        evidence.append(_evidence("e-ask", "seller", "post_text", post_text, ask.quote))
         item_evidence.append("e-ask")
     image_node = node.first(
         lambda child: child.tag == "img" and child.attrs.get("data-role") == "post-image"
@@ -313,7 +341,9 @@ def parse_card(
                 "model": model,
                 "condition_text": condition,
                 "source_status_label": None,
-                "price": _price("ask", "each", ask[1]) if ask else None,
+                "price": _price("ask", ask.unit, ask.amount, currency=ask.currency)
+                if ask
+                else None,
                 "evidence_keys": item_evidence,
             }
         )
@@ -460,25 +490,52 @@ def _evidence(
     }
 
 
-def _extract_model(text: str) -> tuple[str, str] | None:
-    match = re.search(
-        r"\bRTX\s*([0-9๐-๙]{3,4})(?:\s*([0-9๐-๙]{1,2})\s*GB)?\b",
-        text,
-        re.IGNORECASE,
-    )
-    if not match:
+def _extract_models(text: str) -> list[tuple[str, str]]:
+    models: dict[str, str] = {}
+    for match in _MODEL.finditer(text):
+        model = f"RTX {match.group(1).translate(_THAI_DIGITS)}"
+        if match.group(2):
+            variant = " ".join(
+                "Ti" if word.casefold() == "ti" else "SUPER" for word in match.group(2).split()
+            )
+            model += f" {variant}"
+        if match.group(3):
+            model += f" {match.group(3).translate(_THAI_DIGITS)}GB"
+        models.setdefault(model, match.group(0))
+    shorter_names = {model.rsplit(" ", 1)[0] for model in models if re.search(r" [0-9]+GB$", model)}
+    return [(model, quote) for model, quote in models.items() if model not in shorter_names]
+
+
+def _extract_asking_price(text: str, model_quote: str | None) -> AskingPrice | None:
+    if _BUY_INTENT.search(text):
         return None
-    model = f"RTX {match.group(1).translate(_THAI_DIGITS)}"
-    if match.group(2):
-        model += f" {match.group(2).translate(_THAI_DIGITS)}GB"
-    return model, match.group(0)
+    label = _ASK_LABEL
+    if model_quote:
+        label += rf"|(?:ขอ)?ปล่อย\s+{re.escape(model_quote)}\s+ที่"
+    candidates = []
+    for match in re.finditer(rf"(?:{label})\s*[:：]?\s*{_ASK_MONEY}", text, re.IGNORECASE):
+        if _NON_ASK_SUFFIX.search(text[match.end() :]):
+            continue
+        explicit_currency = match.group("prefix") or match.group("suffix")
+        currency = "USD" if re.fullmatch(_USD_MARKER, explicit_currency, re.IGNORECASE) else "THB"
+        amount = _format_amount(match.group("prefix_amount") or match.group("amount"))
+        candidates.append((match.group(0), amount, currency))
+    if not candidates or len({candidate[1:] for candidate in candidates}) != 1:
+        return None
+    quote, amount, currency = candidates[0]
+    unit = "bundle" if _BUNDLE.search(text) else "each"
+    return AskingPrice(quote, amount, currency, unit)
 
 
 def _extract_amount(text: str, pattern: str) -> tuple[str, str] | None:
     match = re.search(pattern, text)
     if not match:
         return None
-    raw_amount = match.group(1).translate(_THAI_DIGITS).replace(",", "")
+    return match.group(0), _format_amount(match.group(1))
+
+
+def _format_amount(value: str) -> str:
+    raw_amount = value.translate(_THAI_DIGITS).replace(",", "")
     try:
         decimal_amount = Decimal(raw_amount)
         if not decimal_amount.is_finite() or decimal_amount < 0:
@@ -486,7 +543,7 @@ def _extract_amount(text: str, pattern: str) -> tuple[str, str] | None:
         amount = f"{decimal_amount:.2f}"
     except InvalidOperation as exc:
         raise CardParseError(f"invalid price amount: {raw_amount}") from exc
-    return match.group(0), amount
+    return amount
 
 
 def _model_key(value: str) -> str:
@@ -571,8 +628,8 @@ def _item_key(model: str) -> str:
     return "gpu-" + "-".join(tokens)
 
 
-def _price(kind: str, unit: str, amount: str) -> dict[str, str]:
-    return {"kind": kind, "unit": unit, "amount": amount, "currency": "THB"}
+def _price(kind: str, unit: str, amount: str, *, currency: str = "THB") -> dict[str, str]:
+    return {"kind": kind, "unit": unit, "amount": amount, "currency": currency}
 
 
 def _source_time(source_text: str | None) -> dict[str, object]:

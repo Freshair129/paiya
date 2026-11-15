@@ -22,7 +22,7 @@ If Ollama is running locally with `mellum:latest`, the offline fixture can pass 
 .\collector\scripts\run-collector.ps1 discover --fixture .\fixtures\rtx3060.html --group-config .\fixtures\group.json --inbox F:\paiya-collector-data\mellum-demo\inbox --state-dir F:\paiya-collector-data\mellum-demo\state --run-id 31313131-2222-4333-8444-555555555555 --agent-model mellum:latest
 ```
 
-Python sends only one post's visible text to `127.0.0.1:11434`. It does not send raw HTML, comments, images, URLs, cookies, or profile data. Deterministic parsing validates and takes precedence over model suggestions.
+Python sends only one post's visible text to `127.0.0.1:11434`. It does not send raw HTML, comments, images, URLs, cookies, or profile data. Deterministic parsing validates model and shipping suggestions. Asking prices and units use the deterministic rules alone so an optional model cannot restore a price rejected as ambiguous or non-ask.
 
 ## Manually started visible Chrome adapter
 
@@ -108,6 +108,22 @@ Issue #76 is resolved using first-sighting wins: a repeated stable key is skippe
 ```
 
 All tests use offline synthetic data. The suite covers successful publication, unverified sorting, login/challenge, duplicate cards and changed duplicate content, overlap and budgets, 429 with and without a `Retry-After`, atomic publication interrupted before rename, replay idempotency, dedicated profile checks, seven-day expiry (including an abandoned temp bundle without `run.json`), linked-path rejection, and stale-lock preservation.
+
+## Phase B offline acceptance
+
+B1 pins the controlled Chrome tab to the configured scheme, host, and port. The runtime blocks cross-origin document requests before redirects or links reach the destination and checks the configured group before DOM extraction. Main-frame documents outside the configured group are also rejected. Same-origin login and challenge URLs are handled as stop conditions without card extraction. An in-flight navigation invalidates the snapshot.
+
+The integration test runs direct links, HTTP 302, and a same-origin HTTP 307 followed by a cross-origin redirect against two loopback HTTP origins. Each path runs with an invented Authorization header, explicit Cookie header, and challenged HTTP Basic credentials. A same-origin redirect confirms that each credential is actually sent to the authorized origin.
+
+Run from `collector/` with Python 3.12, the browser extra and dev dependencies installed. Set `PAIYA_B1_CHROME` to use the installed Chrome binary. CI installs Chromium as a separate setup step.
+
+```powershell
+uv run --locked --extra browser python -m pytest -q tests/b1_browser_origin_integration.py
+$env:PYTHONPATH = (Get-Location).Path
+uv run --locked python scripts/score_b1a.py --report b1a-score.json --review b1a-review.md
+```
+
+B1a scores the unassisted Collector parser on [100 synthetic cases](fixtures/b1a-price-cases.jsonl). The owner confirmed all 100 expected labels for [PR #111](https://github.com/Freshair129/paiya/pull/111). The rerun matched amount, currency, and item jointly in 64 of 64 clear-price cases and excluded all 36 non-comparable controls. The scorer marks the confirmed corpus as owner-reviewed by its content digest. A changed corpus requires a new owner review.
 
 ## Validate a bundle with paiya
 

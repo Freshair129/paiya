@@ -223,9 +223,18 @@ def _is_configured_group_url(current_url: str, configured_url: str) -> bool:
             or configured.hostname not in allowed_hosts
         ):
             return False
-        current_segments = [unquote(segment) for segment in current.path.split("/") if segment]
+    except ValueError:
+        return False
+    return _matches_group_path(current_url, configured_url)
+
+
+def _matches_group_path(current_url: str, configured_url: str) -> bool:
+    try:
+        current_segments = [
+            unquote(segment) for segment in urlsplit(current_url).path.split("/") if segment
+        ]
         configured_segments = [
-            unquote(segment) for segment in configured.path.split("/") if segment
+            unquote(segment) for segment in urlsplit(configured_url).path.split("/") if segment
         ]
     except ValueError:
         return False
