@@ -62,7 +62,7 @@ def _port_from_env() -> int:
 
 
 def main() -> None:
-    """Start uvicorn on loopback only; the host is intentionally not configurable."""
+    """Start the loopback API or the opt-in Compose preview listener."""
     try:
         gateway = mobile_gateway()
         if gateway is not None:
@@ -81,12 +81,10 @@ def main() -> None:
     except (RuntimeError, ValueError) as error:
         print(f"paiya.serve: {error}", file=sys.stderr)
         raise SystemExit(2) from error
-    uvicorn.run(
-        app,
-        host="0.0.0.0" if gateway else "127.0.0.1",
-        port=port,
-        proxy_headers=gateway is None,
-    )
+    if gateway is None:
+        uvicorn.run(app, host="127.0.0.1", port=port)
+    else:
+        uvicorn.run(app, host="0.0.0.0", port=port, proxy_headers=False)
 
 
 if __name__ == "__main__":
