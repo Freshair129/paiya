@@ -1,0 +1,14 @@
+**
+!pyproject.toml
+!uv.lock
+!src/
+!src/**
+!migrations/
+!migrations/**
+!fixtures/
+!fixtures/**
+!docs/
+!docs/architecture/
+!docs/architecture/**
+!alembic.ini
+**/__pycache__/

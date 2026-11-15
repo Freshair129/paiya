@@ -72,6 +72,45 @@ jobs:
       - run: PYTHONPATH=. uv run --frozen python scripts/score_b1a.py
         working-directory: collector
 
+  o5-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          python-version: '3.12'
+      - name: Set up isolated synthetic credentials
+        run: |
+          set -euo pipefail
+          {
+            echo 'PAIYA_O5_ORIGIN=https://paiya-preview.example.test'
+            echo 'PAIYA_O5_BACKEND_HOST=paiya-api.example.test'
+            for name in PAIYA_O5_DB_PASSWORD PAIYA_O5_PROXY_KEY PAIYA_O5_PAIRING_CODE PAIYA_O5_TEST_PASSPHRASE; do
+              value=$(openssl rand -hex 32)
+              echo "::add-mask::$value" >&2
+              echo "$name=$value"
+            done
+          } >> "$GITHUB_ENV"
+      - name: Build and bootstrap Docker preview
+        run: |
+          set -euo pipefail
+          docker compose -f compose.o5.yaml build api
+          docker compose -f compose.o5.yaml run --rm -T api alembic upgrade head
+          docker compose -f compose.o5.yaml run --rm -T api python -m paiya.cli demo seed
+          printf '%s' "$PAIYA_O5_TEST_PASSPHRASE" | docker compose -f compose.o5.yaml run --rm -T api python -c 'import sys; from paiya.auth.credentials import create_auth_verifier; create_auth_verifier(sys.stdin.read())'
+          docker compose -f compose.o5.yaml up -d --no-build
+          curl --fail --silent --retry 15 --retry-connrefused --retry-delay 1 \
+            -H "Host: $PAIYA_O5_BACKEND_HOST" -H "X-Paiya-Proxy-Key: $PAIYA_O5_PROXY_KEY" \
+            http://127.0.0.1:8785/v1/auth/challenge >/dev/null
+      - name: Verify mobile auth and synthetic data from the container
+        run: uv run --frozen python scripts/check_o5_preview.py
+      - name: Remove synthetic container state
+        if: always()
+        run: docker compose -f compose.o5.yaml down --volumes
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 15

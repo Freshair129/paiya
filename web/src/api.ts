@@ -429,13 +429,16 @@ export interface UnlockResponse {
   csrf_token: string
 }
 
-export async function unlockOwner(passphrase: string): Promise<UnlockResponse> {
+export async function unlockOwner(passphrase: string, pairingCode?: string): Promise<UnlockResponse> {
   const challengeResponse = await fetch('/v1/auth/challenge', {
     method: 'GET',
     headers: { Accept: 'application/json' },
     credentials: 'same-origin',
   })
-  const challenge = await responseJson<{ nonce: string }>(challengeResponse, 'פתหน้าปลดล็อก')
+  const challenge = await responseJson<{ nonce: string; pairing_required?: boolean }>(challengeResponse, 'เปิดหน้าปลดล็อก')
+  if (challenge.pairing_required && !pairingCode) {
+    throw new ApiError(403, 'pairing_required', 'ต้องจับคู่อุปกรณ์')
+  }
   const response = await fetch('/v1/auth/unlock', {
     method: 'POST',
     headers: {
@@ -444,7 +447,7 @@ export async function unlockOwner(passphrase: string): Promise<UnlockResponse> {
       'X-CSRF-Token': challenge.nonce,
     },
     credentials: 'same-origin',
-    body: JSON.stringify({ passphrase }),
+    body: JSON.stringify({ passphrase, pairing_code: pairingCode }),
   })
   const result = await responseJson<UnlockResponse>(response, 'ปลดล็อก')
   csrfToken = result.csrf_token
@@ -455,6 +458,12 @@ export async function unlockOwner(passphrase: string): Promise<UnlockResponse> {
 }
 
 export type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export async function logoutOwner(): Promise<void> {
+  await writeJson('/v1/auth/logout', 'POST')
+  csrfToken = null
+  window.dispatchEvent(new Event('paiya:session-required'))
+}
 
 export async function writeJson<T>(
   path: string,

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import Connection
 
+from paiya.auth.mobile_gateway import PREVIEW_GROUP_KEY, gateway_from_request
 from paiya.read.context import (
     ReadAccess,
     dev_fixture_group_key_from_env,
@@ -46,6 +47,8 @@ def require_read_context(request: Request) -> ReadAccess:
     owner_session = getattr(request.state, "owner_session", None)
     if owner_session is not None:
         with get_database_engine().connect() as connection:
+            if gateway_from_request(request) is not None:
+                return resolve_read_context(connection, PREVIEW_GROUP_KEY)
             return resolve_readable_grants(connection)
 
     if dev_fixture_mode_enabled():
