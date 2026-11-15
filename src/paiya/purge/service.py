@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
-from uuid import UUID, uuid4, uuid5
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Connection,
@@ -28,7 +28,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.sql import ColumnElement
 
 from paiya.extract.service import recompute_listing_item_projection
-from paiya.grants.collector import RETENTION, SOURCE_KIND, is_collector_scope
+from paiya.grants.collector import RETENTION, SOURCE_KIND, collector_gap_id, is_collector_scope
 from paiya.grants.errors import GrantError
 from paiya.grants.service import revoke_grant
 from paiya.logging import emit_event
@@ -449,6 +449,48 @@ def _scope_observation_predicate(scope_kind: str, scope_id: UUID) -> ColumnEleme
     return observations.c.post_id == scope_id
 
 
+def _collector_seller_id(conn: Connection, payload: Mapping[str, Any]) -> UUID | None:
+    seller = payload.get("seller")
+    if not isinstance(seller, dict) or not seller.get("external_actor_key"):
+        return None
+    return cast(
+        UUID | None,
+        conn.execute(
+            select(sellers.c.id).where(
+                sellers.c.source == SOURCE_KIND,
+                sellers.c.identity_scope == seller["identity_scope"],
+                sellers.c.external_actor_key == seller["external_actor_key"],
+            )
+        ).scalar_one_or_none(),
+    )
+
+
+def _rebuild_collector_posts(
+    conn: Connection, post_ids: set[UUID], observation_ids: list[UUID]
+) -> None:
+    """Rebuild fields on surviving posts from the latest retained evidence for each field."""
+    if not post_ids:
+        return
+    retained = conn.execute(
+        select(observations.c.post_id, observations.c.source_time, observations.c.normalized_json)
+        .where(observations.c.id.in_(observation_ids), observations.c.post_id.in_(post_ids))
+        .order_by(observations.c.observed_at.desc(), observations.c.id.desc())
+    ).mappings()
+    by_post: dict[UUID, dict[str, Any]] = {}
+    for row in retained:
+        payload = row["normalized_json"]["payload"]
+        projected = by_post.setdefault(
+            row["post_id"],
+            {"permalink": payload["permalink"], "seller_id": None, "posted_at": None},
+        )
+        if projected["seller_id"] is None:
+            projected["seller_id"] = _collector_seller_id(conn, payload)
+        if projected["posted_at"] is None:
+            projected["posted_at"] = row["source_time"]
+    for post_id, values in by_post.items():
+        conn.execute(update(posts).where(posts.c.id == post_id).values(**values))
+
+
 def _purge_rows(
     conn: Connection, scope_kind: str, scope_id: UUID
 ) -> tuple[dict[str, object], list[tuple[str, str]]]:
@@ -496,6 +538,30 @@ def _purge_rows(
         removed_post_ids = set(locked_posts)
     else:
         removed_post_ids = affected_post_ids - remaining_post_ids
+
+    collector_post_ids: set[UUID] = (
+        set(
+            conn.execute(
+                select(posts.c.id)
+                .join(groups, groups.c.id == posts.c.group_id)
+                .where(posts.c.id.in_(affected_post_ids), groups.c.source == SOURCE_KIND)
+            ).scalars()
+        )
+        if affected_post_ids
+        else set()
+    )
+    expired_sellers: set[UUID] = set()
+    if collector_post_ids:
+        documents = conn.execute(
+            select(observations.c.normalized_json).where(
+                observations.c.id.in_(target_observation_ids),
+                observations.c.post_id.in_(collector_post_ids),
+            )
+        ).scalars()
+        for document in documents:
+            seller_id = _collector_seller_id(conn, document["payload"])
+            if seller_id is not None:
+                expired_sellers.add(seller_id)
 
     item_rows = (
         conn.execute(
@@ -726,7 +792,7 @@ def _purge_rows(
         _delete_count(
             conn,
             capture_gaps,
-            capture_gaps.c.id == uuid5(scope_id, "paiya:collector:gap"),
+            capture_gaps.c.id == collector_gap_id(scope_id),
             capture_gaps.c.id,
         )
         # Keep an opaque duplicate marker in the purge log; discard the job and its result.
@@ -741,7 +807,7 @@ def _purge_rows(
             _delete_count(
                 conn,
                 capture_gaps,
-                capture_gaps.c.id == uuid5(run_id, "paiya:collector:gap"),
+                capture_gaps.c.id == collector_gap_id(run_id),
                 capture_gaps.c.id,
             )
         grant_job_ids: list[UUID] = list(
@@ -774,8 +840,11 @@ def _purge_rows(
             comments.c.post_id.in_(removed_post_ids),
             comments.c.id,
         )
-    else:
-        counts["comments"] = _comments_without_versions(conn, list(affected_post_ids))
+    surviving_posts = affected_post_ids - removed_post_ids
+    if surviving_posts:
+        counts["comments"] = cast(int, counts["comments"]) + _comments_without_versions(
+            conn, list(surviving_posts)
+        )
 
     if target_observation_ids:
         asset_ids = [cast(UUID, row[0]) for row in asset_rows]
@@ -800,6 +869,7 @@ def _purge_rows(
             listing_items.c.id,
         )
 
+    _rebuild_collector_posts(conn, collector_post_ids - removed_post_ids, remaining_observation_ids)
     counts["current_items_rebuilt"] = 0
     for item_id in sorted(rebuild_item_ids, key=str):
         latest = latest_by_item.get(item_id)
@@ -822,7 +892,10 @@ def _purge_rows(
         seller_ids: list[UUID] = list(
             conn.execute(
                 select(posts.c.seller_id)
-                .where(posts.c.id.in_(removed_post_ids), posts.c.seller_id.is_not(None))
+                .where(
+                    posts.c.id.in_(removed_post_ids - collector_post_ids),
+                    posts.c.seller_id.is_not(None),
+                )
                 .distinct()
             ).scalars()
         )
@@ -838,7 +911,32 @@ def _purge_rows(
                 sellers.c.id,
             )
 
-    # capture_gaps are group-level records and are never deleted by a scope purge.
+    # A surviving observation may still refer to a seller absent from the current post row.
+    if expired_sellers:
+        historical_seller = observations.c.normalized_json["payload"]["seller"]
+        removed = _delete_count(
+            conn,
+            sellers,
+            and_(
+                sellers.c.id.in_(expired_sellers),
+                ~exists(select(1).where(posts.c.seller_id == sellers.c.id)),
+                ~exists(
+                    select(1)
+                    .select_from(
+                        observations.join(capture_runs, capture_runs.c.id == observations.c.run_id)
+                    )
+                    .where(
+                        capture_runs.c.source_kind == SOURCE_KIND,
+                        historical_seller["identity_scope"].astext == sellers.c.identity_scope,
+                        historical_seller["external_actor_key"].astext
+                        == sellers.c.external_actor_key,
+                    )
+                ),
+            ),
+            sellers.c.id,
+        )
+        counts["sellers"] = cast(int, counts["sellers"]) + removed
+
     return counts, [(storage_key, file_key) for storage_key, file_key in deleted_asset_rows]
 
 

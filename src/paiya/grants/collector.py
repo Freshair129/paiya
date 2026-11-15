@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import Connection, Engine, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -89,3 +89,7 @@ def verify_collector_grant(
 
 def is_collector_scope(source: object, group_key: object) -> bool:
     return source == SOURCE_KIND and group_key == GROUP_KEY
+
+
+def collector_gap_id(run_id: UUID) -> UUID:
+    return uuid5(run_id, "paiya:collector:gap")

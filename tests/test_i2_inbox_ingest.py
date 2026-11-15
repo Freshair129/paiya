@@ -1,19 +1,29 @@
 """Synthetic acceptance for the local Collector inbox."""
 
 import json
+import os
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4, uuid5
 
 import pytest
-from sqlalchemy import Engine, func, select, update
+from sqlalchemy import Engine, event, func, select, update
 from test_a2_ingest import pg_engine as _pg_engine
 from test_i1_inbox_validate import fixture_run_dir
 
 from paiya.cli import main
+from paiya.grants.service import revoke_grant
+from paiya.inbox import service as inbox_service
 from paiya.inbox.validation import validate_inbox
-from paiya.store.tables import capture_runs, media_assets, observations, source_grants
+from paiya.store.tables import (
+    capture_runs,
+    media_assets,
+    observations,
+    posts,
+    sellers,
+    source_grants,
+)
 
 pg_engine = _pg_engine
 
@@ -45,7 +55,8 @@ def inbox_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, 
     media.mkdir()
     monkeypatch.setenv("PAIYA_COLLECTOR_INBOX", str(inbox))
     monkeypatch.setenv("PAIYA_FIXTURE_MEDIA_ROOT", str(media))
-    monkeypatch.setenv("PAIYA_PURGE_LOG_PATH", str(tmp_path / "purge.jsonl"))
+    (tmp_path / "purge").mkdir()
+    monkeypatch.setenv("PAIYA_PURGE_LOG_PATH", str(tmp_path / "purge" / "purge.jsonl"))
     monkeypatch.setenv("PAIYA_DISK_MIN_FREE_BYTES", "1")
     return inbox, media
 
@@ -117,7 +128,13 @@ def test_ingests_image_and_rejects_duplicate_run(
         assert conn.execute(select(func.count()).select_from(media_assets)).scalar_one() == 1
     assert len(list((media / "assets").iterdir())) == 1
     duplicate.rename(run)
-    duplicate_result = _call(capsys, "inbox", "ingest", run.name, expected=1)
+    with pytest.MonkeyPatch.context() as env:
+
+        def unexpected_claim(*args, **kwargs):
+            raise AssertionError("A duplicate must be rejected before filesystem claim")
+
+        env.setattr(Path, "rename", unexpected_claim)
+        duplicate_result = _call(capsys, "inbox", "ingest", run.name, expected=1)
     assert duplicate_result["result"]["code"] == "run_duplicate"
 
 
@@ -170,6 +187,19 @@ def test_prune_expired_run_preserves_newer_observation_and_shared_media(
         conn.execute(update(source_grants).values(valid_from=now - timedelta(days=9)))
     old = _publish(inbox, grant_id, now - timedelta(days=6))
     fresh = _publish(inbox, grant_id, now - timedelta(minutes=1))
+    envelope = next((old / "envelopes").glob("*.json"))
+    document = json.loads(envelope.read_text(encoding="utf-8"))
+    document["payload"]["seller"] = {
+        "display_name": "Synthetic seller",
+        "external_actor_key": "synthetic-seller",
+        "identity_scope": "owner-group-01",
+    }
+    document["payload"]["posted_at"] = {
+        "source_text": "synthetic date",
+        "value": (now - timedelta(days=6, hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "precision": "exact",
+    }
+    envelope.write_text(json.dumps(document), encoding="utf-8")
     _call(capsys, "inbox", "ingest", old.name)
     _call(capsys, "inbox", "ingest", fresh.name)
     with collector_db.begin() as conn:
@@ -186,5 +216,97 @@ def test_prune_expired_run_preserves_newer_observation_and_shared_media(
     with collector_db.connect() as conn:
         assert conn.execute(select(observations.c.run_id)).scalar_one() == UUID(fresh.name)
         assert conn.execute(select(capture_runs.c.id)).scalar_one() == UUID(fresh.name)
+        assert conn.execute(select(posts.c.seller_id, posts.c.posted_at)).one() == (None, None)
+        assert conn.execute(select(func.count()).select_from(sellers)).scalar_one() == 0
     assert len(list((media / "assets").iterdir())) == 1
     assert _call(capsys, "purge", "replay")["pending_count"] == 0
+
+
+def test_inbox_cannot_live_under_purge_log_directory(
+    inbox_setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inbox, _ = inbox_setup
+    monkeypatch.setenv("PAIYA_PURGE_LOG_PATH", str(inbox.parent / "purge.jsonl"))
+    with pytest.raises(inbox_service.InboxError, match="separate from"):
+        inbox_service.inbox_paths()
+
+
+@pytest.mark.parametrize("damage", ["image", "summary", "ready"])
+def test_expiry_removes_damaged_claim(
+    collector_db: Engine,
+    inbox_setup: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    damage: str,
+) -> None:
+    inbox, _ = inbox_setup
+    started = datetime.now(UTC) - timedelta(days=8)
+    run = _publish(inbox, uuid4(), started)
+    claimed = inbox / "processing" / run.name
+    claimed.parent.mkdir()
+    run.rename(claimed)
+    if damage == "image":
+        next((claimed / "assets").iterdir()).write_bytes(b"damaged evidence")
+    elif damage == "summary":
+        (claimed / "run.json").write_bytes(b"{")
+    else:
+        (claimed / "run.json").unlink()
+        (claimed / "READY").unlink()
+    os.utime(claimed, (started.timestamp(), started.timestamp()))
+    if (claimed / "READY").exists():
+        os.utime(claimed / "READY", (started.timestamp(), started.timestamp()))
+    newer = _publish(inbox, uuid4(), datetime.now(UTC) - timedelta(minutes=1))
+    result = _call(capsys, "inbox", "prune-expired")["result"]
+    assert result["expired_bundles"] == 1
+    assert not claimed.exists()
+    assert newer.is_dir()
+
+
+@pytest.mark.parametrize("failure", ["grant_revoked", "interrupted"])
+def test_failed_ingest_recovers_media(
+    collector_db: Engine,
+    inbox_setup: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    inbox, media = inbox_setup
+    grant_id = _grant(capsys)
+    now = datetime.now(UTC)
+    with collector_db.begin() as conn:
+        conn.execute(update(source_grants).values(valid_from=now - timedelta(days=9)))
+    run = _publish(inbox, grant_id, now - timedelta(minutes=1))
+    verify = inbox_service.verify_collector_grant
+
+    def late_failure(*args, **kwargs):
+        if kwargs.get("lock"):
+            assert len(list((media / "assets").glob("*.webp"))) == 1
+            if failure == "grant_revoked":
+                limited_engine = collector_db.execution_options(isolation_level="READ COMMITTED")
+
+                @event.listens_for(limited_engine, "begin")
+                def limit_wait(conn):
+                    conn.exec_driver_sql("SET LOCAL statement_timeout = '5s'")
+
+                revoke_grant(limited_engine, grant_id)
+            else:
+                raise KeyboardInterrupt
+        return verify(*args, **kwargs)
+
+    with monkeypatch.context() as env:
+        env.setattr(inbox_service, "verify_collector_grant", late_failure)
+        if failure == "grant_revoked":
+            assert _call(capsys, "inbox", "ingest", run.name, expected=1)["result"]["code"] == (
+                "grant_unavailable"
+            )
+        else:
+            _call(capsys, "inbox", "ingest", run.name)
+            claimed = inbox / "processing" / run.name
+            manifest = claimed / "run.json"
+            summary = json.loads(manifest.read_text(encoding="utf-8"))
+            summary["started_at"] = (now - timedelta(days=8)).isoformat()
+            manifest.write_text(json.dumps(summary), encoding="utf-8")
+            assert _call(capsys, "inbox", "prune-expired")["result"]["expired_bundles"] == 1
+    assert not list((media / "assets").iterdir())
+    with collector_db.connect() as conn:
+        assert conn.execute(select(func.count()).select_from(media_assets)).scalar_one() == 0
+        assert conn.execute(select(func.count()).select_from(observations)).scalar_one() == 0

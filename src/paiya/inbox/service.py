@@ -6,16 +6,24 @@ import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid5
 
 from sqlalchemy import Connection, Engine, insert, select, text, update
 
-from paiya.grants.collector import GROUP_KEY, RETENTION, SOURCE_KIND, verify_collector_grant
+from paiya.grants.collector import (
+    GROUP_KEY,
+    RETENTION,
+    SOURCE_KIND,
+    collector_gap_id,
+    verify_collector_grant,
+)
 from paiya.grants.errors import GrantError
+from paiya.inbox.media import record_media_write, recover_media
 from paiya.inbox.validation import ValidatedRun, read_inbox
-from paiya.ingest.service import CaptureConflict, persist_collector_observation
+from paiya.ingest.service import CaptureConflict, MediaConflict, persist_collector_observation
 from paiya.purge.startup import check_purge_log
 from paiya.store.tables import capture_gaps, capture_runs, jobs, purge_jobs
 
@@ -55,6 +63,7 @@ def inbox_paths() -> tuple[Path, Path]:
         )
         or log == inbox
         or inbox in log.parents
+        or log.parent in inbox.parents
         or log == media
         or media in log.parents
     ):
@@ -71,7 +80,9 @@ def _rejected(run_id: UUID, code: str) -> dict[str, Any]:
     return {"run_id": str(run_id), "state": "rejected", "code": code}
 
 
-def _persist(conn: Connection, run_id: UUID, bundle: ValidatedRun, media: Path) -> dict[str, Any]:
+def _persist(
+    conn: Connection, run_id: UUID, bundle: ValidatedRun, media: Path, journal: Path
+) -> dict[str, Any]:
     summary = bundle.summary
     started = datetime.fromisoformat(summary["started_at"])
     ended = datetime.fromisoformat(summary["ended_at"])
@@ -130,7 +141,7 @@ def _persist(conn: Connection, run_id: UUID, bundle: ValidatedRun, media: Path) 
     if summary["coverage"] == "none" and ended > started:
         conn.execute(
             insert(capture_gaps).values(
-                id=uuid5(run_id, "paiya:collector:gap"),
+                id=collector_gap_id(run_id),
                 group_id=group_id,
                 gap_from=started,
                 gap_to=ended,
@@ -152,9 +163,12 @@ def _persist(conn: Connection, run_id: UUID, bundle: ValidatedRun, media: Path) 
                     document,
                     bundle.assets,
                     media,
+                    before_media_create=partial(record_media_write, journal),
                 )
         except CaptureConflict:
             results.append({"capture_id": capture_id, "state": "capture_conflict"})
+        except MediaConflict:
+            results.append({"capture_id": capture_id, "state": "media_conflict"})
         else:
             results.append(
                 {
@@ -192,6 +206,10 @@ def _finish(inbox: Path, processing: Path, result: dict[str, Any]) -> dict[str, 
     return result
 
 
+def media_journal(inbox: Path, run_id: UUID) -> Path:
+    return _directory(inbox / "processing" / f".media-{run_id}")
+
+
 def ingest_inbox_run(engine: Engine, run_id: UUID) -> dict[str, Any]:
     inbox, media = inbox_paths()
     check_purge_log(engine)
@@ -204,45 +222,46 @@ def ingest_inbox_run(engine: Engine, run_id: UUID) -> dict[str, Any]:
             _directory(inbox / stage).mkdir(exist_ok=True)
         done = _directory(inbox / "done" / name / "result.json")
         rejected = _directory(inbox / "rejected" / name / "result.json")
-        fresh = not processing.exists()
-        if fresh:
+        journal = media_journal(inbox, run_id)
+        recover_media(conn, media, journal)
+        with conn.begin():
+            previous = (
+                conn.execute(
+                    select(capture_runs.c.source_kind, jobs.c.result)
+                    .join(jobs, jobs.c.id == capture_runs.c.job_id)
+                    .where(capture_runs.c.id == run_id)
+                )
+                .mappings()
+                .one_or_none()
+            )
+            purged = (
+                conn.execute(
+                    select(purge_jobs.c.id)
+                    .where(
+                        purge_jobs.c.scope_kind == "collector_run",
+                        purge_jobs.c.scope_key == name,
+                    )
+                    .limit(1)
+                ).first()
+                is not None
+            )
+        if not processing.exists():
+            if incoming.is_dir() and (previous or purged or done.is_file() or rejected.is_file()):
+                result = _rejected(run_id, "run_duplicate")
+                target = _directory(rejected.parent)
+                if not rejected.is_file():
+                    _receipt(target, result)
+                shutil.rmtree(incoming)
+                return result
             if not incoming.is_dir() or not _directory(incoming / "READY").is_file():
                 raise InboxError("run_unavailable", "A READY inbox run was not found")
             incoming.rename(processing)
         elif not processing.is_dir():
             raise InboxError("run_unavailable", "The processing run must be a directory")
 
-        if not fresh and (done.is_file() or rejected.is_file()):
-            receipt = rejected if rejected.is_file() else done
-            result = json.loads(receipt.read_text(encoding="utf-8"))
-            shutil.rmtree(processing)
-            return cast(dict[str, Any], result)
-
         try:
             with conn.begin():
-                previous = (
-                    conn.execute(
-                        select(capture_runs.c.source_kind, jobs.c.result)
-                        .join(jobs, jobs.c.id == capture_runs.c.job_id)
-                        .where(capture_runs.c.id == run_id)
-                    )
-                    .mappings()
-                    .one_or_none()
-                )
-                purged = (
-                    conn.execute(
-                        select(purge_jobs.c.id)
-                        .where(
-                            purge_jobs.c.scope_kind == "collector_run",
-                            purge_jobs.c.scope_key == name,
-                        )
-                        .limit(1)
-                    ).first()
-                    is not None
-                )
-                if purged or (
-                    fresh and (previous is not None or done.is_file() or rejected.is_file())
-                ):
+                if purged:
                     result = _rejected(run_id, "run_duplicate")
                 elif previous is not None:
                     result = (
@@ -250,15 +269,19 @@ def ingest_inbox_run(engine: Engine, run_id: UUID) -> dict[str, Any]:
                         if previous["source_kind"] == SOURCE_KIND and previous["result"]
                         else _rejected(run_id, "run_duplicate")
                     )
+                elif rejected.is_file():
+                    result = json.loads(rejected.read_text(encoding="utf-8"))
                 else:
                     report, bundle = read_inbox(processing)
                     if bundle is None:
                         result = _rejected(run_id, "validation_failed")
                         result["problems"] = report["problems"]
                     else:
-                        result = _persist(conn, run_id, bundle, media)
+                        journal.mkdir(exist_ok=True)
+                        result = _persist(conn, run_id, bundle, media, journal)
         except (GrantError, InboxError) as error:
             result = _rejected(run_id, error.code)
+        recover_media(conn, media, journal)
         return _finish(inbox, processing, result)
 
 

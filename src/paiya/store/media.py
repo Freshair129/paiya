@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from sqlalchemy import Connection, text
@@ -83,7 +83,13 @@ def media_path(root: Path, sha256: str, mime: str) -> Path:
 
 
 def write_media(
-    root: Path, meta: Mapping[str, object], data: bytes, key: str, *, inbox_validated: bool = False
+    root: Path,
+    meta: Mapping[str, object],
+    data: bytes,
+    key: str,
+    *,
+    inbox_validated: bool = False,
+    before_create: Callable[[Path], Path] | None = None,
 ) -> Path:
     digest = validate_media(key, meta, data, inbox_validated=inbox_validated)
     destination = media_path(root, digest, str(meta["mime"]))
@@ -93,7 +99,12 @@ def write_media(
             raise ValueError("Existing media asset failed integrity check")
         return destination
     # Same filesystem, so replace is atomic; orphans from DB failure can be cleaned.
-    fd, temp_name = tempfile.mkstemp(dir=destination.parent, prefix=".paiya-staged-")
+    if before_create is None:
+        fd, temp_name = tempfile.mkstemp(dir=destination.parent, prefix=".paiya-staged-")
+    else:
+        temp_name = str(before_create(destination))
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        fd = os.open(temp_name, flags, 0o600)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)

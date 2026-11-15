@@ -47,6 +47,10 @@ from paiya.worker.faults import maybe_fault
 PARSER_VERSION = "ingest-v1.0"
 
 
+class MediaConflict(ValueError):
+    """The same asset digest was supplied with inconsistent metadata."""
+
+
 class CaptureConflict(ValueError):
     """The same capture ID was reused with different data."""
 
@@ -138,6 +142,8 @@ def persist_collector_observation(
     document: dict[str, Any],
     staged_assets: Mapping[str, bytes],
     media_root: Path,
+    *,
+    before_media_create: Callable[[Path], Path],
 ) -> UUID:
     """Persist within the Collector run transaction after the caller checks its grant."""
     if document["source_kind"] != SOURCE_KIND or UUID(document["grant_id"]) != grant_id:
@@ -148,6 +154,7 @@ def persist_collector_observation(
         document,
         staged_assets,
         media_root,
+        before_media_create=before_media_create,
     )
 
 
@@ -159,6 +166,7 @@ def _ingest_observation(
     media_root: Path,
     *,
     disk_usage_fn: Callable[[Path], tuple[int, int, int]] | None = None,
+    before_media_create: Callable[[Path], Path] | None = None,
 ) -> UUID:
     validate_observation(document)
     fixture = isinstance(database, Engine)
@@ -441,7 +449,7 @@ def _ingest_observation(
                     existing_media[field] != meta[field]
                     for field in ("mime", "bytes", "width", "height")
                 ):
-                    raise ValueError("Conflicting metadata for content-addressed media")
+                    raise MediaConflict("Conflicting metadata for content-addressed media")
 
             destination = media_path(media_root, cast(str, meta["sha256"]), cast(str, meta["mime"]))
             if not destination.exists():
@@ -458,6 +466,7 @@ def _ingest_observation(
                 staged_assets[staging_key],
                 staging_key,
                 inbox_validated=not fixture,
+                before_create=before_media_create,
             )
             maybe_fault("after_media_write")
             if existing_media:
