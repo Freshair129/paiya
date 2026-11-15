@@ -1,0 +1,100 @@
+{"id": "B1A-001", "category": "standard", "text": "RTX 3060 12GB ราคา 5,500 บาท นัดรับบางนา", "access": "ok", "expected": {"item": "RTX 3060 12GB", "amount": "5500.00", "currency": "THB"}}
+{"id": "B1A-002", "category": "standard", "text": "ขาย RTX 4060 8GB ราคาขาย 6900 บาท มีใบเสร็จ", "access": "ok", "expected": {"item": "RTX 4060 8GB", "amount": "6900.00", "currency": "THB"}}
+{"id": "B1A-003", "category": "standard", "text": "ขายราคา 7,450 บาท สำหรับ RTX 3070 8GB กล่องเดิม", "access": "ok", "expected": {"item": "RTX 3070 8GB", "amount": "7450.00", "currency": "THB"}}
+{"id": "B1A-004", "category": "standard", "text": "RTX 3090 24GB การ์ดเปล่า ราคา 17,250 บาท", "access": "ok", "expected": {"item": "RTX 3090 24GB", "amount": "17250.00", "currency": "THB"}}
+{"id": "B1A-005", "category": "standard", "text": "ราคา 4,350 บาท RTX 2060 6GB ใช้งานได้", "access": "ok", "expected": {"item": "RTX 2060 6GB", "amount": "4350.00", "currency": "THB"}}
+{"id": "B1A-006", "category": "standard", "text": "RTX 3080 10GB ราคาขาย 11,975 บาท ของอยู่เชียงใหม่", "access": "ok", "expected": {"item": "RTX 3080 10GB", "amount": "11975.00", "currency": "THB"}}
+{"id": "B1A-007", "category": "standard", "text": "ขาย RTX 2070 8GB ราคา 4,720 บาท รับเองได้", "access": "ok", "expected": {"item": "RTX 2070 8GB", "amount": "4720.00", "currency": "THB"}}
+{"id": "B1A-008", "category": "standard", "text": "ขายราคา 22900 บาท RTX 4080 16GB ใช้เล่นเกม", "access": "ok", "expected": {"item": "RTX 4080 16GB", "amount": "22900.00", "currency": "THB"}}
+{"id": "B1A-009", "category": "thai_digits", "text": "RTX ๓๐๖๐ ๑๒GB ราคา ๕,๒๐๐ บาท", "access": "ok", "expected": {"item": "RTX 3060 12GB", "amount": "5200.00", "currency": "THB"}}
+{"id": "B1A-010", "category": "thai_digits", "text": "ขาย RTX ๔๐๖๐ ๘GB ราคาขาย ๗๓๕๐ บาท", "access": "ok", "expected": {"item": "RTX 4060 8GB", "amount": "7350.00", "currency": "THB"}}
+{"id": "B1A-011", "category": "thai_digits", "text": "ราคา ๔,๘๗๐.๕๐ บาท RTX ๒๐๗๐ ๘GB", "access": "ok", "expected": {"item": "RTX 2070 8GB", "amount": "4870.50", "currency": "THB"}}
+{"id": "B1A-012", "category": "thai_digits", "text": "RTX ๓๐๘๐ ๑๐GB ราคาขาย ๑๑,๔๓๐ บาท", "access": "ok", "expected": {"item": "RTX 3080 10GB", "amount": "11430.00", "currency": "THB"}}
+{"id": "B1A-013", "category": "thai_digits", "text": "RTX ๔๐๗๐ ๑๒GB ราคา ๑๔,๙๕๐฿", "access": "ok", "expected": {"item": "RTX 4070 12GB", "amount": "14950.00", "currency": "THB"}}
+{"id": "B1A-014", "category": "thai_digits", "text": "ขายราคา ๘๖๗๐ บาท rtx ๓๐๗๐ ๘gb", "access": "ok", "expected": {"item": "RTX 3070 8GB", "amount": "8670.00", "currency": "THB"}}
+{"id": "B1A-015", "category": "thai_digits", "text": "ขาย RTX ๔๐๘๐ ๑๖GB ราคา ๒๓,๕๐๐ บาท", "access": "ok", "expected": {"item": "RTX 4080 16GB", "amount": "23500.00", "currency": "THB"}}
+{"id": "B1A-016", "category": "thai_digits", "text": "RTX ๓๐๖๐ ๘GB ราคา ๔๗๕๕.๒๕ บาท", "access": "ok", "expected": {"item": "RTX 3060 8GB", "amount": "4755.25", "currency": "THB"}}
+{"id": "B1A-017", "category": "with_shipping", "text": "ค่าส่ง 89 บาท ขาย RTX 3060 12GB ราคา 5,380 บาท", "access": "ok", "expected": {"item": "RTX 3060 12GB", "amount": "5380.00", "currency": "THB"}}
+{"id": "B1A-018", "category": "with_shipping", "text": "RTX 4060 8GB ราคา 7,025 บาท ค่าส่ง 65 บาท", "access": "ok", "expected": {"item": "RTX 4060 8GB", "amount": "7025.00", "currency": "THB"}}
+{"id": "B1A-019", "category": "with_shipping", "text": "ค่าจัดส่ง 120 บาท RTX 3080 10GB ราคา 12,360 บาท", "access": "ok", "expected": {"item": "RTX 3080 10GB", "amount": "12360.00", "currency": "THB"}}
+{"id": "B1A-020", "category": "with_shipping", "text": "RTX 2070 8GB ราคา 4,680 บาท ค่า ส่ง 70 บาท", "access": "ok", "expected": {"item": "RTX 2070 8GB", "amount": "4680.00", "currency": "THB"}}
+{"id": "B1A-021", "category": "with_shipping", "text": "RTX 4070 12GB ราคาขาย 14,600 บาท ค่าส่ง 0 บาท", "access": "ok", "expected": {"item": "RTX 4070 12GB", "amount": "14600.00", "currency": "THB"}}
+{"id": "B1A-022", "category": "with_shipping", "text": "ขายราคา 19,200 บาท RTX 3090 24GB ค่าส่ง 115 บาท", "access": "ok", "expected": {"item": "RTX 3090 24GB", "amount": "19200.00", "currency": "THB"}}
+{"id": "B1A-023", "category": "with_shipping", "text": "ค่าส่ง ๙๕ บาท RTX 3070 8GB ราคา ๘,๑๐๐ บาท", "access": "ok", "expected": {"item": "RTX 3070 8GB", "amount": "8100.00", "currency": "THB"}}
+{"id": "B1A-024", "category": "with_shipping", "text": "RTX 2080 8GB ราคา 5,575.50 บาท ค่าจัดส่ง 75.50 บาท", "access": "ok", "expected": {"item": "RTX 2080 8GB", "amount": "5575.50", "currency": "THB"}}
+{"id": "B1A-025", "category": "with_deposit", "text": "วางมัดจำ 500 บาท RTX 3060 12GB ราคา 5,150 บาท", "access": "ok", "expected": {"item": "RTX 3060 12GB", "amount": "5150.00", "currency": "THB"}}
+{"id": "B1A-026", "category": "with_deposit", "text": "RTX 4060 8GB ราคาขาย 7,285 บาท มัดจำ 600 บาท", "access": "ok", "expected": {"item": "RTX 4060 8GB", "amount": "7285.00", "currency": "THB"}}
+{"id": "B1A-027", "category": "with_deposit", "text": "ค่ามัดจำ 1,000 บาท RTX 3080 10GB ราคา 11,360 บาท", "access": "ok", "expected": {"item": "RTX 3080 10GB", "amount": "11360.00", "currency": "THB"}}
+{"id": "B1A-028", "category": "with_deposit", "text": "RTX 4070 12GB ราคา 13,680 บาท ค่ามัดจำ 700 บาท", "access": "ok", "expected": {"item": "RTX 4070 12GB", "amount": "13680.00", "currency": "THB"}}
+{"id": "B1A-029", "category": "with_deposit", "text": "RTX 3070 8GB ราคา 7,470 บาท มัดจำ 0 บาท", "access": "ok", "expected": {"item": "RTX 3070 8GB", "amount": "7470.00", "currency": "THB"}}
+{"id": "B1A-030", "category": "with_deposit", "text": "ขายราคา 18,250 บาท RTX 3090 24GB วางมัดจำ 2,000 บาท", "access": "ok", "expected": {"item": "RTX 3090 24GB", "amount": "18250.00", "currency": "THB"}}
+{"id": "B1A-031", "category": "with_deposit", "text": "มัดจำ ๓๐๐ บาท RTX 2060 6GB ราคา ๓,๙๐๐ บาท", "access": "ok", "expected": {"item": "RTX 2060 6GB", "amount": "3900.00", "currency": "THB"}}
+{"id": "B1A-032", "category": "with_deposit", "text": "RTX 4080 16GB ราคาขาย 22,980 บาท มัดจำ 500 บาท ค่าส่ง 80 บาท", "access": "ok", "expected": {"item": "RTX 4080 16GB", "amount": "22980.00", "currency": "THB"}}
+{"id": "B1A-033", "category": "phrasing", "text": "ขอปล่อย RTX 3060 12GB ที่ 5,225 บาท", "access": "ok", "expected": {"item": "RTX 3060 12GB", "amount": "5225.00", "currency": "THB"}}
+{"id": "B1A-034", "category": "phrasing", "text": "RTX 4060 8GB ขายที่ 7,075 บาท นัดรับได้", "access": "ok", "expected": {"item": "RTX 4060 8GB", "amount": "7075.00", "currency": "THB"}}
+{"id": "B1A-035", "category": "phrasing", "text": "RTX 3070 8GB ราคาตั้งขาย: 7,840 บาท", "access": "ok", "expected": {"item": "RTX 3070 8GB", "amount": "7840.00", "currency": "THB"}}
+{"id": "B1A-036", "category": "phrasing", "text": "RTX 3080 10GB ราคา : ฿11,625", "access": "ok", "expected": {"item": "RTX 3080 10GB", "amount": "11625.00", "currency": "THB"}}
+{"id": "B1A-037", "category": "phrasing", "text": "RTX 4070 12GB ราคา 14575 THB ส่งเพิ่ม 100 บาท", "access": "ok", "expected": {"item": "RTX 4070 12GB", "amount": "14575.00", "currency": "THB"}}
+{"id": "B1A-038", "category": "phrasing", "text": "ราคา ฿4,995 RTX 2070 8GB สีดำ", "access": "ok", "expected": {"item": "RTX 2070 8GB", "amount": "4995.00", "currency": "THB"}}
+{"id": "B1A-039", "category": "phrasing", "text": "RTX 3090 24GB ปล่อย 18,590 บาท ไม่มีประกัน", "access": "ok", "expected": {"item": "RTX 3090 24GB", "amount": "18590.00", "currency": "THB"}}
+{"id": "B1A-040", "category": "phrasing", "text": "RTX 4080 16GB ราคาขาย: THB 22,750", "access": "ok", "expected": {"item": "RTX 4080 16GB", "amount": "22750.00", "currency": "THB"}}
+{"id": "B1A-041", "category": "usd", "text": "RTX 3060 12GB ราคา 145 USD สำหรับผู้ซื้อจ่าย USD", "access": "ok", "expected": {"item": "RTX 3060 12GB", "amount": "145.00", "currency": "USD"}}
+{"id": "B1A-042", "category": "usd", "text": "RTX 4060 8GB ราคาขาย USD 218.50", "access": "ok", "expected": {"item": "RTX 4060 8GB", "amount": "218.50", "currency": "USD"}}
+{"id": "B1A-043", "category": "usd", "text": "RTX 3070 8GB ราคา US$221 นัดรับ", "access": "ok", "expected": {"item": "RTX 3070 8GB", "amount": "221.00", "currency": "USD"}}
+{"id": "B1A-044", "category": "usd", "text": "ราคา 317 ดอลลาร์สหรัฐ RTX 3080 10GB", "access": "ok", "expected": {"item": "RTX 3080 10GB", "amount": "317.00", "currency": "USD"}}
+{"id": "B1A-045", "category": "usd", "text": "RTX 4070 12GB ขายที่ 399 USD", "access": "ok", "expected": {"item": "RTX 4070 12GB", "amount": "399.00", "currency": "USD"}}
+{"id": "B1A-046", "category": "usd", "text": "RTX 3090 24GB ราคา USD 518 ค่าส่ง 75 บาท", "access": "ok", "expected": {"item": "RTX 3090 24GB", "amount": "518.00", "currency": "USD"}}
+{"id": "B1A-047", "category": "usd", "text": "RTX 4080 16GB ราคาตั้งขาย: US$655.25", "access": "ok", "expected": {"item": "RTX 4080 16GB", "amount": "655.25", "currency": "USD"}}
+{"id": "B1A-048", "category": "usd", "text": "ขายราคา 128 ดอลลาร์สหรัฐ RTX 2070 8GB", "access": "ok", "expected": {"item": "RTX 2070 8GB", "amount": "128.00", "currency": "USD"}}
+{"id": "B1A-049", "category": "variant", "text": "ขาย RTX 3060 Ti 8GB ราคา 6,850 บาท", "access": "ok", "expected": {"item": "RTX 3060 Ti 8GB", "amount": "6850.00", "currency": "THB"}}
+{"id": "B1A-050", "category": "variant", "text": "RTX 4070 SUPER 12GB ราคา 17,450 บาท", "access": "ok", "expected": {"item": "RTX 4070 SUPER 12GB", "amount": "17450.00", "currency": "THB"}}
+{"id": "B1A-051", "category": "variant", "text": "RTX 4070 Ti SUPER 16GB ราคาขาย 21,175 บาท", "access": "ok", "expected": {"item": "RTX 4070 Ti SUPER 16GB", "amount": "21175.00", "currency": "THB"}}
+{"id": "B1A-052", "category": "variant", "text": "RTX 3080 Ti 12GB ราคา 14,190 บาท ค่าส่ง 100 บาท", "access": "ok", "expected": {"item": "RTX 3080 Ti 12GB", "amount": "14190.00", "currency": "THB"}}
+{"id": "B1A-053", "category": "variant", "text": "RTX 2060 SUPER 8GB ราคา 4,875 บาท", "access": "ok", "expected": {"item": "RTX 2060 SUPER 8GB", "amount": "4875.00", "currency": "THB"}}
+{"id": "B1A-054", "category": "variant", "text": "ขายราคา 9,650 บาท RTX 4060 Ti 16GB", "access": "ok", "expected": {"item": "RTX 4060 Ti 16GB", "amount": "9650.00", "currency": "THB"}}
+{"id": "B1A-055", "category": "variant", "text": "rtx 3070 ti 8gb ราคา 8,550 บาท", "access": "ok", "expected": {"item": "RTX 3070 Ti 8GB", "amount": "8550.00", "currency": "THB"}}
+{"id": "B1A-056", "category": "variant", "text": "RTX 4080 SUPER 16GB ราคา 24,975 บาท", "access": "ok", "expected": {"item": "RTX 4080 SUPER 16GB", "amount": "24975.00", "currency": "THB"}}
+{"id": "B1A-057", "category": "decimal", "text": "RTX 3060 12GB ราคา 5,180.25 บาท รับโอน", "access": "ok", "expected": {"item": "RTX 3060 12GB", "amount": "5180.25", "currency": "THB"}}
+{"id": "B1A-058", "category": "decimal", "text": "ราคาขาย 6879.90 บาท RTX 4060 8GB", "access": "ok", "expected": {"item": "RTX 4060 8GB", "amount": "6879.90", "currency": "THB"}}
+{"id": "B1A-059", "category": "decimal", "text": "RTX 3070 8GB ราคา 7660.5฿ ส่งในเมือง", "access": "ok", "expected": {"item": "RTX 3070 8GB", "amount": "7660.50", "currency": "THB"}}
+{"id": "B1A-060", "category": "decimal", "text": "RTX 3080 12GB ราคา 12,450.75 บาท", "access": "ok", "expected": {"item": "RTX 3080 12GB", "amount": "12450.75", "currency": "THB"}}
+{"id": "B1A-061", "category": "decimal", "text": "RTX 4070 12GB ราคา 13925.25 บาท", "access": "ok", "expected": {"item": "RTX 4070 12GB", "amount": "13925.25", "currency": "THB"}}
+{"id": "B1A-062", "category": "decimal", "text": "ราคาขาย 18,249.50 บาท RTX 3090 24GB", "access": "ok", "expected": {"item": "RTX 3090 24GB", "amount": "18249.50", "currency": "THB"}}
+{"id": "B1A-063", "category": "decimal", "text": "ราคา 4,950.05 บาท RTX 2080 8GB", "access": "ok", "expected": {"item": "RTX 2080 8GB", "amount": "4950.05", "currency": "THB"}}
+{"id": "B1A-064", "category": "decimal", "text": "RTX 4080 16GB ราคา 22729.5 บาท", "access": "ok", "expected": {"item": "RTX 4080 16GB", "amount": "22729.50", "currency": "THB"}}
+{"id": "B1A-065", "category": "shipping_only", "text": "RTX 3060 12GB ค่าส่ง 75 บาท ราคาแจ้งในแชต", "access": "ok", "expected": null}
+{"id": "B1A-066", "category": "shipping_only", "text": "RTX 4060 8GB ค่าจัดส่ง 120 บาท ยังไม่ลงราคาการ์ด", "access": "ok", "expected": null}
+{"id": "B1A-067", "category": "shipping_only", "text": "RTX 3070 8GB ราคา ค่าส่ง 90 บาท", "access": "ok", "expected": null}
+{"id": "B1A-068", "category": "shipping_only", "text": "RTX 3080 10GB ค่า ส่ง ๙๙ บาท ทักสอบถาม", "access": "ok", "expected": null}
+{"id": "B1A-069", "category": "shipping_only", "text": "ค่าส่ง 145 บาท RTX 3090 24GB เปิดประมูลวันหน้า", "access": "ok", "expected": null}
+{"id": "B1A-070", "category": "shipping_only", "text": "RTX 4070 12GB ส่งฟรี ราคาทัก", "access": "ok", "expected": null}
+{"id": "B1A-071", "category": "deposit_only", "text": "RTX 3060 12GB มัดจำ 550 บาท ราคาจริงคุยอีกที", "access": "ok", "expected": null}
+{"id": "B1A-072", "category": "deposit_only", "text": "RTX 4060 8GB ค่ามัดจำ 650 บาท", "access": "ok", "expected": null}
+{"id": "B1A-073", "category": "deposit_only", "text": "RTX 3070 8GB ราคามัดจำ 760 บาท ยังไม่แจ้งยอดเต็ม", "access": "ok", "expected": null}
+{"id": "B1A-074", "category": "deposit_only", "text": "RTX 3080 10GB ราคา 900 บาท เป็นมัดจำ", "access": "ok", "expected": null}
+{"id": "B1A-075", "category": "deposit_only", "text": "RTX 4070 12GB วางมัดจำ 1,100 บาท", "access": "ok", "expected": null}
+{"id": "B1A-076", "category": "deposit_only", "text": "RTX 3090 24GB ราคา 2,300 บาท (มัดจำ)", "access": "ok", "expected": null}
+{"id": "B1A-077", "category": "buy_offer", "text": "รับซื้อ RTX 3060 12GB ราคา 4,950 บาท", "access": "ok", "expected": null}
+{"id": "B1A-078", "category": "buy_offer", "text": "หา RTX 4060 8GB ราคา 6,115 บาท ใครมีทัก", "access": "ok", "expected": null}
+{"id": "B1A-079", "category": "buy_offer", "text": "RTX 3070 8GB เสนอซื้อ 6,620 บาท", "access": "ok", "expected": null}
+{"id": "B1A-080", "category": "buy_offer", "text": "ตามหา RTX 3080 10GB ราคา 9,500 บาท ขอมีประกัน", "access": "ok", "expected": null}
+{"id": "B1A-081", "category": "buy_offer", "text": "ตั้งรับ RTX 4070 12GB ราคา 12,700 บาท", "access": "ok", "expected": null}
+{"id": "B1A-082", "category": "buy_offer", "text": "RTX 3090 24GB งบซื้อ 15,300 บาท", "access": "ok", "expected": null}
+{"id": "B1A-083", "category": "bundle", "text": "RTX 3060 12GB สองใบ ราคา 9,000 บาท ยกชุด", "access": "ok", "expected": null}
+{"id": "B1A-084", "category": "bundle", "text": "RTX 4060 8GB พร้อม PSU ราคา 8,150 บาท ทั้งชุด", "access": "ok", "expected": null}
+{"id": "B1A-085", "category": "bundle", "text": "RTX 3070 8GB ราคา 13,500 บาท/ชุด รวมสองตัว", "access": "ok", "expected": null}
+{"id": "B1A-086", "category": "bundle", "text": "RTX 3080 10GB ราคา 17,350 บาท ไม่แยกขาย รวมเคสกับ PSU", "access": "ok", "expected": null}
+{"id": "B1A-087", "category": "bundle", "text": "RTX 4070 12GB รวมเมนบอร์ด ราคา 19,300 บาท เหมาหมด", "access": "ok", "expected": null}
+{"id": "B1A-088", "category": "bundle", "text": "RTX 3090 24GB ราคาขาย 29,500 บาทต่อชุด พร้อมเครื่อง", "access": "ok", "expected": null}
+{"id": "B1A-089", "category": "ambiguous", "text": "RTX 3060 12GB กับ RTX 4060 8GB ราคา 5,400 บาท ยังไม่บอกว่าชิ้นไหน", "access": "ok", "expected": null}
+{"id": "B1A-090", "category": "ambiguous", "text": "RTX 3070 8GB ราคา 7,150 บาท - 8,650 บาท ตามสภาพ", "access": "ok", "expected": null}
+{"id": "B1A-091", "category": "ambiguous", "text": "RTX 3080 10GB ราคา 9,000–12,000 บาท แล้วแต่รุ่น", "access": "ok", "expected": null}
+{"id": "B1A-092", "category": "ambiguous", "text": "RTX 4070 12GB ราคา 13,650 บาท หรือ 14,500 บาท ยังไม่สรุป", "access": "ok", "expected": null}
+{"id": "B1A-093", "category": "ambiguous", "text": "RTX 3090 24GB ราคา $510 ไม่ระบุสกุลเงิน", "access": "ok", "expected": null}
+{"id": "B1A-094", "category": "ambiguous", "text": "RTX 4080 16GB ราคา 23,900 บาท/เดือน", "access": "ok", "expected": null}
+{"id": "B1A-095", "category": "no_evidence", "text": "RTX 3060 12GB ราคา inbox", "access": "ok", "expected": null}
+{"id": "B1A-096", "category": "no_evidence", "text": "RTX 4060 8GB ขอเช็กราคาก่อน", "access": "ok", "expected": null}
+{"id": "B1A-097", "category": "no_evidence", "text": "RTX 3070 8GB ยังไม่ประกาศราคา", "access": "ok", "expected": null}
+{"id": "B1A-098", "category": "no_evidence", "text": "ตัวอย่างปิดกั้น: ต้องล็อกอิน", "access": "session_required", "expected": null}
+{"id": "B1A-099", "category": "no_evidence", "text": "ตัวอย่างปิดกั้น: ต้องยืนยันตัวตน", "access": "challenge_required", "expected": null}
+{"id": "B1A-100", "category": "no_evidence", "text": "ตัวอย่างปิดกั้น: ไม่พบโพสต์", "access": "unavailable", "expected": null}

@@ -6,7 +6,12 @@ from types import ModuleType
 from typing import Any
 
 import pytest
-from paiya_collector.browser_runtime import attach_dedicated_browser, read_devtools_endpoint
+from paiya_collector.browser_runtime import (
+    BrowserAdapterError,
+    PlaywrightVisiblePage,
+    attach_dedicated_browser,
+    read_devtools_endpoint,
+)
 
 
 def make_profile(path: Path, *, group_key: str = "owner-group-01", port: str = "9333") -> Path:
@@ -113,7 +118,11 @@ def test_attaching_to_dedicated_browser_does_not_navigate_before_manual_run(
     monkeypatch.setitem(sys.modules, "playwright", playwright_module)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_api_module)
 
-    config = type("Config", (), {"group_key": "owner-group-01"})()
+    config = type(
+        "Config",
+        (),
+        {"group_key": "owner-group-01", "group_url": "https://www.facebook.com/groups/example"},
+    )()
     with attach_dedicated_browser(
         profile,
         config=config,
@@ -122,3 +131,64 @@ def test_attaching_to_dedicated_browser_does_not_navigate_before_manual_run(
         assert visible_page is not None
 
     assert page.goto_calls == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://other.invalid/groups/example",
+        "https://m.facebook.com/groups/example",
+        "https://www.facebook.com/groups/wrong",
+    ],
+)
+def test_snapshot_checks_origin_and_group_before_touching_dom(url) -> None:
+    class ForeignPage:
+        def on(self, *_args):
+            pass
+
+        def locator(self, selector):
+            pytest.fail(f"read forbidden DOM selector {selector}")
+
+    page = ForeignPage()
+    page.url = url
+    guarded = PlaywrightVisiblePage(page, "https://www.facebook.com/groups/example")
+    with pytest.raises(BrowserAdapterError):
+        guarded.snapshot({})
+
+
+@pytest.mark.parametrize("path", ["/login/", "/checkpoint/"])
+def test_same_origin_session_stop_does_not_read_dom(path) -> None:
+    class SessionPage:
+        url = f"https://www.facebook.com{path}"
+
+        def on(self, *_args):
+            pass
+
+        def locator(self, selector):
+            pytest.fail(f"read forbidden session DOM selector {selector}")
+
+    guarded = PlaywrightVisiblePage(SessionPage(), "https://www.facebook.com/groups/example")
+    snapshot = guarded.snapshot({})
+    assert snapshot.posts == ()
+    assert snapshot.body_text == ""
+
+
+def test_dom_change_during_read_discards_snapshot() -> None:
+    class Page:
+        url = "https://www.facebook.com/groups/example"
+
+        def on(self, *_args):
+            pass
+
+        def evaluate(self, script, expected):
+            self.url = "https://www.facebook.com/groups/wrong"
+            assert "location.href === url" in script
+            assert expected != self.url
+            return None
+
+        def locator(self, selector):
+            pytest.fail(f"read forbidden DOM selector {selector}")
+
+    guarded = PlaywrightVisiblePage(Page(), "https://www.facebook.com/groups/example")
+    with pytest.raises(BrowserAdapterError, match="document changed during capture"):
+        guarded.snapshot({})

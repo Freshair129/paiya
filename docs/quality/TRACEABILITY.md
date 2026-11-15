@@ -26,6 +26,11 @@
 
 [Issue #91](https://github.com/Freshair129/paiya/issues/91) เชื่อม FR-02/03 กับการรับผลรอบและหลักฐานตาม AT-02 และ FR-07/13 กับการปฏิเสธสิทธิ์และการลบตาม AT-09 ชุด [test_i2_inbox_ingest.py](../../tests/test_i2_inbox_ingest.py) ใช้ข้อมูลจำลองบน PostgreSQL 17 ผลจากกลุ่มจริงต้องตรวจใน pilot แยกต่างหาก
 
+## B1 และ B1a
+
+- **B1** · FR-01/02/13 · AT-01/09 · [เทสต์สอง origin](../../collector/tests/b1_browser_origin_integration.py) และ [เทสต์ก่อนอ่าน DOM](../../collector/tests/test_browser_runtime.py) ใช้หน้าและ credential สังเคราะห์บน loopback
+- **B1a** · FR-10/12 · AT-07/10 · [ชุดราคา 100 กรณี](../../collector/fixtures/b1a-price-cases.jsonl) และ [ตัววัดผล](../../collector/scripts/score_b1a.py) เฉลยอยู่ระหว่างรอเจ้าของตรวจตาม [Roadmap](../delivery/ROADMAP.md) ชุดผลคำนวณราคาและการนับซ้ำของ Paiya ตรวจผ่านชุด A7a ตามแถว PR-08
+
 ## บันทึกหลักฐานเมื่อส่งงาน
 
 1. ผู้ทำงานใส่รหัส PR, FR และ AT ที่เกี่ยวข้องใน GitHub issue และ pull request เมื่อแก้ขอบเขต ให้อัปเดตแถวที่ได้รับผลพร้อมเอกสารต้นทางใน pull request เดียวกัน
