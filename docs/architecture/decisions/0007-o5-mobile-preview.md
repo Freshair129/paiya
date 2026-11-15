@@ -22,7 +22,7 @@
    docker compose -f compose.o5.yaml up -d
    ```
 
-3. Point the approved HTTPS ingress at `127.0.0.1:8785`. Link the `web` directory to the selected preview project, add the proxy key as a preview secret and require owner-only Vercel Authentication on the exact alias, including `/v1/*`. Pin `PAIYA_O5_ORIGIN` to that exact domain. From the repository root in PowerShell 7, generate the config and explicitly apply it to the preview deployment.
+3. Point the approved HTTPS ingress at `127.0.0.1:8785`. Link the standalone `web` directory to the selected preview project with its Root Directory empty. If the project already uses a Git Root Directory of `web`, link and run the CLI from the repository root instead. Add the proxy key as a preview secret and require owner-only Vercel Authentication on the exact alias, including `/v1/*`. Pin `PAIYA_O5_ORIGIN` to that exact domain. From the repository root in PowerShell 7, generate the config and explicitly apply it to the standalone frontend preview deployment.
 
    ```powershell
    $previewConfig = Join-Path ([IO.Path]::GetTempPath()) 'paiya-o5-vercel.json'
