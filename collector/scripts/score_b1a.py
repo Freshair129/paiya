@@ -2,20 +2,25 @@
 
 import argparse
 import json
+from hashlib import sha256
 from pathlib import Path
 
 from paiya_collector.browser_adapter import VisiblePost, feed_from_visible_posts
 from paiya_collector.runner import run_discovery
 
 COLLECTOR = Path(__file__).resolve().parents[1]
-DRAFT_CASES = COLLECTOR / "fixtures" / "b1a-price-cases.jsonl"
+DEFAULT_CASES = COLLECTOR / "fixtures" / "b1a-price-cases.jsonl"
+# The owner confirmed all 100 expected labels in PR #111's review sheet.
+OWNER_REVIEWED_CASES_SHA256 = "ad53f7fc5ba341f891e590a53d03e1ee55866fc0e2ac9916dac6967b938f4cb3"
 GROUP = "synthetic-b1a-price"
 OBSERVED_AT = "2026-11-15T00:00:00Z"
 PRICE_FIELDS = ("amount", "currency", "item")
 
 
 def score_cases(path: Path) -> dict:
-    cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    source = path.read_text(encoding="utf-8")
+    owner_reviewed = sha256(source.encode("utf-8")).hexdigest() == OWNER_REVIEWED_CASES_SHA256
+    cases = [json.loads(line) for line in source.splitlines()]
     if len(cases) != 100 or len({case["id"] for case in cases}) != 100:
         raise ValueError("B1a requires 100 unique labelled cases")
     if len({case["text"] for case in cases}) != 100:
@@ -82,7 +87,7 @@ def score_cases(path: Path) -> dict:
     if not clear or not controls:
         raise ValueError("B1a requires clear asking prices and exclusion controls")
     return {
-        "label_status": "draft_awaiting_owner_review",
+        "label_status": "owner_reviewed" if owner_reviewed else "draft_awaiting_owner_review",
         "total": len(cases),
         "clear": clear,
         "controls": controls,
@@ -101,15 +106,20 @@ def _price_label(price: dict | None) -> str:
 
 
 def review_sheet(result: dict) -> str:
+    label_status = (
+        "The owner confirmed the expected labels for all 100 cases."
+        if result["label_status"] == "owner_reviewed"
+        else "The labels are awaiting owner review."
+    )
     lines = [
-        "# B1a draft price labels",
+        "# B1a price labels",
         "",
         "Review the expected column against each synthetic text.",
         "The parser result is supplied for diagnosis.",
         "Record any corrected label by case ID, or confirm the expected labels as written.",
         "",
         f"Clear prices matched jointly in {result['correct']['joint']}/{result['clear']} cases.",
-        "This is a draft development result. The corpus is awaiting owner review.",
+        label_status,
         f"Exclusion controls matched in {result['controls_excluded']}/{result['controls']} cases.",
         "",
         "| Case | Synthetic text | Expected | Collector |",
@@ -125,7 +135,7 @@ def review_sheet(result: dict) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cases", type=Path, default=DRAFT_CASES)
+    parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--review", type=Path)
     args = parser.parse_args()

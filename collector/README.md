@@ -123,7 +123,7 @@ $env:PYTHONPATH = (Get-Location).Path
 uv run --locked python scripts/score_b1a.py --report b1a-score.json --review b1a-review.md
 ```
 
-B1a scores the unassisted Collector parser on [100 synthetic cases](fixtures/b1a-price-cases.jsonl). The score reports exact amount, currency, and item individually and jointly over the clear-price subset. It reports non-comparable cases separately. The checked-in labels are drafts. The owner must review the expected price and item or exclusion for each case, and the final score must be rerun against the approved labels before B2.
+B1a scores the unassisted Collector parser on [100 synthetic cases](fixtures/b1a-price-cases.jsonl). The owner confirmed all 100 expected labels for [PR #111](https://github.com/Freshair129/paiya/pull/111). The rerun matched amount, currency, and item jointly in 64 of 64 clear-price cases and excluded all 36 non-comparable controls. The scorer marks the confirmed corpus as owner-reviewed by its content digest. A changed corpus requires a new owner review.
 
 ## Validate a bundle with paiya
 

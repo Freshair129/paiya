@@ -29,7 +29,7 @@
 ## B1 และ B1a
 
 - **B1** · FR-01/02/13 · AT-01/09 · [เทสต์สอง origin](../../collector/tests/b1_browser_origin_integration.py) และ [เทสต์ก่อนอ่าน DOM](../../collector/tests/test_browser_runtime.py) ใช้หน้าและ credential สังเคราะห์บน loopback
-- **B1a** · FR-10/12 · AT-07/10 · [ชุดราคา 100 กรณี](../../collector/fixtures/b1a-price-cases.jsonl) และ [ตัววัดผล](../../collector/scripts/score_b1a.py) เฉลยอยู่ระหว่างรอเจ้าของตรวจตาม [Roadmap](../delivery/ROADMAP.md) ชุดผลคำนวณราคาและการนับซ้ำของ Paiya ตรวจผ่านชุด A7a ตามแถว PR-08
+- **B1a** · FR-10/12 · AT-07/10 · เจ้าของยืนยันเฉลย [ชุดราคา 100 กรณี](../../collector/fixtures/b1a-price-cases.jsonl) ตาม [Roadmap](../delivery/ROADMAP.md) [การวัดซ้ำ](../../collector/scripts/score_b1a.py) ได้จำนวนเงิน สกุลเงิน และรายการตรงพร้อมกัน 64/64 กรณี และกันราคาที่เทียบไม่ได้ออก 36/36 กรณี ดูหลักฐานใน [PR #111](https://github.com/Freshair129/paiya/pull/111) ชุดผลคำนวณราคาและการนับซ้ำของ Paiya ตรวจผ่านชุด A7a ตามแถว PR-08
 
 ## บันทึกหลักฐานเมื่อส่งงาน
 
