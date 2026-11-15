@@ -25,6 +25,8 @@ O1a ไม่ลบไฟล์หรือแถวใดในระบบต�
 - คลังภาพในระยะ A คือ `PAIYA_FIXTURE_MEDIA_ROOT`
 - `backup prune` ตรวจข้อจำกัดปลายทางชุดเดียวกับ O1a ก่อนวางแผนทุกครั้ง และไม่สร้างไดเรกทอรีปลายทางที่ยังไม่มี
 
+เมื่อฐานมีรอบ Facebook Collector คำสั่งสร้าง full backup จะปฏิเสธด้วย `collector_retention_unsupported` เพราะชุดสำรองปัจจุบันไม่มีการหมดอายุรายรอบตาม [สัญญา inbox](collector-inbox.md)
+
 ## 3. รูปแบบชุดสำรอง
 
 หนึ่งชุดเป็นหนึ่งไดเรกทอรี `<PAIYA_BACKUP_DIR>/<YYYYMMDDTHHMMSSZ>-<backup_run_id>/` สร้างใต้ชื่อชั่วคราวแล้วเปลี่ยนชื่อแบบ atomic เมื่อครบ

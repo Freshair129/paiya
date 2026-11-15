@@ -28,6 +28,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.sql import ColumnElement
 
 from paiya.extract.service import recompute_listing_item_projection
+from paiya.grants.collector import RETENTION, SOURCE_KIND, collector_gap_id, is_collector_scope
 from paiya.grants.errors import GrantError
 from paiya.grants.service import revoke_grant
 from paiya.logging import emit_event
@@ -65,7 +66,7 @@ from paiya.store.tables import (
 )
 
 _UUID_TEXT = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-_SCOPE = re.compile(rf"(?P<kind>grant|post):(?P<key>{_UUID_TEXT})")
+_SCOPE = re.compile(rf"(?P<kind>grant|post|collector_run):(?P<key>{_UUID_TEXT})")
 _PENDING_FILE_KEY = re.compile(r"(?P<storage_key>[0-9a-f]{64})\.(?P<extension>webp|jpg)")
 _BACKUP_MEDIA_COPY_LOCK_KEY = int.from_bytes(
     hashlib.sha256(b"paiya:backup:media-copy").digest()[:8], byteorder="big", signed=True
@@ -126,14 +127,18 @@ def _iso_utc(value: datetime) -> str:
 def _parse_scope(scope: str) -> tuple[str, UUID, str]:
     match = _SCOPE.fullmatch(scope)
     if match is None:
-        raise PurgeError("scope_format_invalid", "Scope must be grant:<uuid> or post:<uuid>")
+        raise PurgeError(
+            "scope_format_invalid",
+            "Scope must be grant:<uuid>, post:<uuid> or collector_run:<uuid>",
+        )
     kind = match.group("kind")
     key_text = match.group("key")
     try:
         scope_id = UUID(key_text)
     except ValueError as error:
         raise PurgeError(
-            "scope_format_invalid", "Scope must be grant:<uuid> or post:<uuid>"
+            "scope_format_invalid",
+            "Scope must be grant:<uuid>, post:<uuid> or collector_run:<uuid>",
         ) from error
     return kind, scope_id, f"{kind}:{scope_id}"
 
@@ -189,11 +194,49 @@ def unlock_backup_media_copy_shared_for_session(conn: Connection) -> None:
     )
 
 
+def _collector_run_scope(conn: Connection, run_id: UUID, as_of: datetime) -> bool:
+    row = (
+        conn.execute(
+            select(
+                capture_runs.c.source_kind,
+                capture_runs.c.started_at,
+                groups.c.source,
+                groups.c.group_key,
+            )
+            .join(groups, groups.c.id == capture_runs.c.group_id)
+            .where(capture_runs.c.id == run_id)
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return False
+    if (
+        row["source_kind"] != SOURCE_KIND
+        or not is_collector_scope(row["source"], row["group_key"])
+        or row["started_at"] > as_of - RETENTION
+    ):
+        raise PurgeError("scope_not_permitted", "Only expired Collector runs may be purged")
+    return True
+
+
 def _validate_scope(conn: Connection, scope_kind: str, scope_id: UUID, scope_key: str) -> None:
+    if scope_kind == "collector_run":
+        if (
+            not _collector_run_scope(conn, scope_id, datetime.now(UTC))
+            and _latest_success(conn, scope_kind, scope_key) is None
+        ):
+            raise PurgeError("scope_not_found", "The Collector run was not found")
+        return
     if scope_kind == "grant":
         row = (
             conn.execute(
-                select(source_grants.c.revoked_at, groups.c.source, groups.c.group_key)
+                select(
+                    source_grants.c.revoked_at,
+                    groups.c.source,
+                    groups.c.group_key,
+                    source_grants.c.source_kind,
+                )
                 .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
                 .where(source_grants.c.id == scope_id)
             )
@@ -202,8 +245,14 @@ def _validate_scope(conn: Connection, scope_kind: str, scope_id: UUID, scope_key
         )
         if row is None:
             raise PurgeError("scope_not_found", "The grant was not found")
-        if row["source"] != "fixture" or not cast(str, row["group_key"]).startswith("synthetic-"):
-            raise PurgeError("scope_not_permitted", "Only synthetic-* scopes may be purged")
+        if not (
+            (row["source"] == "fixture" and cast(str, row["group_key"]).startswith("synthetic-"))
+            or (
+                row["source_kind"] == SOURCE_KIND
+                and is_collector_scope(row["source"], row["group_key"])
+            )
+        ):
+            raise PurgeError("scope_not_permitted", "The requested scope may not be purged")
         if row["revoked_at"] is None:
             raise PurgeError("grant_not_revoked", "The grant must be revoked before purge")
         return
@@ -223,7 +272,7 @@ def _validate_scope(conn: Connection, scope_kind: str, scope_id: UUID, scope_key
             return
         raise PurgeError("scope_not_found", "The post was not found")
     if row["source"] != "fixture" or not cast(str, row["group_key"]).startswith("synthetic-"):
-        raise PurgeError("scope_not_permitted", "Only synthetic-* scopes may be purged")
+        raise PurgeError("scope_not_permitted", "The requested scope may not be purged")
 
 
 def _path_is_inside(root: Path, candidate: Path) -> bool:
@@ -303,8 +352,10 @@ def _unlock_scope_for_session(conn: Connection, scope_kind: str, scope_key: str)
 
 
 def _lock_scoped_posts(conn: Connection, scope_kind: str, scope_id: UUID) -> list[UUID]:
-    if scope_kind == "grant":
-        target_post_ids = select(observations.c.post_id).where(observations.c.grant_id == scope_id)
+    if scope_kind in {"grant", "collector_run"}:
+        target_post_ids = select(observations.c.post_id).where(
+            _scope_observation_predicate(scope_kind, scope_id)
+        )
         statement = select(posts.c.id).where(posts.c.id.in_(target_post_ids))
     else:
         statement = select(posts.c.id).where(posts.c.id == scope_id)
@@ -393,7 +444,90 @@ def _update_count(conn: Connection, statement: Any, key: Any) -> int:
 def _scope_observation_predicate(scope_kind: str, scope_id: UUID) -> ColumnElement[bool]:
     if scope_kind == "grant":
         return observations.c.grant_id == scope_id
+    if scope_kind == "collector_run":
+        return observations.c.run_id == scope_id
     return observations.c.post_id == scope_id
+
+
+def _collector_seller_id(conn: Connection, payload: Mapping[str, Any]) -> UUID | None:
+    seller = payload.get("seller")
+    if not isinstance(seller, dict) or not seller.get("external_actor_key"):
+        return None
+    return cast(
+        UUID | None,
+        conn.execute(
+            select(sellers.c.id).where(
+                sellers.c.source == SOURCE_KIND,
+                sellers.c.identity_scope == seller["identity_scope"],
+                sellers.c.external_actor_key == seller["external_actor_key"],
+            )
+        ).scalar_one_or_none(),
+    )
+
+
+def _rebuild_collector_posts(
+    conn: Connection, post_ids: set[UUID], observation_ids: list[UUID]
+) -> None:
+    """Rebuild fields on surviving posts from the latest retained evidence for each field."""
+    if not post_ids:
+        return
+    retained = conn.execute(
+        select(observations.c.post_id, observations.c.source_time, observations.c.normalized_json)
+        .where(observations.c.id.in_(observation_ids), observations.c.post_id.in_(post_ids))
+        .order_by(observations.c.observed_at.desc(), observations.c.id.desc())
+    ).mappings()
+    by_post: dict[UUID, dict[str, Any]] = {}
+    for row in retained:
+        payload = row["normalized_json"]["payload"]
+        projected = by_post.setdefault(
+            row["post_id"],
+            {"permalink": payload["permalink"], "seller_id": None, "posted_at": None},
+        )
+        if projected["seller_id"] is None:
+            projected["seller_id"] = _collector_seller_id(conn, payload)
+        if projected["posted_at"] is None:
+            projected["posted_at"] = row["source_time"]
+    for post_id, values in by_post.items():
+        conn.execute(update(posts).where(posts.c.id == post_id).values(**values))
+
+
+def _rebuild_collector_comment_parents(
+    conn: Connection, post_ids: set[UUID], observation_ids: list[UUID]
+) -> None:
+    if not post_ids:
+        return
+    active = conn.execute(
+        select(comments.c.id, comments.c.post_id, comments.c.source_comment_key).where(
+            comments.c.post_id.in_(post_ids),
+            comments.c.source_comment_key.is_not(None),
+            exists(select(1).where(comment_versions.c.comment_id == comments.c.id)),
+        )
+    )
+    comment_ids: dict[tuple[UUID, str], UUID] = {
+        (cast(UUID, post_id), cast(str, key)): cast(UUID, comment_id)
+        for comment_id, post_id, key in active
+    }
+    conn.execute(update(comments).where(comments.c.post_id.in_(post_ids)).values(parent_id=None))
+    retained = conn.execute(
+        select(observations.c.post_id, observations.c.normalized_json)
+        .where(observations.c.id.in_(observation_ids), observations.c.post_id.in_(post_ids))
+        .order_by(observations.c.observed_at.desc(), observations.c.id.desc())
+    )
+    resolved: set[UUID] = set()
+    for raw_post_id, document in retained:
+        post_id = cast(UUID, raw_post_id)
+        payload = cast(Mapping[str, Any], document)["payload"]
+        for comment in payload.get("comments", []):
+            comment_id = comment_ids.get((post_id, comment.get("source_comment_key")))
+            if comment_id is None or comment_id in resolved:
+                continue
+            resolved.add(comment_id)
+            parent_key = comment.get("parent_key")
+            parent_id = comment_ids.get((post_id, parent_key)) if parent_key else None
+            if parent_id is not None:
+                conn.execute(
+                    update(comments).where(comments.c.id == comment_id).values(parent_id=parent_id)
+                )
 
 
 def _purge_rows(
@@ -420,12 +554,12 @@ def _purge_rows(
     if scope_kind == "post":
         affected_post_ids.add(scope_id)
 
-    if scope_kind == "grant" and affected_post_ids:
+    if scope_kind != "post" and affected_post_ids:
         remaining_obs_rows = (
             conn.execute(
                 select(observations.c.id, observations.c.post_id, observations.c.observed_at).where(
                     observations.c.post_id.in_(affected_post_ids),
-                    observations.c.grant_id != scope_id,
+                    ~_scope_observation_predicate(scope_kind, scope_id),
                 )
             )
             .mappings()
@@ -443,6 +577,30 @@ def _purge_rows(
         removed_post_ids = set(locked_posts)
     else:
         removed_post_ids = affected_post_ids - remaining_post_ids
+
+    collector_post_ids: set[UUID] = (
+        set(
+            conn.execute(
+                select(posts.c.id)
+                .join(groups, groups.c.id == posts.c.group_id)
+                .where(posts.c.id.in_(affected_post_ids), groups.c.source == SOURCE_KIND)
+            ).scalars()
+        )
+        if affected_post_ids
+        else set()
+    )
+    expired_sellers: set[UUID] = set()
+    if collector_post_ids:
+        target_documents = conn.execute(
+            select(observations.c.normalized_json).where(
+                observations.c.id.in_(target_observation_ids),
+                observations.c.post_id.in_(collector_post_ids),
+            )
+        )
+        for (document,) in target_documents:
+            seller_id = _collector_seller_id(conn, cast(Mapping[str, Any], document)["payload"])
+            if seller_id is not None:
+                expired_sellers.add(seller_id)
 
     item_rows = (
         conn.execute(
@@ -663,7 +821,34 @@ def _purge_rows(
             observations.c.id,
         )
 
+    if scope_kind == "collector_run":
+        run_job: UUID = conn.execute(
+            select(capture_runs.c.job_id).where(capture_runs.c.id == scope_id)
+        ).scalar_one()
+        counts["capture_runs"] = _delete_count(
+            conn, capture_runs, capture_runs.c.id == scope_id, capture_runs.c.id
+        )
+        _delete_count(
+            conn,
+            capture_gaps,
+            capture_gaps.c.id == collector_gap_id(scope_id),
+            capture_gaps.c.id,
+        )
+        # Keep an opaque duplicate marker in the purge log; discard the job and its result.
+        counts["jobs"] = _delete_count(conn, jobs, jobs.c.id == run_job, jobs.c.id)
+
     if scope_kind == "grant":
+        collector_gaps = select(capture_runs.c.id).where(
+            capture_runs.c.grant_id == scope_id, capture_runs.c.source_kind == SOURCE_KIND
+        )
+        collector_run_ids: list[UUID] = list(conn.execute(collector_gaps).scalars())
+        for run_id in collector_run_ids:
+            _delete_count(
+                conn,
+                capture_gaps,
+                capture_gaps.c.id == collector_gap_id(run_id),
+                capture_gaps.c.id,
+            )
         grant_job_ids: list[UUID] = list(
             conn.execute(select(jobs.c.id).where(jobs.c.grant_id == scope_id)).scalars().all()
         )
@@ -694,8 +879,14 @@ def _purge_rows(
             comments.c.post_id.in_(removed_post_ids),
             comments.c.id,
         )
-    else:
-        counts["comments"] = _comments_without_versions(conn, list(affected_post_ids))
+    surviving_posts = affected_post_ids - removed_post_ids
+    _rebuild_collector_comment_parents(
+        conn, collector_post_ids & surviving_posts, remaining_observation_ids
+    )
+    if surviving_posts:
+        counts["comments"] = cast(int, counts["comments"]) + _comments_without_versions(
+            conn, list(surviving_posts)
+        )
 
     if target_observation_ids:
         asset_ids = [cast(UUID, row[0]) for row in asset_rows]
@@ -720,6 +911,7 @@ def _purge_rows(
             listing_items.c.id,
         )
 
+    _rebuild_collector_posts(conn, collector_post_ids - removed_post_ids, remaining_observation_ids)
     counts["current_items_rebuilt"] = 0
     for item_id in sorted(rebuild_item_ids, key=str):
         latest = latest_by_item.get(item_id)
@@ -742,7 +934,10 @@ def _purge_rows(
         seller_ids: list[UUID] = list(
             conn.execute(
                 select(posts.c.seller_id)
-                .where(posts.c.id.in_(removed_post_ids), posts.c.seller_id.is_not(None))
+                .where(
+                    posts.c.id.in_(removed_post_ids - collector_post_ids),
+                    posts.c.seller_id.is_not(None),
+                )
                 .distinct()
             ).scalars()
         )
@@ -758,7 +953,32 @@ def _purge_rows(
                 sellers.c.id,
             )
 
-    # capture_gaps are group-level records and are never deleted by a scope purge.
+    # A surviving observation may still refer to a seller absent from the current post row.
+    if expired_sellers:
+        historical_seller = observations.c.normalized_json["payload"]["seller"]
+        removed = _delete_count(
+            conn,
+            sellers,
+            and_(
+                sellers.c.id.in_(expired_sellers),
+                ~exists(select(1).where(posts.c.seller_id == sellers.c.id)),
+                ~exists(
+                    select(1)
+                    .select_from(
+                        observations.join(capture_runs, capture_runs.c.id == observations.c.run_id)
+                    )
+                    .where(
+                        capture_runs.c.source_kind == SOURCE_KIND,
+                        historical_seller["identity_scope"].astext == sellers.c.identity_scope,
+                        historical_seller["external_actor_key"].astext
+                        == sellers.c.external_actor_key,
+                    )
+                ),
+            ),
+            sellers.c.id,
+        )
+        counts["sellers"] = cast(int, counts["sellers"]) + removed
+
     return counts, [(storage_key, file_key) for storage_key, file_key in deleted_asset_rows]
 
 
@@ -784,6 +1004,8 @@ def _record_failed(
 
 def _replay_scope_status(conn: Connection, scope_kind: str, scope_id: UUID) -> tuple[bool, bool]:
     """Return whether a replay scope exists and whether its grant needs revocation."""
+    if scope_kind == "collector_run":
+        return _collector_run_scope(conn, scope_id, datetime.now(UTC)), False
     if scope_kind == "grant":
         row = (
             conn.execute(
@@ -791,6 +1013,7 @@ def _replay_scope_status(conn: Connection, scope_kind: str, scope_id: UUID) -> t
                     source_grants.c.revoked_at,
                     groups.c.source,
                     groups.c.group_key,
+                    source_grants.c.source_kind,
                 )
                 .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
                 .where(source_grants.c.id == scope_id)
@@ -800,8 +1023,14 @@ def _replay_scope_status(conn: Connection, scope_kind: str, scope_id: UUID) -> t
         )
         if row is None:
             return False, False
-        if row["source"] != "fixture" or not cast(str, row["group_key"]).startswith("synthetic-"):
-            raise PurgeError("scope_not_permitted", "Only synthetic-* scopes may be purged")
+        if not (
+            (row["source"] == "fixture" and cast(str, row["group_key"]).startswith("synthetic-"))
+            or (
+                row["source_kind"] == SOURCE_KIND
+                and is_collector_scope(row["source"], row["group_key"])
+            )
+        ):
+            raise PurgeError("scope_not_permitted", "The requested scope may not be purged")
         return True, row["revoked_at"] is None
 
     row = (
@@ -816,7 +1045,7 @@ def _replay_scope_status(conn: Connection, scope_kind: str, scope_id: UUID) -> t
     if row is None:
         return False, False
     if row["source"] != "fixture" or not cast(str, row["group_key"]).startswith("synthetic-"):
-        raise PurgeError("scope_not_permitted", "Only synthetic-* scopes may be purged")
+        raise PurgeError("scope_not_permitted", "The requested scope may not be purged")
     return True, False
 
 
@@ -901,7 +1130,7 @@ def _start_purge_job(
         conn.execute(
             update(purge_jobs)
             .where(purge_jobs.c.id == purge_id)
-            .values(**{key: value for key, value in values.items() if key != "id"})
+            .values(state="running", completed_at=None, reason=None)
         )
     return None
 
@@ -925,6 +1154,21 @@ def _execute_purge_command(
     with engine.connect() as conn:
         _lock_scope_for_session(conn, scope_kind, scope_key)
         try:
+            strict_cleanup = scope_kind == "collector_run"
+            if scope_kind == "grant":
+                with conn.begin():
+                    strict_cleanup = (
+                        conn.execute(
+                            select(source_grants.c.id)
+                            .join(groups, groups.c.id == source_grants.c.group_id)
+                            .where(
+                                source_grants.c.id == scope_id,
+                                source_grants.c.source_kind == SOURCE_KIND,
+                                groups.c.source == SOURCE_KIND,
+                            )
+                        ).first()
+                        is not None
+                    )
             if append_log:
                 with conn.begin():
                     _validate_scope(conn, scope_kind, scope_id, scope_key)
@@ -943,6 +1187,7 @@ def _execute_purge_command(
                     existing = (
                         conn.execute(
                             select(
+                                purge_jobs.c.id,
                                 purge_jobs.c.scope_kind,
                                 purge_jobs.c.scope_key,
                                 purge_jobs.c.requested_at,
@@ -969,6 +1214,12 @@ def _execute_purge_command(
                                 existing["result_counts"],
                             )
                     previous = _latest_success(conn, scope_kind, scope_key)
+                    if (
+                        (not scope_exists or strict_cleanup)
+                        and existing is not None
+                        and existing["result_counts"].get("pending_storage_keys")
+                    ):
+                        previous = dict(existing)
 
                 if needs_revoke:
                     try:
@@ -1036,6 +1287,13 @@ def _execute_purge_command(
                         _validate_scope(conn, scope_kind, scope_id, scope_key)
                         counts, deleted_assets = _purge_rows(conn, scope_kind, scope_id)
                         deleted_asset_keys = [file_key for _storage_key, file_key in deleted_assets]
+                        counts["pending_storage_keys"] = deleted_asset_keys
+                        counts["files_pending"] = len(deleted_asset_keys)
+                        conn.execute(
+                            update(purge_jobs)
+                            .where(purge_jobs.c.id == purge_id)
+                            .values(result_counts=counts)
+                        )
                 except PurgeError as error:
                     _record_failed(conn, purge_id, error.code)
                     return {
@@ -1059,6 +1317,8 @@ def _execute_purge_command(
                 )
             else:
                 previous_counts = cast(Mapping[str, Any], previous["result_counts"])
+                if not append_log and previous["id"] == purge_id:
+                    counts.update(previous_counts)
                 previous_pending = previous_counts.get("pending_storage_keys", [])
                 pending_candidates = (
                     cast(list[str], previous_pending) if isinstance(previous_pending, list) else []
@@ -1070,18 +1330,19 @@ def _execute_purge_command(
             counts["files_deleted"] = files_deleted
             counts["files_pending"] = len(pending_keys)
             counts["pending_storage_keys"] = pending_keys
+            final_state = "failed" if strict_cleanup and pending_keys else "succeeded"
             with conn.begin():
                 conn.execute(
                     update(purge_jobs)
                     .where(purge_jobs.c.id == purge_id)
                     .values(
-                        state="succeeded",
+                        state=final_state,
                         completed_at=datetime.now(UTC),
-                        reason=None,
+                        reason="files_pending" if final_state == "failed" else None,
                         result_counts=counts,
                     )
                 )
-            return _job_result(purge_id, scope_text, "succeeded", counts)
+            return _job_result(purge_id, scope_text, final_state, counts)
         finally:
             _unlock_scope_for_session(conn, scope_kind, scope_key)
 

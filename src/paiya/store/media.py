@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from sqlalchemy import Connection, text
@@ -47,9 +47,11 @@ def unlock_media_asset_for_session(conn: Connection, storage_key: str) -> None:
     )
 
 
-def validate_media(staging_key: str, meta: Mapping[str, object], data: bytes) -> str:
+def validate_media(
+    staging_key: str, meta: Mapping[str, object], data: bytes, *, inbox_validated: bool = False
+) -> str:
     """Reject a forged staging key, digest, length, media type, or image signature."""
-    if not STAGING_KEY.fullmatch(staging_key):
+    if not inbox_validated and not STAGING_KEY.fullmatch(staging_key):
         raise ValueError("Invalid staging_key (no path segments or traversal)")
     size = len(data)
     if size == 0 or size > MAX_MEDIA_BYTES or size != meta["bytes"]:
@@ -80,8 +82,16 @@ def media_path(root: Path, sha256: str, mime: str) -> Path:
     return root / "assets" / (sha256 + ext)
 
 
-def write_media(root: Path, meta: Mapping[str, object], data: bytes, key: str) -> Path:
-    digest = validate_media(key, meta, data)
+def write_media(
+    root: Path,
+    meta: Mapping[str, object],
+    data: bytes,
+    key: str,
+    *,
+    inbox_validated: bool = False,
+    before_create: Callable[[Path], Path] | None = None,
+) -> Path:
+    digest = validate_media(key, meta, data, inbox_validated=inbox_validated)
     destination = media_path(root, digest, str(meta["mime"]))
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
@@ -89,7 +99,12 @@ def write_media(root: Path, meta: Mapping[str, object], data: bytes, key: str) -
             raise ValueError("Existing media asset failed integrity check")
         return destination
     # Same filesystem, so replace is atomic; orphans from DB failure can be cleaned.
-    fd, temp_name = tempfile.mkstemp(dir=destination.parent, prefix=".paiya-staged-")
+    if before_create is None:
+        fd, temp_name = tempfile.mkstemp(dir=destination.parent, prefix=".paiya-staged-")
+    else:
+        temp_name = str(before_create(destination))
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        fd = os.open(temp_name, flags, 0o600)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)

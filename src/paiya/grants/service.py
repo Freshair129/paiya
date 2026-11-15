@@ -6,27 +6,40 @@ from uuid import UUID
 
 from sqlalchemy import Engine, func, select, update
 
+from paiya.grants.collector import SOURCE_KIND, is_collector_scope
 from paiya.grants.errors import GrantError
 from paiya.store.tables import groups, jobs, source_grants
 
 
 def revoke_grant(engine: Engine, grant_id: UUID) -> dict[str, Any]:
-    """Revoke a synthetic grant and cancel its queued or leased jobs atomically."""
+    """Revoke an allowed source grant and cancel its queued or leased jobs atomically."""
     with engine.begin() as conn:
         grant = (
             conn.execute(
-                select(source_grants.c.revoked_at, groups.c.group_key)
+                select(
+                    source_grants.c.revoked_at,
+                    groups.c.group_key,
+                    groups.c.source,
+                    source_grants.c.source_kind,
+                )
                 .select_from(source_grants.join(groups, groups.c.id == source_grants.c.group_id))
                 .where(source_grants.c.id == grant_id)
-                .with_for_update(of=source_grants)
+                # Keep existing ingestion FK key-share locks compatible while revoking.
+                .with_for_update(of=source_grants, key_share=True)
             )
             .mappings()
             .one_or_none()
         )
         if grant is None:
             raise GrantError("scope_not_found", "The grant was not found")
-        if not cast(str, grant["group_key"]).startswith("synthetic-"):
-            raise GrantError("scope_not_permitted", "Only synthetic-* grants may be revoked")
+        if not (
+            cast(str, grant["group_key"]).startswith("synthetic-")
+            or (
+                grant["source_kind"] == SOURCE_KIND
+                and is_collector_scope(grant["source"], grant["group_key"])
+            )
+        ):
+            raise GrantError("scope_not_permitted", "The requested grant may not be revoked")
 
         already_revoked = grant["revoked_at"] is not None
         if already_revoked:

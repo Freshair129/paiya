@@ -18,6 +18,8 @@ from paiya.collector.feed_script import FeedScriptAdapter
 from paiya.collector.revisit_run import execute_revisit
 from paiya.collector.revisit_script import RevisitScriptAdapter
 from paiya.collector.run import execute_discovery
+from paiya.inbox.retention import prune_collector_runs
+from paiya.inbox.service import InboxError
 from paiya.purge.errors import PurgeError
 from paiya.purge.startup import check_purge_log
 from paiya.scheduler.models import JobClaim
@@ -293,6 +295,11 @@ def _startup_error(error: Exception) -> int:
     return 2
 
 
+def _prune_collector(engine: Engine) -> None:
+    if prune_collector_runs(engine)["state"] != "succeeded":
+        raise InboxError("collector_retention_failed", "Collector expiry requires purge replay")
+
+
 def main(*, once: bool, now: datetime | None = None) -> int:
     """Run one fixture job or keep polling until stopped by the owner."""
     engine: Engine | None = None
@@ -302,10 +309,16 @@ def main(*, once: bool, now: datetime | None = None) -> int:
         check_purge_log(engine)
         if now is not None and not once:
             raise ValueError("--now is only valid with --once")
+        retention_due = 0.0
         if once:
+            if os.environ.get("PAIYA_COLLECTOR_INBOX"):
+                _prune_collector(engine)
             _print_json({"ok": True, "result": run_cycle(engine, now or datetime.now(UTC))})
             return 0
         while True:
+            if os.environ.get("PAIYA_COLLECTOR_INBOX") and time.monotonic() >= retention_due:
+                _prune_collector(engine)
+                retention_due = time.monotonic() + 60
             result = run_cycle(engine, datetime.now(UTC))
             if result["state"] != "idle":
                 _print_json({"ok": True, "result": result})
@@ -313,7 +326,7 @@ def main(*, once: bool, now: datetime | None = None) -> int:
     except AdapterError as error:
         _print_json({"ok": False, "error": {"code": error.code, "message": "Fixture run failed"}})
         return 1
-    except (FaultConfigurationError, PurgeError, RuntimeError, ValueError) as error:
+    except (FaultConfigurationError, InboxError, PurgeError, RuntimeError, ValueError) as error:
         return _startup_error(error)
     except SQLAlchemyError:
         _print_json(
