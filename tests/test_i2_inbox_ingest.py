@@ -280,8 +280,11 @@ def test_expiry_removes_damaged_claim(
         (claimed / "run.json").unlink()
         (claimed / "READY").unlink()
     if damage == "ready":
-        for file in (claimed / "assets").iterdir():
-            os.utime(file, (started.timestamp(), started.timestamp()))
+        asset = next((claimed / "assets").iterdir())
+        nested = asset.parent / "nested"
+        nested.mkdir()
+        asset = asset.rename(nested / asset.name)
+        os.utime(asset, (started.timestamp(), started.timestamp()))
     if (claimed / "READY").exists():
         os.utime(claimed / "READY", (started.timestamp(), started.timestamp()))
     newer = _publish(inbox, uuid4(), datetime.now(UTC) - timedelta(minutes=1))
@@ -401,3 +404,44 @@ def test_prune_leaves_foreign_and_unpublished_uuid_directories(
     result = _call(capsys, "inbox", "prune-expired")["result"]
     assert result["expired_bundles"] == 0
     assert foreign.is_dir() and unpublished.is_dir()
+
+
+def test_prune_expired_incoming_with_missing_ready(
+    collector_db: Engine, inbox_setup: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    inbox, _ = inbox_setup
+    run = _publish(inbox, uuid4(), datetime.now(UTC) - timedelta(days=8))
+    (run / "READY").unlink()
+    assert _call(capsys, "inbox", "prune-expired")["result"]["expired_bundles"] == 1
+    assert not run.exists()
+
+
+def test_revoked_grant_purge_replays_pending_file_delete(
+    collector_db: Engine,
+    inbox_setup: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inbox, media = inbox_setup
+    grant = _grant(capsys)
+    now = datetime.now(UTC)
+    with collector_db.begin() as conn:
+        conn.execute(update(source_grants).values(valid_from=now - timedelta(days=9)))
+    run = _publish(inbox, grant, now - timedelta(minutes=1))
+    _call(capsys, "inbox", "ingest", run.name)
+    asset = next((media / "assets").glob("*.webp"))
+    _call(capsys, "grant", "revoke", str(grant))
+    unlink = Path.unlink
+
+    def file_locked(path, *args, **kwargs):
+        if path == asset:
+            raise PermissionError("Synthetic file lock")
+        return unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as env:
+        env.setattr(Path, "unlink", file_locked)
+        failed = _call(capsys, "purge", "run", "--scope", f"grant:{grant}", expected=1)
+    assert failed["result_counts"]["files_pending"] == 1
+    assert asset.is_file()
+    assert _call(capsys, "purge", "replay")["pending_count"] == 0
+    assert not asset.exists()

@@ -65,7 +65,7 @@ I2 เพิ่มการเพิกถอนและลบ grant ของ�
 
 สถิติราคา หน้าผู้ขาย และ `/v1/models` คำนวณตอนอ่าน จึงไม่นับข้อมูลที่ลบเองโดยไม่ต้องมีขั้นเพิ่ม
 
-**ไฟล์** ลบไฟล์ไม่สำเร็จ (เช่น ถูกล็อก) ไม่ทำให้ transaction ย้อน ให้นับใน `result_counts.files_pending` และตั้งสถานะ `succeeded` สำหรับขอบเขต A8 ขอบเขต `collector_run` จะค้างให้ replay จนกว่าจะลบครบ
+**ไฟล์** ลบไฟล์ไม่สำเร็จ (เช่น ถูกล็อก) ไม่ทำให้ transaction ย้อน ให้นับใน `result_counts.files_pending` และตั้งสถานะ `succeeded` สำหรับขอบเขต A8 ขอบเขต `collector_run` และ grant ของ Collector จะค้างให้ replay จนกว่าจะลบครบ
 - สั่ง `purge run` ด้วยขอบเขตเดิมซ้ำจะลองลบไฟล์ที่ค้างอีกครั้ง โดยใช้รายการ storage key ที่เก็บใน `result_counts.pending_storage_keys`
 - ค่าในรายการเป็น opaque key ไม่ใช่เนื้อหา
 

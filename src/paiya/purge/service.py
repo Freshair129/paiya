@@ -504,7 +504,8 @@ def _rebuild_collector_comment_parents(
         )
     )
     comment_ids: dict[tuple[UUID, str], UUID] = {
-        (post_id, key): comment_id for comment_id, post_id, key in active
+        (cast(UUID, post_id), cast(str, key)): cast(UUID, comment_id)
+        for comment_id, post_id, key in active
     }
     conn.execute(update(comments).where(comments.c.post_id.in_(post_ids)).values(parent_id=None))
     retained = conn.execute(
@@ -513,7 +514,8 @@ def _rebuild_collector_comment_parents(
         .order_by(observations.c.observed_at.desc(), observations.c.id.desc())
     )
     resolved: set[UUID] = set()
-    for post_id, document in retained:
+    for raw_post_id, document in retained:
+        post_id = cast(UUID, raw_post_id)
         payload = cast(Mapping[str, Any], document)["payload"]
         for comment in payload.get("comments", []):
             comment_id = comment_ids.get((post_id, comment.get("source_comment_key")))
@@ -1152,6 +1154,21 @@ def _execute_purge_command(
     with engine.connect() as conn:
         _lock_scope_for_session(conn, scope_kind, scope_key)
         try:
+            strict_cleanup = scope_kind == "collector_run"
+            if scope_kind == "grant":
+                with conn.begin():
+                    strict_cleanup = (
+                        conn.execute(
+                            select(source_grants.c.id)
+                            .join(groups, groups.c.id == source_grants.c.group_id)
+                            .where(
+                                source_grants.c.id == scope_id,
+                                source_grants.c.source_kind == SOURCE_KIND,
+                                groups.c.source == SOURCE_KIND,
+                            )
+                        ).first()
+                        is not None
+                    )
             if append_log:
                 with conn.begin():
                     _validate_scope(conn, scope_kind, scope_id, scope_key)
@@ -1198,7 +1215,7 @@ def _execute_purge_command(
                             )
                     previous = _latest_success(conn, scope_kind, scope_key)
                     if (
-                        not scope_exists
+                        (not scope_exists or strict_cleanup)
                         and existing is not None
                         and existing["result_counts"].get("pending_storage_keys")
                     ):
@@ -1313,9 +1330,7 @@ def _execute_purge_command(
             counts["files_deleted"] = files_deleted
             counts["files_pending"] = len(pending_keys)
             counts["pending_storage_keys"] = pending_keys
-            final_state = (
-                "failed" if scope_kind == "collector_run" and pending_keys else "succeeded"
-            )
+            final_state = "failed" if strict_cleanup and pending_keys else "succeeded"
             with conn.begin():
                 conn.execute(
                     update(purge_jobs)

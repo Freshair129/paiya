@@ -39,6 +39,22 @@ def _bundle_summary(path: Path, run_id: UUID) -> dict[str, Any]:
     return {}
 
 
+def _oldest_file_mtime(folder: Path, current: float) -> float:
+    pending = [folder]
+    while pending:
+        root = pending.pop()
+        if root.is_symlink() or root.is_junction() or not root.is_dir():
+            continue
+        for entry in root.iterdir():
+            if entry.is_symlink() or entry.is_junction():
+                continue
+            if entry.is_dir():
+                pending.append(entry)
+            elif entry.is_file():
+                current = min(current, entry.stat().st_mtime)
+    return current
+
+
 def _bundle_started(path: Path, summary: dict[str, Any]) -> datetime:
     """Use run metadata independently of evidence integrity and bound it by local age."""
     ready = path / "READY"
@@ -47,12 +63,7 @@ def _bundle_started(path: Path, summary: dict[str, Any]) -> datetime:
     else:
         modified = path.stat().st_mtime
         for name in ("assets", "envelopes"):
-            folder = path / name
-            if folder.is_symlink() or folder.is_junction() or not folder.is_dir():
-                continue
-            for file in folder.iterdir():
-                if not file.is_symlink() and file.is_file():
-                    modified = min(modified, file.stat().st_mtime)
+            modified = _oldest_file_mtime(path / name, modified)
     published = datetime.fromtimestamp(modified, UTC)
     try:
         started = datetime.fromisoformat(summary["started_at"])
@@ -95,12 +106,12 @@ def _remove_pending(
                 target = _directory(rejected / candidate.name)
                 receipt = _directory(target / "result.json")
                 finalized = receipt.is_file()
-                if stage == "incoming" and not finalized:
+                if stage == "incoming" and not finalized and group_key is None:
                     ready = candidate / "READY"
-                    if ready.is_symlink() or not ready.is_file():
-                        continue
-                    if group_key is None and not all(
-                        (candidate / name).is_dir() for name in ("assets", "envelopes")
+                    if (
+                        ready.is_symlink()
+                        or not ready.is_file()
+                        or not all((candidate / name).is_dir() for name in ("assets", "envelopes"))
                     ):
                         continue
                 grant_id = summary.get("grant_id")
