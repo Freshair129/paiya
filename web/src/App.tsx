@@ -22,6 +22,7 @@ import {
   getTimeline,
   getWatches,
   commitManualImport,
+  logoutOwner,
   previewManualImport,
   unlockOwner,
   type CaptureGap,
@@ -171,6 +172,8 @@ function ErrorState({ message, retry }: { message: string; retry?: () => void })
 
 function UnlockScreen() {
   const [passphrase, setPassphrase] = useState('')
+  const [needsPairing, setNeedsPairing] = useState(false)
+  const [pairingCode, setPairingCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -179,14 +182,18 @@ function UnlockScreen() {
     setError('')
     setSubmitting(true)
     try {
-      await unlockOwner(passphrase)
+      await unlockOwner(passphrase, needsPairing ? pairingCode.trim() : undefined)
       setPassphrase('')
+      setPairingCode('')
     } catch (requestError) {
-      setError(
-        requestError instanceof ApiError && requestError.status === 401
+      if (requestError instanceof ApiError && requestError.code === 'pairing_required') {
+        setNeedsPairing(true)
+        setError('กรอกรหัสจับคู่อุปกรณ์จากเจ้าของเครื่อง')
+      } else {
+        setError(requestError instanceof ApiError && requestError.status === 401
           ? 'รหัสผ่านไม่ถูกต้อง'
-          : errorMessage(requestError),
-      )
+          : errorMessage(requestError))
+      }
     } finally {
       setSubmitting(false)
     }
@@ -202,7 +209,6 @@ function UnlockScreen() {
       </header>
       <main className="unlock-main" id="main-content">
         <section className="unlock-card" aria-labelledby="unlock-title">
-          <p className="eyebrow">API ในเครื่อง</p>
           <h1 id="unlock-title">ปลดล็อกข้อมูลของคุณ</h1>
           <p>กรอกรหัสผ่านเจ้าของเครื่องเพื่ออ่านข้อมูลที่จัดเก็บไว้</p>
           <form className="unlock-form" onSubmit={submit}>
@@ -218,6 +224,18 @@ function UnlockScreen() {
               onChange={(event) => setPassphrase(event.target.value)}
               disabled={submitting}
             />
+            {needsPairing ? <>
+              <label htmlFor="owner-pairing-code">รหัสจับคู่อุปกรณ์</label>
+              <input
+                id="owner-pairing-code"
+                type="password"
+                autoComplete="off"
+                required
+                value={pairingCode}
+                onChange={(event) => setPairingCode(event.target.value)}
+                disabled={submitting}
+              />
+            </> : null}
             {error ? <p className="unlock-error" role="alert">{error}</p> : null}
             <button className="button button-primary" type="submit" disabled={submitting || passphrase.length < 12}>
               {submitting ? 'กำลังปลดล็อก…' : 'ปลดล็อก'}
@@ -1831,7 +1849,7 @@ function NotFoundPage() {
   )
 }
 
-function MainNavigation({ route }: { route: Route }) {
+function MainNavigation({ route, mobilePreview }: { route: Route; mobilePreview: boolean }) {
   const links = [
     { to: '/', label: 'สินค้า', icon: '◈', active: route.name === 'feed' || route.name === 'post' || route.name === 'evidence' || route.name === 'seller' },
     { to: '/watches', label: 'ติดตาม', icon: '☆', active: route.name === 'watches' },
@@ -1840,7 +1858,7 @@ function MainNavigation({ route }: { route: Route }) {
   ]
   return (
     <nav className="bottom-navigation" aria-label="เมนูหลัก">
-      {links.map((link) => (
+      {links.filter((link) => !mobilePreview || link.to !== '/imports').map((link) => (
         <RouteLink className={`nav-tab${link.active ? ' nav-tab-active' : ''}`} to={link.to} key={link.to} current={link.active}>
           <span className="nav-icon" aria-hidden="true">{link.icon}</span>
           <span>{link.label}</span>
@@ -1853,6 +1871,9 @@ function MainNavigation({ route }: { route: Route }) {
 export default function App() {
   const [path, setPath] = useState(() => (typeof window === 'undefined' ? '/' : window.location.pathname))
   const [needsUnlock, setNeedsUnlock] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutError, setSignOutError] = useState('')
+  const mobilePreview = typeof window !== 'undefined' && window.location.protocol === 'https:'
   const route = useMemo(() => parseRoute(path), [path])
 
   useEffect(() => {
@@ -1885,6 +1906,18 @@ export default function App() {
     window.scrollTo(0, 0)
   }
 
+  async function signOut() {
+    setSigningOut(true)
+    setSignOutError('')
+    try {
+      await logoutOwner()
+    } catch (error) {
+      setSignOutError(errorMessage(error))
+    } finally {
+      setSigningOut(false)
+    }
+  }
+
   let page: ReactNode
   switch (route.name) {
     case 'feed': page = <FeedPage />; break
@@ -1894,7 +1927,7 @@ export default function App() {
     case 'seller': page = <SellerPage id={route.id} />; break
     case 'watches': page = <WatchesPage />; break
     case 'groups': page = <GroupsPage />; break
-    case 'imports': page = <ImportPage />; break
+    case 'imports': page = mobilePreview ? <NotFoundPage /> : <ImportPage />; break
     default: page = <NotFoundPage />
   }
 
@@ -1909,10 +1942,15 @@ export default function App() {
             <span className="brand-mark" aria-hidden="true">ป</span>
             <span><strong>ป้ายยา</strong><small>ข้อมูลที่มีหลักฐาน</small></span>
           </RouteLink>
-          <span className="demo-indicator"><span aria-hidden="true" />ข้อมูลสังเคราะห์</span>
+          {mobilePreview ? (
+            <button className="button" type="button" onClick={signOut} disabled={signingOut}>
+              {signingOut ? 'กำลังออก…' : 'ออกจากระบบ'}
+            </button>
+          ) : <span className="demo-indicator"><span aria-hidden="true" />ข้อมูลสังเคราะห์</span>}
         </header>
+        {signOutError ? <p className="unlock-error" role="alert">{signOutError}</p> : null}
         <main id="main-content" className="main-content" tabIndex={-1}>{page}</main>
-        <MainNavigation route={route} />
+        <MainNavigation route={route} mobilePreview={mobilePreview} />
       </div>
     </RouterContext.Provider>
   )

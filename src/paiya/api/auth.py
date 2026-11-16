@@ -11,6 +11,7 @@ from paiya.auth.credentials import (
     AuthNotConfigured,
     verify_owner_passphrase,
 )
+from paiya.auth.mobile_gateway import DEVICE_COOKIE, DEVICE_MAX_AGE_SECONDS, gateway_from_request
 from paiya.auth.nonces import consume_challenge, issue_challenge
 from paiya.auth.request_checks import csrf_token_matches
 from paiya.auth.sessions import (
@@ -29,9 +30,13 @@ router = APIRouter(prefix="/v1/auth")
 
 
 @router.get("/challenge")
-def get_challenge() -> dict[str, str]:
+def get_challenge(request: Request) -> dict[str, str | bool]:
     """Issue the one-use nonce required before passphrase unlock."""
-    return {"nonce": issue_challenge()}
+    challenge: dict[str, str | bool] = {"nonce": issue_challenge()}
+    gateway = gateway_from_request(request)
+    if gateway is not None:
+        challenge["pairing_required"] = not gateway.accepts_device(request)
+    return challenge
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -93,6 +98,14 @@ async def unlock(
     passphrase = body.get("passphrase") if isinstance(body, dict) else None
     if not isinstance(passphrase, str):
         return _error(422, "invalid_request", "A passphrase is required")
+    gateway = gateway_from_request(request)
+    needs_pairing = gateway is not None and not gateway.accepts_device(request)
+    if (
+        gateway is not None
+        and needs_pairing
+        and not csrf_token_matches(body.get("pairing_code"), gateway.pairing_code)
+    ):
+        return _error(403, "pairing_required", "A valid device pairing code is required")
     try:
         if not verify_owner_passphrase(passphrase):
             return _error(401, "session_required", "The passphrase was not accepted")
@@ -116,15 +129,26 @@ async def unlock(
         max_age=SESSION_MAX_AGE_SECONDS,
         path="/",
         domain=None,
-        secure=False,
+        secure=gateway is not None,
         httponly=True,
         samesite="strict",
     )
+    if gateway is not None and needs_pairing:
+        response.set_cookie(
+            key=DEVICE_COOKIE,
+            value=gateway.issue_device_token(),
+            max_age=DEVICE_MAX_AGE_SECONDS,
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="strict",
+        )
     return response
 
 
 @router.post("/logout")
 def logout(
+    request: Request,
     session: OwnerSession,
     x_csrf_token: Annotated[str | None, Header()] = None,
 ) -> Response:
@@ -137,7 +161,7 @@ def logout(
         key=SESSION_COOKIE_NAME,
         path="/",
         domain=None,
-        secure=False,
+        secure=gateway_from_request(request) is not None,
         httponly=True,
         samesite="strict",
     )
@@ -146,6 +170,7 @@ def logout(
 
 @router.post("/revoke-all")
 def revoke_all(
+    request: Request,
     session: OwnerSession,
     x_csrf_token: Annotated[str | None, Header()] = None,
 ) -> Response:
@@ -158,7 +183,7 @@ def revoke_all(
         key=SESSION_COOKIE_NAME,
         path="/",
         domain=None,
-        secure=False,
+        secure=gateway_from_request(request) is not None,
         httponly=True,
         samesite="strict",
     )

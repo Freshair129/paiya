@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 from paiya.api.app import app
 from paiya.auth.credentials import ensure_auth_verifier
+from paiya.auth.mobile_gateway import check_preview_database_url, mobile_gateway
 from paiya.purge.errors import PurgeError
 from paiya.purge.startup import check_purge_log
 from paiya.read.context import dev_fixture_mode_enabled, read_context_group_key_from_env
@@ -61,8 +62,11 @@ def _port_from_env() -> int:
 
 
 def main() -> None:
-    """Start uvicorn on loopback only; the host is intentionally not configurable."""
+    """Start the loopback API or the opt-in Compose preview listener."""
     try:
+        gateway = mobile_gateway()
+        if gateway is not None:
+            check_preview_database_url()
         dev_fixture_mode = dev_fixture_mode_enabled()
         read_context_group_key_from_env()
         get_price_trend_settings()
@@ -77,7 +81,10 @@ def main() -> None:
     except (RuntimeError, ValueError) as error:
         print(f"paiya.serve: {error}", file=sys.stderr)
         raise SystemExit(2) from error
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    if gateway is None:
+        uvicorn.run(app, host="127.0.0.1", port=port)
+    else:
+        uvicorn.run(app, host="0.0.0.0", port=port, proxy_headers=False)
 
 
 if __name__ == "__main__":

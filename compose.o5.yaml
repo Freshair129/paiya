@@ -1,0 +1,38 @@
+name: paiya-o5-preview
+services:
+  db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: paiya_o5
+      POSTGRES_DB: paiya_o5_synthetic
+      POSTGRES_PASSWORD: ${PAIYA_O5_DB_PASSWORD:?Set a URL-safe password in the preview environment}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U paiya_o5 -d paiya_o5_synthetic]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.o5
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PAIYA_DATABASE_URL: postgresql+psycopg://paiya_o5:${PAIYA_O5_DB_PASSWORD}@db:5432/paiya_o5_synthetic
+      PAIYA_DEV_FIXTURE_MODE: '0'
+      PAIYA_FIXTURE_MEDIA_ROOT: /data/media
+      PAIYA_PURGE_LOG_PATH: /data/operations/purge.jsonl
+      PAIYA_O5_ORIGIN: ${PAIYA_O5_ORIGIN:?Set the exact HTTPS Vercel origin}
+      PAIYA_O5_BACKEND_HOST: ${PAIYA_O5_BACKEND_HOST:?Set the HTTPS ingress hostname}
+      PAIYA_O5_PROXY_KEY: ${PAIYA_O5_PROXY_KEY:?Set the 32-byte Vercel origin key}
+      PAIYA_O5_PAIRING_CODE: ${PAIYA_O5_PAIRING_CODE:?Set a separate 32-byte pairing code}
+    ports:
+      - '127.0.0.1:8785:8000'
+    volumes:
+      - api:/data
+volumes:
+  db:
+  api:

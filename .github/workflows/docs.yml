@@ -72,6 +72,66 @@ jobs:
       - run: PYTHONPATH=. uv run --frozen python scripts/score_b1a.py
         working-directory: collector
 
+  o5-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          python-version: '3.12'
+      - name: Set up isolated synthetic credentials
+        run: |
+          set -euo pipefail
+          {
+            echo 'PAIYA_O5_ORIGIN=https://paiya-preview.example.test'
+            echo 'PAIYA_O5_BACKEND_HOST=paiya-api.example.test'
+            for name in PAIYA_O5_DB_PASSWORD PAIYA_O5_PROXY_KEY PAIYA_O5_PAIRING_CODE PAIYA_O5_TEST_PASSPHRASE; do
+              value=$(openssl rand -hex 32)
+              echo "::add-mask::$value" >&2
+              echo "$name=$value"
+            done
+          } >> "$GITHUB_ENV"
+      - name: Build and bootstrap Docker preview
+        run: |
+          set -euo pipefail
+          docker compose -f compose.o5.yaml build api
+          docker compose -f compose.o5.yaml run --rm -T api alembic upgrade head
+          docker compose -f compose.o5.yaml run --rm -T api python -m paiya.cli demo seed
+          printf '%s' "$PAIYA_O5_TEST_PASSPHRASE" | docker compose -f compose.o5.yaml run --rm -T api python -c 'import sys; from paiya.auth.credentials import create_auth_verifier; create_auth_verifier(sys.stdin.read())'
+          docker compose -f compose.o5.yaml up -d --no-build
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --max-time 2 \
+              -H "Host: $PAIYA_O5_BACKEND_HOST" -H "X-Paiya-Proxy-Key: $PAIYA_O5_PROXY_KEY" \
+              http://127.0.0.1:8785/v1/auth/challenge >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose -f compose.o5.yaml logs --tail 50 api
+          exit 1
+      - name: Verify mobile auth and synthetic data from the container
+        run: uv run --frozen python scripts/check_o5_preview.py
+      - name: Export the verified O5 image
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/o5-image"
+          cd "$RUNNER_TEMP/o5-image"
+          docker save paiya-o5-preview-api | gzip -1 > paiya-o5-preview-api.tar.gz
+          sha256sum paiya-o5-preview-api.tar.gz > SHA256SUMS
+      - name: Upload the O5 preview image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: paiya-o5-preview-image
+          path: ${{ runner.temp }}/o5-image/
+          compression-level: 0
+          retention-days: 3
+      - name: Remove synthetic container state
+        if: always()
+        run: docker compose -f compose.o5.yaml down --volumes
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -88,6 +148,19 @@ jobs:
       - run: pnpm --dir web typecheck
       - run: pnpm --dir web test
       - run: pnpm --dir web build
+      - name: Package the static dashboard for local preview
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/local-dashboard"
+          tar -C web/dist -czf "$RUNNER_TEMP/local-dashboard/paiya-web-dist.tar.gz" .
+          cd "$RUNNER_TEMP/local-dashboard"
+          sha256sum paiya-web-dist.tar.gz > SHA256SUMS
+      - name: Upload the static dashboard
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: paiya-web-dist
+          path: ${{ runner.temp }}/local-dashboard/
+          retention-days: 3
 
   e2e:
     runs-on: ubuntu-latest

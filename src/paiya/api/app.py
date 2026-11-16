@@ -12,6 +12,7 @@ from paiya.api.evidence import router as fixture_read_router
 from paiya.api.health import router as health_router
 from paiya.api.imports import router as imports_router
 from paiya.api.prices import router as price_router
+from paiya.auth.mobile_gateway import check_preview_database_url, mobile_gateway
 from paiya.auth.request_checks import (
     READ_METHODS,
     WRITE_METHODS,
@@ -28,6 +29,8 @@ from paiya.settings import get_database_engine, get_enrich_settings, get_price_t
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Reject an invalid server-selected read group before serving requests."""
+    if mobile_gateway() is not None:
+        check_preview_database_url()
     read_context_group_key_from_env()
     get_price_trend_settings()
     get_enrich_settings()
@@ -73,8 +76,16 @@ async def disable_api_caching(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     """Apply request checks and mark every versioned API response uncacheable."""
-    if not host_is_allowed(request):
+    gateway = mobile_gateway()
+    if gateway is None:
+        allowed = host_is_allowed(request)
+    else:
+        allowed = gateway.accepts_proxy(request)
+        request.state.mobile_gateway = gateway
+    if not allowed:
         return _request_error(403, "origin_not_allowed", "Host is not allowed")
+    if gateway is not None and not request.url.path.startswith("/v1/"):
+        return _request_error(404, "not_found", "Not found")
     if request.method not in READ_METHODS | WRITE_METHODS:
         return _request_error(
             405,
@@ -82,8 +93,25 @@ async def disable_api_caching(
             "Method is not allowed",
             headers={"Allow": ", ".join(sorted(READ_METHODS | WRITE_METHODS))},
         )
-    if request.method in WRITE_METHODS and not origin_is_allowed(request):
-        return _request_error(403, "origin_not_allowed", "Origin is not allowed")
+    if request.method in WRITE_METHODS:
+        allowed = (
+            gateway.accepts_origin(request) if gateway is not None else origin_is_allowed(request)
+        )
+        if not allowed:
+            return _request_error(403, "origin_not_allowed", "Origin is not allowed")
+        if gateway is not None and request.url.path not in {
+            "/v1/auth/unlock",
+            "/v1/auth/logout",
+            "/v1/auth/revoke-all",
+        }:
+            return _request_error(403, "write_forbidden", "Preview access is read-only")
+    if (
+        gateway is not None
+        and (request.method, request.url.path)
+        not in {("GET", "/v1/auth/challenge"), ("POST", "/v1/auth/unlock")}
+        and not gateway.accepts_device(request)
+    ):
+        return _request_error(401, "session_required", "A valid owner session is required")
     if request.method in WRITE_METHODS and request.url.path != "/v1/auth/unlock":
         token = request.cookies.get(SESSION_COOKIE_NAME)
         with get_database_engine().begin() as connection:
