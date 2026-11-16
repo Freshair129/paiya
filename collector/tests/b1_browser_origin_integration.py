@@ -154,3 +154,115 @@ def test_browser_blocks_cross_origin_documents_before_credentials_can_arrive(
                     guarded.close()
             finally:
                 context.close()
+
+
+def test_preserved_group_feed_still_blocks_cross_origin_navigation(browser) -> None:
+    from playwright.sync_api import Error
+
+    received = []
+
+    def destination(path, headers):
+        received.append(path)
+        return 200, {}, b"<body>Foreign document</body>"
+
+    with serve(destination) as receiver:
+
+        def source(path, headers):
+            body = f'<body><a id="foreign" href="{receiver}/sink">link</a></body>'
+            return 200, {"Content-Type": "text/html"}, body.encode()
+
+        with serve(source) as owner:
+            context = browser.new_context()
+            try:
+                page = context.new_page()
+                selected_url = f"{owner}/groups/b1?sorting_setting=CHRONOLOGICAL"
+                page.goto(selected_url)
+                guarded = PlaywrightVisiblePage(page, f"{owner}/groups/b1")
+                try:
+                    guarded.navigate(f"{owner}/groups/b1")
+                    assert page.url == selected_url
+                    try:
+                        page.locator("#foreign").click(timeout=3_000)
+                    except Error as error:
+                        assert "ERR_BLOCKED_BY_CLIENT" in str(error)
+                    assert received == []
+                    with pytest.raises(BrowserAdapterError, match="outside configured origin"):
+                        guarded.snapshot({})
+                finally:
+                    guarded.close()
+            finally:
+                context.close()
+
+
+def test_preserved_sort_navigation_observes_rate_limit(browser) -> None:
+    calls = []
+
+    def source(path, headers):
+        if not path.startswith("/groups/b1"):
+            return 404, {}, b""
+        calls.append(path)
+        if len(calls) == 1:
+            return 200, {"Content-Type": "text/html"}, b"<body>Initial feed</body>"
+        return 429, {"Retry-After": "120"}, b"<body>Rate limited</body>"
+
+    with serve(source) as owner:
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            selected_url = f"{owner}/groups/b1?sorting_setting=CHRONOLOGICAL"
+            page.goto(selected_url)
+            guarded = PlaywrightVisiblePage(page, f"{owner}/groups/b1")
+            try:
+                guarded.navigate(f"{owner}/groups/b1")
+                snapshot = guarded.snapshot({})
+                assert len(calls) == 2
+                assert snapshot.http_status == 429
+                assert snapshot.retry_after == "120"
+                assert snapshot.posts == ()
+            finally:
+                guarded.close()
+        finally:
+            context.close()
+
+
+def test_reordered_feed_never_attaches_another_posts_image(browser) -> None:
+    def source(path, headers):
+        body = (
+            '<body><article><a href="/groups/b1/posts/1">first</a>'
+            '<svg class="photo" width="20" height="20"><rect width="20" height="20"/></svg>'
+            '</article><article><a href="/groups/b1/posts/2">second</a>'
+            '<svg class="photo" width="20" height="20"><rect width="20" height="20"/></svg>'
+            "</article></body>"
+        )
+        return 200, {"Content-Type": "text/html"}, body.encode()
+
+    with serve(source) as owner:
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            guarded = PlaywrightVisiblePage(page, f"{owner}/groups/b1")
+            try:
+                guarded.navigate(f"{owner}/groups/b1")
+                first_card = {
+                    "href": "/groups/b1/posts/1",
+                    "postText": "Synthetic first post",
+                    "sellerName": "Synthetic seller",
+                    "comments": [],
+                    "pinned": False,
+                    "suggested": False,
+                }
+                page.locator("article").first.evaluate(
+                    "first => first.parentNode.appendChild(first)"
+                )
+                post = guarded._read_post(
+                    first_card,
+                    {"post_card": "article", "image": ".photo", "permalink": "a"},
+                    page.url,
+                    0,
+                )
+                assert post.image_bytes is None
+                assert post.image_capture_failed
+            finally:
+                guarded.close()
+        finally:
+            context.close()

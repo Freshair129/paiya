@@ -275,6 +275,32 @@ def test_failed_browser_image_capture_is_recorded_without_reading_config_directo
     assert parsed.asset_bytes == {}
 
 
+def test_thai_new_posts_sort_is_verified() -> None:
+    feed = feed_from_visible_posts(
+        [],
+        sort_label="โพสต์ใหม่",
+        access="ok",
+        session_result="ok",
+        feed_end=True,
+        scroll_step_seconds=0,
+    )
+
+    assert feed.sort_result == "verified_latest"
+
+
+def test_thai_recent_activity_sort_remains_unverified() -> None:
+    feed = feed_from_visible_posts(
+        [],
+        sort_label="กิจกรรมล่าสุด",
+        access="ok",
+        session_result="ok",
+        feed_end=True,
+        scroll_step_seconds=0,
+    )
+
+    assert feed.sort_result == "unverified"
+
+
 def test_unrecognized_sort_label_remains_unverified_and_missing_key_is_not_invented() -> None:
     post = VisiblePost(
         permalink="https://www.facebook.com/groups/owner-selected/posts/987654321/",

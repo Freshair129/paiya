@@ -133,6 +133,128 @@ def test_attaching_to_dedicated_browser_does_not_navigate_before_manual_run(
     assert page.goto_calls == []
 
 
+def test_navigation_keeps_current_group_feed_with_user_selected_sort(monkeypatch) -> None:
+    class Page:
+        url = "https://www.facebook.com/groups/example/?sorting_setting=CHRONOLOGICAL"
+
+        def __init__(self):
+            self.requested = []
+
+        def on(self, *_args):
+            pass
+
+        def goto(self, url, **_kwargs):
+            self.requested.append(url)
+            self.url = url
+
+    page = Page()
+    guarded = PlaywrightVisiblePage(page, "https://www.facebook.com/groups/example/")
+    guard_calls = []
+    monkeypatch.setattr(guarded, "_guard_navigation", lambda: guard_calls.append(True))
+
+    guarded.navigate("https://www.facebook.com/groups/example/")
+
+    assert guard_calls == [True]
+    assert page.requested == [
+        "https://www.facebook.com/groups/example/?sorting_setting=CHRONOLOGICAL"
+    ]
+
+
+@pytest.mark.parametrize("failure", ["permalink_changed", "image_detached"])
+def test_image_capture_rejects_changes_during_screenshot(failure) -> None:
+    class Image:
+        def is_visible(self):
+            return True
+
+        def screenshot(self, **_kwargs):
+            return b"synthetic image"
+
+        def dispose(self):
+            pass
+
+    image = Image()
+
+    class CardHandle:
+        def __init__(self):
+            self.identity_checks = 0
+            self.containment_checks = 0
+
+        def evaluate(self, _script, argument):
+            if argument is image:
+                self.containment_checks += 1
+                return not (failure == "image_detached" and self.containment_checks == 2)
+            self.identity_checks += 1
+            return not (failure == "permalink_changed" and self.identity_checks == 2)
+
+        def query_selector(self, _selector):
+            return image
+
+        def dispose(self):
+            pass
+
+    handle = CardHandle()
+
+    class Card:
+        def count(self):
+            return 1
+
+        def element_handle(self, **_kwargs):
+            return handle
+
+    captured, failed = PlaywrightVisiblePage._capture_image(
+        Card(), ".photo", "https://example.test/groups/test", "a", "/posts/1"
+    )
+
+    assert captured is None
+    assert failed
+
+
+def test_image_capture_does_not_wait_for_disappeared_card() -> None:
+    class Card:
+        def count(self):
+            return 0
+
+        def element_handle(self, **_kwargs):
+            pytest.fail("missing cards must not wait for an element handle")
+
+    captured, failed = PlaywrightVisiblePage._capture_image(
+        Card(), ".photo", "https://example.test/groups/test", "a", "/posts/1"
+    )
+
+    assert captured is None
+    assert failed
+
+
+@pytest.mark.parametrize(
+    "current_url",
+    [
+        "about:blank",
+        "https://www.facebook.com/groups/other/",
+        "https://www.facebook.com/groups/example/posts/123/",
+        "https://other.invalid/groups/example/",
+        "https://www.facebook.com/groups/example/?sorting_setting=CHRONOLOGICAL&extra=1",
+        "https://www.facebook.com/groups/example/?sorting_setting=CHRONOLOGICAL#section",
+    ],
+)
+def test_navigation_opens_configured_feed_from_other_pages(monkeypatch, current_url) -> None:
+    class Page:
+        url = current_url
+
+        def on(self, *_args):
+            pass
+
+        def goto(self, url, **_kwargs):
+            self.url = url
+
+    page = Page()
+    guarded = PlaywrightVisiblePage(page, "https://www.facebook.com/groups/example/")
+    monkeypatch.setattr(guarded, "_guard_navigation", lambda: None)
+
+    guarded.navigate("https://www.facebook.com/groups/example/")
+
+    assert page.url == "https://www.facebook.com/groups/example/"
+
+
 @pytest.mark.parametrize(
     "url",
     [
