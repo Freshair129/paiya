@@ -330,6 +330,7 @@ def feed_from_visible_posts(
         "newest first",
         "most recent",
         "ใหม่ที่สุด",
+        "โพสต์ใหม่",
         "โพสต์ใหม่ก่อน",
         "โพสต์ใหม่ล่าสุด",
     }

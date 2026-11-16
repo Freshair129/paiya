@@ -207,6 +207,15 @@ class PlaywrightVisiblePage:
             if not self._allowed_group_document(url):
                 raise BrowserAdapterError("navigation outside configured group was blocked")
             self._guard_navigation()
+            current = str(self._page.url)
+            current_parts = urlsplit(current)
+            if (
+                _http_origin(current) == self._origin
+                and current_parts.path.rstrip("/") == urlsplit(url).path.rstrip("/")
+                and current_parts.query == "sorting_setting=CHRONOLOGICAL"
+                and not current_parts.fragment
+            ):
+                url = current
             self._page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             self._check_origin(str(self._page.url))
         except BrowserAdapterError:
@@ -293,7 +302,9 @@ class PlaywrightVisiblePage:
         image_bytes, image_capture_failed = (None, False)
         if image:
             card_locator = self._page.locator(selectors["post_card"]).nth(index)
-            image_bytes, image_capture_failed = self._capture_image(card_locator, image, page_url)
+            image_bytes, image_capture_failed = self._capture_image(
+                card_locator, image, page_url, selectors["permalink"], card["href"]
+            )
         return VisiblePost(
             permalink=urljoin(page_url, card["href"] or ""),
             post_text=card["postText"],
@@ -316,26 +327,47 @@ class PlaywrightVisiblePage:
         )
 
     @staticmethod
-    def _capture_image(card: object, selector: str, page_url: str) -> tuple[bytes | None, bool]:
-        image = card.locator(selector)
-        if not image.count():
-            return None, False
-        handle = None
+    def _capture_image(
+        card: object,
+        selector: str,
+        page_url: str,
+        permalink_selector: str,
+        expected_href: str | None,
+    ) -> tuple[bytes | None, bool]:
+        card_handle = None
+        image_handle = None
         try:
-            handle = image.first.element_handle(timeout=3_000)
-            if not handle or not handle.evaluate(
-                "(image, url) => image.isConnected && image.ownerDocument.URL === url", page_url
+            if not card.count():
+                return None, True
+            card_handle = card.element_handle(timeout=250)
+            if not card_handle or not expected_href:
+                return None, True
+            check = """(card, expected) => card.isConnected
+                && card.ownerDocument.URL === expected.url
+                && card.querySelector(expected.selector)?.getAttribute('href') === expected.href"""
+            expected = {"url": page_url, "selector": permalink_selector, "href": expected_href}
+            if not card_handle.evaluate(check, expected):
+                return None, True
+            image_handle = card_handle.query_selector(selector)
+            if not image_handle:
+                return None, not card_handle.evaluate(check, expected)
+            if not image_handle.is_visible() or not card_handle.evaluate(
+                "(card, image) => card.contains(image)", image_handle
             ):
                 return None, True
-            if not handle.is_visible():
+            captured = image_handle.screenshot(type="jpeg", quality=80, timeout=3_000)
+            if not card_handle.evaluate(check, expected) or not card_handle.evaluate(
+                "(card, image) => card.contains(image)", image_handle
+            ):
                 return None, True
-            captured = handle.screenshot(type="jpeg", quality=80, timeout=3_000)
             return (captured, False) if captured else (None, True)
         except Exception:
             return None, True
         finally:
-            if handle is not None:
-                handle.dispose()
+            if image_handle is not None:
+                image_handle.dispose()
+            if card_handle is not None:
+                card_handle.dispose()
 
     def _on_response(self, response: object) -> None:
         if getattr(response, "status", None) != 429:
