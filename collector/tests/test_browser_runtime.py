@@ -225,6 +225,36 @@ def test_image_capture_does_not_wait_for_disappeared_card() -> None:
     assert failed
 
 
+def test_image_capture_rejects_card_lost_during_image_lookup() -> None:
+    class CardHandle:
+        def __init__(self):
+            self.checks = 0
+
+        def evaluate(self, _script, _argument):
+            self.checks += 1
+            return self.checks == 1
+
+        def query_selector(self, _selector):
+            return None
+
+        def dispose(self):
+            pass
+
+    class Card:
+        def count(self):
+            return 1
+
+        def element_handle(self, **_kwargs):
+            return CardHandle()
+
+    captured, failed = PlaywrightVisiblePage._capture_image(
+        Card(), ".photo", "https://example.test/groups/test", "a", "/posts/1"
+    )
+
+    assert captured is None
+    assert failed
+
+
 @pytest.mark.parametrize(
     "current_url",
     [

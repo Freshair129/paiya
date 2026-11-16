@@ -350,7 +350,7 @@ class PlaywrightVisiblePage:
                 return None, True
             image_handle = card_handle.query_selector(selector)
             if not image_handle:
-                return None, False
+                return None, not card_handle.evaluate(check, expected)
             if not image_handle.is_visible() or not card_handle.evaluate(
                 "(card, image) => card.contains(image)", image_handle
             ):
