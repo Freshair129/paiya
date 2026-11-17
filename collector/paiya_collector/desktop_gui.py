@@ -55,7 +55,7 @@ class CollectorWindow:
             anchor="w"
         )
         self.open_button = ttk.Button(
-            frame, text="เปิด Facebook ใน Chrome โปรไฟล์เฉพาะ", command=self.open_browser
+            frame, text="เปิด Chrome โปรไฟล์เฉพาะ", command=self.open_browser
         )
         self.open_button.pack(fill="x", pady=(5, 12))
         ttk.Label(frame, text="2. ตรวจหน้าและตำแหน่งข้อมูล", font=("Segoe UI", 11, "bold")).pack(
