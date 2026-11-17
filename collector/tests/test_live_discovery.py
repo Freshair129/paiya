@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from paiya_collector.browser_adapter import (
@@ -365,6 +366,48 @@ def test_live_429_without_retry_after_requires_explicit_manual_wait_and_resume(
     )
     assert report["coverage"] == "none"
     assert resumed.navigated_to == "https://www.facebook.com/groups/owner-selected"
+
+
+def test_real_attacher_preserves_429_pause_for_durable_state(tmp_path, monkeypatch):
+    import paiya_collector.browser_runtime as runtime
+    import playwright.sync_api
+
+    deadline = datetime(2026, 11, 13, 5, 3, tzinfo=UTC)
+
+    class LimitedPage:
+        def __init__(self, _page, _url):
+            pass
+
+        def navigate(self, _url):
+            raise RateLimitPause(deadline)
+
+        def raise_if_rate_limited(self):
+            raise RateLimitPause(deadline)
+
+        def close(self):
+            pass
+
+    browser = SimpleNamespace(contexts=[SimpleNamespace(pages=[object()])], close=lambda: None)
+    driver = SimpleNamespace(
+        chromium=SimpleNamespace(connect_over_cdp=lambda *_a, **_k: browser),
+        stop=lambda: None,
+    )
+    monkeypatch.setattr(runtime, "read_devtools_endpoint", lambda *_a, **_k: "synthetic")
+    monkeypatch.setattr(runtime, "PlaywrightVisiblePage", LimitedPage)
+    monkeypatch.setattr(
+        playwright.sync_api, "sync_playwright", lambda: SimpleNamespace(start=lambda: driver)
+    )
+    with pytest.raises(RateLimitPause):
+        discover_browser(
+            write_live_config(tmp_path / "config.json"),
+            profile_dir=tmp_path / "profile",
+            inbox_root=tmp_path / "inbox",
+            state_dir=tmp_path / "state",
+            repository_root=tmp_path / "repo",
+            now=datetime(2026, 11, 13, 5, 0, tzinfo=UTC),
+        )
+    pause = json.loads((tmp_path / "state" / f"{GROUP_KEY}.rate-limit.json").read_text())
+    assert pause["retry_after_until"] == "2026-11-13T05:03:00Z"
 
 
 def test_existing_group_lock_is_not_removed_automatically(tmp_path: Path) -> None:

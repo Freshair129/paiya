@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlsplit
 from paiya_collector.browser_adapter import (
     LiveGroupConfig,
     PageSnapshot,
+    RateLimitPause,
     VisibleComment,
     VisiblePost,
     _matches_group_path,
@@ -451,7 +452,7 @@ def attach_dedicated_browser(
         page = pages[0]
         visible_page = PlaywrightVisiblePage(page, config.group_url)
         yield visible_page
-    except BrowserAdapterError:
+    except (BrowserAdapterError, RateLimitPause):
         raise
     except Exception as exc:
         raise BrowserAdapterError(
