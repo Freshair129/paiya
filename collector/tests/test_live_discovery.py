@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from paiya_collector.browser_adapter import (
@@ -370,7 +371,6 @@ def test_live_429_without_retry_after_requires_explicit_manual_wait_and_resume(
 
 def test_real_attacher_preserves_429_pause_for_durable_state(tmp_path, monkeypatch):
     import paiya_collector.browser_runtime as runtime
-    import playwright.sync_api
 
     deadline = datetime(2026, 11, 13, 5, 3, tzinfo=UTC)
 
@@ -394,9 +394,12 @@ def test_real_attacher_preserves_429_pause_for_durable_state(tmp_path, monkeypat
     )
     monkeypatch.setattr(runtime, "read_devtools_endpoint", lambda *_a, **_k: "synthetic")
     monkeypatch.setattr(runtime, "PlaywrightVisiblePage", LimitedPage)
-    monkeypatch.setattr(
-        playwright.sync_api, "sync_playwright", lambda: SimpleNamespace(start=lambda: driver)
-    )
+    fake_playwright = ModuleType("playwright")
+    fake_playwright.__path__ = []
+    fake_sync_api = ModuleType("playwright.sync_api")
+    fake_sync_api.sync_playwright = lambda: SimpleNamespace(start=lambda: driver)
+    monkeypatch.setitem(sys.modules, "playwright", fake_playwright)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
     with pytest.raises(RateLimitPause):
         discover_browser(
             write_live_config(tmp_path / "config.json"),
