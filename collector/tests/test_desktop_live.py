@@ -55,12 +55,31 @@ def operations(tmp_path, monkeypatch, page):
     )
 
 
-def test_inspection_installs_guard_and_returns_only_presence_flags(tmp_path, monkeypatch):
-    page = FakePage(GROUP, {"ready": True, "reason": "ok", "source_text": "must not return"})
+def test_inspection_installs_guard_and_returns_only_bounded_preview(tmp_path, monkeypatch):
+    page = FakePage(
+        GROUP,
+        {
+            "ready": True,
+            "reason": "ok",
+            "preview": {"post": "synthetic", "seller": "seller"},
+            "source_text": "must not return",
+        },
+    )
     ops = operations(tmp_path, monkeypatch, page)
     result = inspector.inspect_page(repository_root=ops.repository_root, data_root=ops.data_root)
-    assert result == {"ready": True, "reason": "ok"}
+    assert result == {
+        "ready": True,
+        "reason": "ok",
+        "preview": {"post": "synthetic", "seller": "seller"},
+    }
     assert page.events == ["guard", "origin", "evaluate", "snapshot", "rate_limit"]
+
+
+def test_inspection_rejects_a_missing_or_empty_preview(tmp_path, monkeypatch):
+    page = FakePage(GROUP, {"ready": True, "reason": "ok", "preview": {"post": "", "seller": "x"}})
+    ops = operations(tmp_path, monkeypatch, page)
+    result = inspector.inspect_page(repository_root=ops.repository_root, data_root=ops.data_root)
+    assert result == {"ready": False, "reason": "selectors_unverified"}
 
 
 def test_challenge_url_is_stopped_before_dom_read(tmp_path, monkeypatch):

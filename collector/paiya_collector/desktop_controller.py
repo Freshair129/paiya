@@ -26,7 +26,7 @@ class DesktopController:
         self.operations = operations
         self._lock = Lock()
 
-    def run_once(self) -> dict[str, Any]:
+    def run_once(self, expected_preview: tuple[str, str]) -> dict[str, Any]:
         if not self._lock.acquire(blocking=False):
             return {"state": "busy"}
         try:
@@ -34,6 +34,12 @@ class DesktopController:
             readiness = self.operations.inspect_page()
             if not readiness.get("ready"):
                 return {"state": "not_ready", "reason": readiness.get("reason")}
+            preview = readiness.get("preview")
+            if (
+                not isinstance(preview, dict)
+                or (preview.get("post"), preview.get("seller")) != expected_preview
+            ):
+                return {"state": "not_ready", "reason": "page_changed"}
             report = self.operations.collect()
             return self._import_report(report)
         finally:

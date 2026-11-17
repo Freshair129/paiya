@@ -146,7 +146,24 @@ class LocalDesktopOperations:
             or (result["ready"] and reason != "ok")
         ):
             return {"ready": False, "reason": "inspection_unavailable"}
-        return {"ready": result["ready"], "reason": reason}
+        if not result["ready"]:
+            return {"ready": False, "reason": reason}
+        preview = result.get("preview")
+        if not isinstance(preview, dict):
+            return {"ready": False, "reason": "inspection_unavailable"}
+        post, seller = preview.get("post"), preview.get("seller")
+        if (
+            not isinstance(post, str)
+            or not post.strip()
+            or not isinstance(seller, str)
+            or not seller.strip()
+        ):
+            return {"ready": False, "reason": "inspection_unavailable"}
+        return {
+            "ready": True,
+            "reason": "ok",
+            "preview": {"post": post[:300], "seller": seller[:100]},
+        }
 
     def open_browser(self) -> None:
         config = self._config()

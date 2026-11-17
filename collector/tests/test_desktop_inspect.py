@@ -36,7 +36,11 @@ def test_readiness_reports_synthetic_matched_fields_without_source_content():
         '<span class="comment-author">Buyer</span></div></article>',
         SELECTORS,
     )
-    assert result == {"ready": True, "reason": "ok"}
+    assert result == {
+        "ready": True,
+        "reason": "ok",
+        "preview": {"post": "Synthetic post", "seller": "Synthetic seller"},
+    }
 
 
 def test_challenge_stops_before_querying_card_fields():

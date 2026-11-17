@@ -19,7 +19,11 @@ class FakeOps:
 
     def inspect_page(self):
         self.events.append("inspect")
-        return {"ready": self.ready, "reason": "selectors_unverified"}
+        return {
+            "ready": self.ready,
+            "reason": "ok" if self.ready else "selectors_unverified",
+            "preview": {"post": "synthetic post", "seller": "synthetic seller"},
+        }
 
     def collect(self):
         self.events.append("collect")
@@ -54,7 +58,7 @@ class FakeOps:
 
 def test_one_manual_run_checks_readiness_then_validates_and_ingests():
     ops = FakeOps()
-    result = DesktopController(ops).run_once()
+    result = DesktopController(ops).run_once(("synthetic post", "synthetic seller"))
     assert ops.events == ["grant", "inspect", "collect", "validate", "grant", "ingest"]
     assert result["state"] == "done"
     assert result["cards_parsed"] == 1
@@ -63,7 +67,7 @@ def test_one_manual_run_checks_readiness_then_validates_and_ingests():
 def test_unverified_page_does_not_collect_or_ingest():
     ops = FakeOps()
     ops.ready = False
-    result = DesktopController(ops).run_once()
+    result = DesktopController(ops).run_once(("synthetic post", "synthetic seller"))
     assert result["state"] == "not_ready"
     assert ops.events == ["grant", "inspect"]
 
@@ -71,7 +75,7 @@ def test_unverified_page_does_not_collect_or_ingest():
 def test_challenge_or_empty_coverage_does_not_ingest():
     ops = FakeOps()
     ops.coverage = "none"
-    result = DesktopController(ops).run_once()
+    result = DesktopController(ops).run_once(("synthetic post", "synthetic seller"))
     assert result["state"] == "stopped"
     assert ops.events == ["grant", "inspect", "collect"]
 
@@ -79,7 +83,7 @@ def test_challenge_or_empty_coverage_does_not_ingest():
 def test_invalid_bundle_is_never_ingested():
     ops = FakeOps()
     ops.valid = False
-    result = DesktopController(ops).run_once()
+    result = DesktopController(ops).run_once(("synthetic post", "synthetic seller"))
     assert result["state"] == "validation_failed"
     assert ops.events == ["grant", "inspect", "collect", "validate"]
 
@@ -87,7 +91,7 @@ def test_invalid_bundle_is_never_ingested():
 def test_previously_imported_round_is_not_imported_again():
     ops = FakeOps()
     ops.already_ingested = True
-    result = DesktopController(ops).run_once()
+    result = DesktopController(ops).run_once(("synthetic post", "synthetic seller"))
     assert result["state"] == "already_run"
     assert ops.events == ["grant", "inspect", "collect"]
 
@@ -95,7 +99,7 @@ def test_previously_imported_round_is_not_imported_again():
 def test_replayed_ready_bundle_can_resume_import_without_a_new_round():
     ops = FakeOps()
     ops.replayed = True
-    result = DesktopController(ops).run_once()
+    result = DesktopController(ops).run_once(("synthetic post", "synthetic seller"))
     assert result["state"] == "done"
     assert ops.events == ["grant", "inspect", "collect", "validate", "grant", "ingest"]
 
@@ -105,3 +109,10 @@ def test_pending_import_does_not_open_or_inspect_the_source():
     result = DesktopController(ops).resume_pending()
     assert result["state"] == "done"
     assert ops.events == ["grant", "pending", "validate", "grant", "ingest"]
+
+
+def test_changed_preview_stops_before_collection():
+    ops = FakeOps()
+    result = DesktopController(ops).run_once(("old post", "synthetic seller"))
+    assert result == {"state": "not_ready", "reason": "page_changed"}
+    assert ops.events == ["grant", "inspect"]

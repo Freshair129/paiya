@@ -19,7 +19,7 @@ from paiya_collector.browser_adapter import (
 from paiya_collector.browser_runtime import _READ_BODY, attach_dedicated_browser
 from paiya_collector.live import _check_rate_limit_pause
 
-# Read security text first and return only selector-presence flags.
+# Read security text first; a bounded local preview lets the owner verify matches.
 _INSPECT = f"""(args) => {{
     const body = ({_READ_BODY})(args);
     if (!body || body.truncated) return {{ready: false, reason: 'security_scan_incomplete'}};
@@ -38,17 +38,22 @@ _INSPECT = f"""(args) => {{
         getComputedStyle(node).visibility === 'visible');
     const cards = Array.from(document.querySelectorAll(args.selectors.post_card)).filter(visible);
     if (!cards.length) return {{ready: false, reason: 'no_visible_posts'}};
-    const oneCard = cards.some(card => ['post_text', 'permalink', 'seller_name'].every(
+    const candidate = cards.find(card => ['post_text', 'permalink', 'seller_name'].every(
         name => visible(card.querySelector(args.selectors[name]))));
-    const comments = cards.flatMap(card =>
-        Array.from(card.querySelectorAll(args.selectors.comment))).filter(visible);
+    const oneCard = Boolean(candidate);
+    const comments = candidate ?
+        Array.from(candidate.querySelectorAll(args.selectors.comment)).filter(visible) : [];
     const commentFields = comments.some(comment => ['comment_text', 'comment_author'].every(
         name => visible(comment.querySelector(args.selectors[name]))));
     const sort = visible(document.querySelector(args.selectors.sort_indicator));
     const image = !args.selectors.image ||
-        cards.some(card => visible(card.querySelector(args.selectors.image)));
-    return {{ready: Boolean(oneCard && commentFields && sort && image),
-        reason: oneCard && commentFields && sort && image ? 'ok' : 'selectors_unverified'}};
+        Boolean(candidate && visible(candidate.querySelector(args.selectors.image)));
+    const ready = Boolean(oneCard && commentFields && sort && image);
+    if (!ready) return {{ready: false, reason: 'selectors_unverified'}};
+    return {{ready: true, reason: 'ok', preview: {{
+        post: (candidate.querySelector(args.selectors.post_text).innerText || '').slice(0, 300),
+        seller: (candidate.querySelector(args.selectors.seller_name).innerText || '').slice(0, 100)
+    }}}};
 }}"""
 
 
@@ -78,7 +83,24 @@ def inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object]
         page.raise_if_rate_limited()
         if not isinstance(result, dict) or not isinstance(result.get("ready"), bool):
             return {"ready": False, "reason": "security_scan_incomplete"}
-        return {"ready": result["ready"], "reason": result.get("reason")}
+        if not result["ready"]:
+            return {"ready": False, "reason": result.get("reason")}
+        preview = result.get("preview")
+        if not isinstance(preview, dict):
+            return {"ready": False, "reason": "selectors_unverified"}
+        post, seller = preview.get("post"), preview.get("seller")
+        if (
+            not isinstance(post, str)
+            or not post.strip()
+            or not isinstance(seller, str)
+            or not seller.strip()
+        ):
+            return {"ready": False, "reason": "selectors_unverified"}
+        return {
+            "ready": True,
+            "reason": "ok",
+            "preview": {"post": post[:300], "seller": seller[:100]},
+        }
 
 
 def main() -> int:

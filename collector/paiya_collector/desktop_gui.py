@@ -25,6 +25,7 @@ REASONS = {
     "rate_limited": "Facebook จำกัดคำขอ กรุณารอตาม Retry-After ก่อนลองใหม่",
     "inspection_unavailable": "ตรวจหน้าไม่ได้ กรุณาเปิด Chrome โปรไฟล์เฉพาะแล้วลองอีกครั้ง",
     "embedded_frame_unverified": "หน้านี้มีส่วนฝังที่ยังตรวจความปลอดภัยไม่ได้ จึงยังไม่เริ่มเก็บ",
+    "page_changed": "ตัวอย่างเปลี่ยนไป กรุณากดตรวจความพร้อมและเปรียบเทียบอีกครั้ง",
 }
 
 
@@ -36,10 +37,12 @@ class CollectorWindow:
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy = False
         self.ready = False
+        self.preview_data: tuple[str, str] | None = None
         self.confirmed = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="เปิด Facebook แล้วเข้าสู่ระบบด้วยตัวคุณเอง")
+        self.preview_text = tk.StringVar(value="")
         root.title("ป้ายยา — ควบคุมการเก็บข้อมูล")
-        root.geometry("660x550")
+        root.geometry("660x640")
         root.minsize(560, 450)
         root.protocol("WM_DELETE_WINDOW", self.close)
         frame = ttk.Frame(root, padding=22)
@@ -60,11 +63,14 @@ class CollectorWindow:
         )
         self.check_button = ttk.Button(frame, text="ตรวจความพร้อม", command=self.inspect)
         self.check_button.pack(fill="x", pady=(5, 5))
+        ttk.Label(frame, textvariable=self.preview_text, wraplength=610, justify="left").pack(
+            anchor="w", pady=(0, 5)
+        )
         ttk.Checkbutton(
             frame,
             variable=self.confirmed,
             command=self.refresh_buttons,
-            text="ฉันตรวจแล้วว่าหน้ากลุ่มแสดงปกติ และโพสต์ ชื่อผู้ขายกับภาพตรงกัน",
+            text="ฉันเปรียบเทียบตัวอย่างกับ Chrome แล้ว ข้อความและชื่อผู้ขายตรงกัน",
         ).pack(anchor="w", pady=(0, 10))
         ttk.Label(frame, text="3. เก็บและดูผล", font=("Segoe UI", 11, "bold")).pack(anchor="w")
         self.run_button = ttk.Button(frame, text="เก็บโพสต์หนึ่งรอบ", command=self.run)
@@ -87,7 +93,9 @@ class CollectorWindow:
         self.check_button.configure(state="disabled" if self.busy else "normal")
         self.resume_button.configure(state="disabled" if self.busy else "normal")
         self.run_button.configure(
-            state="normal" if not self.busy and self.ready and self.confirmed.get() else "disabled"
+            state="normal"
+            if not self.busy and self.ready and self.preview_data and self.confirmed.get()
+            else "disabled"
         )
 
     def work(self, name: str, action) -> None:
@@ -123,12 +131,17 @@ class CollectorWindow:
 
     def open_browser(self) -> None:
         self.ready = False
+        self.preview_data = None
+        self.preview_text.set("")
         self.confirmed.set(False)
         self.status.set("กำลังเปิด Chrome โปรไฟล์เฉพาะ…")
         self.work("opened", self.operations.open_browser)
 
     def inspect(self) -> None:
         self.ready = False
+        self.preview_data = None
+        self.preview_text.set("")
+        self.confirmed.set(False)
         self.status.set("กำลังตรวจสิทธิ์และหน้ากลุ่ม…")
 
         def action():
@@ -138,11 +151,12 @@ class CollectorWindow:
         self.work("inspected", action)
 
     def run(self) -> None:
-        if not self.ready or not self.confirmed.get():
+        if not self.ready or not self.preview_data or not self.confirmed.get():
             return
+        expected_preview = self.preview_data
         self.ready = False
         self.status.set("กำลังตรวจซ้ำและเก็บข้อมูลหนึ่งรอบ…")
-        self.work("completed", self.controller.run_once)
+        self.work("completed", lambda: self.controller.run_once(expected_preview))
 
     def resume_pending(self) -> None:
         self.status.set("กำลังตรวจและนำเข้ารอบที่เก็บไว้ โดยไม่เปิด Facebook…")
@@ -160,6 +174,14 @@ class CollectorWindow:
                     self.status.set("เข้าสู่ระบบใน Chrome แล้วกลับมากดตรวจความพร้อม")
                 elif name == "inspected" and isinstance(value, dict):
                     self.ready = bool(value.get("ready"))
+                    preview = value.get("preview")
+                    if self.ready and isinstance(preview, dict):
+                        post, seller = preview.get("post"), preview.get("seller")
+                        if isinstance(post, str) and isinstance(seller, str):
+                            self.preview_data = (post, seller)
+                            self.preview_text.set(f"ผู้ขาย: {seller}\nโพสต์: {post}")
+                        else:
+                            self.ready = False
                     self.status.set(
                         "ตรวจตำแหน่งที่มองเห็นแล้ว กรุณายืนยันว่าข้อมูลตรงกัน"
                         if self.ready
