@@ -1889,6 +1889,14 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (needsUnlock) return
+    const controller = new AbortController()
+    // Load the authorization context even on routes that do not list groups.
+    void getGroups(controller.signal).catch(() => undefined)
+    return () => controller.abort()
+  }, [needsUnlock])
+
   function navigate(to: string) {
     if (typeof window === 'undefined') return
     window.history.pushState(null, '', to)

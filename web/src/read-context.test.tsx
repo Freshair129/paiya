@@ -29,3 +29,21 @@ test.each([
   await act(async () => root.unmount())
   container.remove()
 })
+
+
+test('loads the owner context when opening a detail page directly', async () => {
+  window.history.replaceState(null, '', '/posts/synthetic')
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(
+    url.startsWith('/v1/groups') ? { groups: [], read_context: 'owner' }
+      : { id: 'synthetic', source_post_key: 'synthetic', current_items: [], observations: [] },
+  ), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => { root.render(<App />); await new Promise((resolve) => setTimeout(resolve, 0)) })
+  expect(container.textContent).toContain('บัญชีเจ้าของ')
+  expect(container.textContent).not.toContain('ข้อมูลสังเคราะห์')
+  await act(async () => root.unmount())
+  container.remove()
+})

@@ -59,6 +59,7 @@ _READ_CARDS = """({url, selectors}) => {
     if (location.href !== url) return null;
     const one = (owner, selector) => selector ? owner.querySelector(selector) : null;
     const all = (owner, selector) => selector ? Array.from(owner.querySelectorAll(selector)) : [];
+    const marked = (card, selector) => selector && (card.matches(selector) || one(card, selector));
     const text = (owner, selector) => one(owner, selector)?.innerText?.trim() || "";
     const cards = all(document, selectors.post_card);
     if (cards.length > 200) return {tooMany: true};
@@ -69,8 +70,8 @@ _READ_CARDS = """({url, selectors}) => {
             postText: text(card, selectors.post_text),
             href: one(card, selectors.permalink)?.getAttribute("href") ?? null,
             sellerName: text(card, selectors.seller_name),
-            pinned: Boolean(one(card, selectors.pinned)),
-            suggested: Boolean(one(card, selectors.suggested)),
+            pinned: Boolean(marked(card, selectors.pinned)),
+            suggested: Boolean(marked(card, selectors.suggested)),
             comments: all(card, selectors.comment).slice(0, 50).map(comment => {
                 const time = one(comment, "time");
                 return {

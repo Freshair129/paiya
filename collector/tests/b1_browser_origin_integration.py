@@ -461,3 +461,40 @@ def test_reordered_feed_never_attaches_another_posts_image(browser) -> None:
                 guarded.close()
         finally:
             context.close()
+
+
+def test_card_root_and_descendant_markers_are_recognized(browser) -> None:
+    def source(path, headers):
+        body = (
+            '<body><article data-pinned="yes"><a href="/groups/b1/posts/1">p</a>'
+            '<div class="message">Synthetic pinned post</div><span class="seller">Seller</span>'
+            '</article><article><span class="suggested">Recommended</span>'
+            '<a href="/groups/b1/posts/2">p</a><div class="message">Synthetic suggested post</div>'
+            '<span class="seller">Seller</span></article></body>'
+        )
+        return 200, {"Content-Type": "text/html"}, body.encode()
+
+    with serve(source) as owner:
+        context = browser.new_context()
+        try:
+            guarded = PlaywrightVisiblePage(context.new_page(), f"{owner}/groups/b1")
+            try:
+                guarded.navigate(f"{owner}/groups/b1")
+                snap = guarded.snapshot(
+                    {
+                        "post_card": "article",
+                        "post_text": ".message",
+                        "permalink": "a",
+                        "seller_name": ".seller",
+                        "pinned": "article[data-pinned]",
+                        "suggested": ".suggested",
+                    }
+                )
+                assert [(post.pinned, post.suggested) for post in snap.posts] == [
+                    (True, False),
+                    (False, True),
+                ]
+            finally:
+                guarded.close()
+        finally:
+            context.close()
