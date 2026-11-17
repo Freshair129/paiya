@@ -107,3 +107,15 @@ uv run pytest -q tests/test_i1_inbox_validate.py
 | รอบไม่มีข้อมูลที่ส่ง `error_code=rate_limited` | exit 1, `run_enum` ที่ `run.json#/error_code` |
 
 ผลนี้ใช้ตัดสินว่างานใดเริ่มทดสอบออฟไลน์ได้ การรันกับเบราว์เซอร์และกลุ่มจริงยังไม่มีผลรับรองในสเปกฉบับนี้
+
+## Restricted MCP transport candidate
+
+[ADR 0007](decisions/0007-restricted-collector-mcp.md) defines the optional Collector-owned stdio MCP transport authorized for implementation and synthetic verification in Issue #91. It uses the existing inbox v1 pipeline and existing grant/retention rules. `discover-browser --transport mcp` uses the same explicit manual live confirmation as the current transport; no live run is performed by its test harness. `discover-mcp-synthetic` requires a localhost group URL, `synthetic: true`, separate marked synthetic profile, and inbox/state paths below the synthetic config directory.
+
+`asset_origins` is an optional list of at most eight exact static-resource origins; it defaults to empty. Live configuration permits plain HTTPS origins, while synthetic configuration accepts explicit localhost HTTP ports. It never permits cross-origin document navigation. The bounded static relay described in ADR 0007 receives no browser credentials and delivers no cookie/authentication response headers. Local tests must demonstrate both request credential isolation and unchanged synthetic source cookie state; header stripping alone is insufficient.
+
+The MCP profile must be closed and explicitly marked `PAIYA_COLLECTOR_PROFILE` with `owner-group-01`. The service refuses active/unknown profiles and never cleans them. Synthetic profiles additionally require `PAIYA_SYNTHETIC_PROFILE` containing `synthetic-only`. Compared with the existing attach workflow, MCP launches and closes its own visible browser. A pre-existing DevTools marker is protected, even if it may be stale. Source selectors, static origin selection and manual-profile reuse still require separate real-source acceptance by the owner.
+
+The compatibility refinement supports a bounded same-origin frame security scan and source service-worker lifecycle under browser-level and per-worker request guards. Persisted registrations remain intact. Worker entry/update loaders and worker-generated 429 responses have separate interception/observation seams. The static relay permits bounded gzip/deflate decoding and an explicit response-header allowlist for CORS/CORP while retaining a fresh credential-free client for every hop. Cookie/SameSite-dependent CDN responses are unsupported and a 401 does not trigger a credential retry. See the [compatibility harness](../../collector/scripts/test-mcp-compat.py) for synthetic native checks; no real-source success is inferred.
+
+Frame admission combines a bounded source-JavaScript pause, complete-document security preflight, authoritative CDP frame count and exact child Document identities. Network/parser transitions can continue despite debugger pause, so loading or replaced documents are refused before card/image reads. See ADR 0007 for the synthetic race and failure acceptance boundaries.

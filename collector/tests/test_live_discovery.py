@@ -285,6 +285,33 @@ def test_live_429_persists_retry_after_and_leaves_checkpoint_and_inbox_unchanged
     assert "error_code" not in pause
 
 
+def test_snapshot_budget_failure_keeps_existing_checkpoint_and_inbox_unchanged(tmp_path):
+    from paiya_collector.browser_runtime import BrowserAdapterError
+
+    image = (Path(__file__).resolve().parents[1] / "fixtures/images/rtx3060.jpg").read_bytes()
+    invoke_live(
+        tmp_path,
+        page=FakePage([page_snapshot((post(image),))]),
+        run_id="55555555-6666-4777-8888-999999999999",
+    )
+    state_file = tmp_path / "state" / f"{GROUP_KEY}.json"
+    before = state_file.read_bytes()
+    runs = sorted(path.name for path in (tmp_path / "inbox/incoming").iterdir())
+
+    class BudgetFailure(FakePage):
+        def snapshot(self, _selectors):
+            raise BrowserAdapterError("MCP snapshot exceeded its evidence byte budget")
+
+    with pytest.raises(BrowserAdapterError, match="evidence byte budget"):
+        invoke_live(
+            tmp_path,
+            page=BudgetFailure([]),
+            run_id="77777777-8888-4999-8000-111111111111",
+        )
+    assert state_file.read_bytes() == before
+    assert sorted(path.name for path in (tmp_path / "inbox/incoming").iterdir()) == runs
+
+
 @pytest.mark.parametrize("missing_marker", ["pinned", "suggested", "not_verified"])
 def test_unknown_post_markers_never_stop_at_overlap_or_advance_checkpoint(
     tmp_path: Path, missing_marker: str
