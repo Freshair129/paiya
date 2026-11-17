@@ -61,6 +61,7 @@ def valid_config(tmp_path: Path) -> dict[str, object]:
         },
         "page_size": 5,
         "overlap": 3,
+        "post_markers_verified": True,
         "scroll_budget": 30,
         "time_budget_seconds": 120,
         "selectors": {
@@ -535,6 +536,26 @@ def test_pinned_post_is_preserved_but_does_not_count_toward_overlap(tmp_path: Pa
     ]
     assert feed.cards[0].attrs["data-pinned"] == "true"
     assert page.scroll_calls == 0
+
+
+def test_pinned_between_old_posts_neither_counts_nor_breaks_overlap(tmp_path: Path) -> None:
+    config = load_test_config(tmp_path)
+    pinned = VisiblePost(
+        permalink="https://www.facebook.com/groups/owner-selected/posts/123456788/",
+        post_text="โพสต์ปักหมุด",
+        pinned=True,
+    )
+    prior = (post("123456789"), pinned, post("123456790"), post("123456791"))
+    page = FakeBrowserPage([snapshot(prior)])
+    feed = capture_browser_feed(
+        page,
+        config=config,
+        previously_published={"fb-post-123456789", "fb-post-123456790", "fb-post-123456791"},
+        now=datetime(2026, 11, 13, 5, 0, tzinfo=UTC),
+        monotonic=lambda: 0.0,
+    )
+    assert page.scroll_calls == 0
+    assert feed.forced_stop_reason is None
 
 
 def test_browser_capture_rejects_a_different_facebook_group(tmp_path: Path) -> None:

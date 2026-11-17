@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -7,6 +8,9 @@ from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 from paiya_collector.browser_adapter import (
+    CHALLENGE_TEXT_MARKERS,
+    LOGIN_TEXT_MARKERS,
+    MARKER_CASEFOLD_OVERRIDES,
     LiveGroupConfig,
     PageSnapshot,
     RateLimitPause,
@@ -20,13 +24,42 @@ from paiya_collector.browser_adapter import (
 
 # Scope and text extraction share one synchronous evaluation, so a history
 # transition cannot interleave with a read of live locators.
-_READ_BODY = """url => location.href === url && document.body
-    ? document.body.innerText.slice(0, 20000) : null"""
+_READ_BODY = """({url, selectors}) => {
+    if (!(location.href === url) || !document.body) return null;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const parts = [];
+    let length = 0;
+    let nodes = 0;
+    while (walker.nextNode()) {
+        if (++nodes > 50000) return {truncated: true};
+        const node = walker.currentNode;
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script,style,noscript,template')) continue;
+        const card = selectors.post_card && parent.closest(selectors.post_card);
+        const dialog = parent.closest('[role="dialog"],[role="alertdialog"],[aria-modal="true"]');
+        const alert = parent.closest('[role="alert"],[aria-live="assertive"],form');
+        const securityUi = dialog || (alert && card && card.contains(alert));
+        const content = [selectors.post_text, selectors.comment]
+            .filter(Boolean).map(selector => parent.closest(selector))
+            .some(element => element && card && element !== card && card.contains(element));
+        if (content && !securityUi) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        if (!range.getClientRects().length ||
+            getComputedStyle(parent).visibility !== 'visible') continue;
+        const text = node.nodeValue || "";
+        if (length + text.length > 20000) return {truncated: true};
+        parts.push(text);
+        length += text.length;
+    }
+    return {truncated: false, text: parts.join("")};
+}"""
 
 _READ_CARDS = """({url, selectors}) => {
     if (location.href !== url) return null;
     const one = (owner, selector) => selector ? owner.querySelector(selector) : null;
     const all = (owner, selector) => selector ? Array.from(owner.querySelectorAll(selector)) : [];
+    const marked = (card, selector) => selector && (card.matches(selector) || one(card, selector));
     const text = (owner, selector) => one(owner, selector)?.innerText?.trim() || "";
     const cards = all(document, selectors.post_card);
     if (cards.length > 200) return {tooMany: true};
@@ -37,8 +70,8 @@ _READ_CARDS = """({url, selectors}) => {
             postText: text(card, selectors.post_text),
             href: one(card, selectors.permalink)?.getAttribute("href") ?? null,
             sellerName: text(card, selectors.seller_name),
-            pinned: Boolean(one(card, selectors.pinned)),
-            suggested: Boolean(one(card, selectors.suggested)),
+            pinned: Boolean(marked(card, selectors.pinned)),
+            suggested: Boolean(marked(card, selectors.suggested)),
             comments: all(card, selectors.comment).slice(0, 50).map(comment => {
                 const time = one(comment, "time");
                 return {
@@ -53,6 +86,19 @@ _READ_CARDS = """({url, selectors}) => {
         }))
     };
 }"""
+
+# Do not yield to page scripts between the security scan and card extraction.
+_READ_SNAPSHOT = f"""args => {{
+    const body = ({_READ_BODY})(args);
+    if (!body || body.truncated) return {{body, cards: null}};
+    const markers = {json.dumps(CHALLENGE_TEXT_MARKERS + LOGIN_TEXT_MARKERS, ensure_ascii=False)};
+    const overrides = {json.dumps(MARKER_CASEFOLD_OVERRIDES, ensure_ascii=True)};
+    const text = Array.from(body.text, char => overrides[char] ??
+        (/^[A-Z]$/.test(char) ? char.toLowerCase() : char)).join('');
+    if (markers.some(marker => text.includes(marker)))
+        return {{body, cards: null}};
+    return {{body, cards: ({_READ_CARDS})(args)}};
+}}"""
 
 
 class BrowserAdapterError(RuntimeError):
@@ -270,14 +316,17 @@ class PlaywrightVisiblePage:
                 return PageSnapshot(url, "", "", True, ())
             if not _matches_group_path(url, self._group_url):
                 raise BrowserAdapterError("visible browser left the configured group")
-            body_text = self._page.evaluate(_READ_BODY, url)
+            read = self._page.evaluate(_READ_SNAPSHOT, {"url": url, "selectors": selectors})
             self._check_snapshot(url, revision)
-            if body_text is None:
+            if read is None or read.get("body") is None:
                 raise BrowserAdapterError("visible browser document changed during capture")
+            body_scan = read["body"]
+            if body_scan.get("truncated"):
+                raise BrowserAdapterError("visible page security scan exceeded its safe limit")
+            body_text = body_scan["text"]
             if classify_page(url, body_text) != "ok":
                 return PageSnapshot(url, body_text, "", True, ())
-            snapshot = self._page.evaluate(_READ_CARDS, {"url": url, "selectors": selectors})
-            self._check_snapshot(url, revision)
+            snapshot = read.get("cards")
             if snapshot is None:
                 raise BrowserAdapterError("visible browser document changed during capture")
             if snapshot.get("tooMany"):

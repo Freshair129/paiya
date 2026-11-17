@@ -33,6 +33,7 @@ def write_live_config(path: Path) -> Path:
         "grant": {"active": True, "scopes": ["capture", "read", "media"], "retention_days": 7},
         "page_size": 5,
         "overlap": 3,
+        "post_markers_verified": True,
         "scroll_budget": 30,
         "time_budget_seconds": 120,
         "selectors": {
@@ -282,6 +283,56 @@ def test_live_429_persists_retry_after_and_leaves_checkpoint_and_inbox_unchanged
     assert sorted(path.name for path in (tmp_path / "inbox" / "incoming").iterdir()) == runs_before
     assert "stop_reason" not in pause
     assert "error_code" not in pause
+
+
+@pytest.mark.parametrize("missing_marker", ["pinned", "suggested", "not_verified"])
+def test_unknown_post_markers_never_stop_at_overlap_or_advance_checkpoint(
+    tmp_path: Path, missing_marker: str
+) -> None:
+    from dataclasses import replace
+
+    repo_root = Path(__file__).resolve().parents[1]
+    image = (repo_root / "fixtures" / "images" / "rtx3060.jpg").read_bytes()
+    prior = tuple(
+        replace(
+            post(image), permalink=f"https://www.facebook.com/groups/owner-selected/posts/{key}/"
+        )
+        for key in ("123456781", "123456782", "123456783")
+    )
+    invoke_live(
+        tmp_path,
+        page=FakePage([page_snapshot(prior)]),
+        run_id="11111111-2222-4333-8444-555555555555",
+    )
+    state_file = tmp_path / "state" / f"{GROUP_KEY}.json"
+    checkpoint = json.loads(state_file.read_text(encoding="utf-8"))["checkpoint"]
+    config_path = tmp_path / "local" / "owner-group-01.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    if missing_marker == "not_verified":
+        config.pop("post_markers_verified")
+    else:
+        config["selectors"][missing_marker] = None
+    config["scroll_budget"] = 1
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    newest = replace(
+        post(image), permalink="https://www.facebook.com/groups/owner-selected/posts/123456784/"
+    )
+    page = FakePage([page_snapshot(prior, feed_end=False), page_snapshot((newest,), feed_end=True)])
+    report = discover_browser(
+        config_path,
+        profile_dir=tmp_path / "dedicated-profile",
+        inbox_root=tmp_path / "inbox",
+        state_dir=tmp_path / "state",
+        run_id_arg="11111111-2222-4333-8444-666666666666",
+        browser_attacher=fake_attacher(page),
+        repository_root=tmp_path / "repo",
+        now=datetime(2026, 11, 13, 5, 0, tzinfo=UTC),
+    )
+    assert page.scroll_calls == 1
+    assert report["coverage"] == "partial"
+    assert report["stop_reason"] != "overlap_reached"
+    assert "sort_unverified" in report["partial_reasons"]
+    assert json.loads(state_file.read_text(encoding="utf-8"))["checkpoint"] == checkpoint
 
 
 def test_live_429_waits_from_response_time_and_rounds_up(tmp_path: Path) -> None:

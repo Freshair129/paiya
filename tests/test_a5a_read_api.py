@@ -61,6 +61,7 @@ def test_context_endpoints_and_untrusted_group(pg_engine, client, monkeypatch):
         headers={"X-Group-Key": other.group_key},
     )
     assert [g["group_key"] for g in response.json()["groups"]] == [scope.group_key]
+    assert response.json()["read_context"] == "fixture"
     for field, value in [
         ("revoked_at", datetime.now(UTC)),
         ("valid_until", datetime.now(UTC) - timedelta(seconds=1)),

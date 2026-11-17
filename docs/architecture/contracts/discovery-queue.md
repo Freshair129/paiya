@@ -62,6 +62,8 @@ Adapter รับกลุ่ม งบ และ overlap แล้วคืน 
 
 1. `access_blocked` หรือไม่มีการ์ดที่อ่านได้ → `none` และตั้ง `error_code`
 2. มีเหตุใดเหตุหนึ่งต่อไปนี้ → `partial` พร้อมเหตุทุกข้อที่เข้าเงื่อนไข: `sort_result = unverified` (FR-02), หยุดด้วยงบก่อนถึง overlap (`budget_before_overlap` ตาม FR-03 รวมรอบแรกที่ยังไม่มีโพสต์เดิม), ฟีดหยุดโหลด (`feed_end`) ก่อนถึง overlap ทั้งที่กลุ่มมีโพสต์อยู่แล้วก่อนรอบนี้ (`feed_stopped_before_overlap` ตามกรณี “หน้าที่หยุดก่อนถึง overlap” ของ AT-02), มีการ์ดที่แยก stable key ไม่ได้ (`parse_failures`)
+
+Browser Collector ที่ไม่มี selector สำหรับแยก pinned หรือ suggested อย่างใดอย่างหนึ่ง หรือไม่มี `post_markers_verified: true` ในการตั้งค่าเฉพาะเครื่อง ต้องถือว่าลำดับจริงยัง `unverified` แม้ UI เลือกโพสต์ใหม่แล้ว ไม่หยุดจาก overlap และไม่เลื่อน checkpoint ตั้งค่านี้ยืนยันได้หลังตรวจ selector ทั้งสองกับตัวอย่าง pinned และ suggested ในโปรไฟล์เฉพาะเท่านั้น การมี selector ในไฟล์ตั้งค่าเพียงอย่างเดียวไม่ใช่หลักฐานว่าตรวจถูกต้อง
 3. นอกนั้น → `complete` รวมถึงรอบแรกที่อ่านจนฟีดหมดภายในงบ
 
 **Checkpoint** `groups.discovery_checkpoint` เก็บ `{"run_id": "<uuid>", "top_keys": ["<source_post_key>", …], "advanced_at": "<UTC>"}` โดย `top_keys` คือคีย์ของการ์ดที่ไม่ปักหมุดและไม่ใช่โพสต์แนะนำสูงสุด 20 รายการแรกตามลำดับฟีด เลื่อนเฉพาะเมื่อ `coverage = complete` รอบ partial และ none ไม่เปลี่ยน checkpoint แต่โพสต์ที่อ่านได้ยังบันทึก observation ตามสิทธิ์

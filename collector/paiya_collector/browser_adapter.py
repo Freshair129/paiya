@@ -20,6 +20,16 @@ from paiya_collector.state import ensure_no_reparse_components
 APPROVED_GROUP_KEY = "owner-group-01"
 APPROVED_SCOPES = frozenset({"capture", "read", "media"})
 APPROVED_RETENTION_DAYS = 7
+CHALLENGE_TEXT_MARKERS = ("security check", "ยืนยันตัวตน")
+LOGIN_TEXT_MARKERS = ("log in to facebook", "เข้าสู่ระบบ facebook")
+_MARKER_CHARS = frozenset("".join(CHALLENGE_TEXT_MARKERS + LOGIN_TEXT_MARKERS))
+# JS must use Python's full Unicode casefold before deciding whether it can read cards.
+MARKER_CASEFOLD_OVERRIDES = {
+    char: folded
+    for codepoint in range(128, 0x110000)
+    if (char := chr(codepoint)) != (folded := char.casefold())
+    and any(part in _MARKER_CHARS for part in folded)
+}
 _REQUIRED_SELECTORS = (
     "post_card",
     "post_text",
@@ -46,6 +56,7 @@ class LiveGroupConfig:
     scroll_budget: int
     time_budget_seconds: int
     selectors: dict[str, str]
+    post_markers_verified: bool
 
 
 @dataclass(frozen=True)
@@ -171,6 +182,9 @@ def load_group_config(path: Path, *, repository_root: Path) -> LiveGroupConfig:
                 raise ValueError(f"selector {name} must be a non-empty CSS selector")
             normalized_selectors[name] = value.strip()
 
+    post_markers_verified = raw.get("post_markers_verified", False)
+    if not isinstance(post_markers_verified, bool):
+        raise ValueError("post_markers_verified must be a boolean")
     page_size = _bounded_int(raw, "page_size", default=5, minimum=1, maximum=20)
     overlap = _bounded_int(raw, "overlap", default=3, minimum=1, maximum=10)
     scroll_budget = _bounded_int(raw, "scroll_budget", default=30, minimum=0, maximum=30)
@@ -191,6 +205,7 @@ def load_group_config(path: Path, *, repository_root: Path) -> LiveGroupConfig:
         scroll_budget=scroll_budget,
         time_budget_seconds=time_budget_seconds,
         selectors=normalized_selectors,
+        post_markers_verified=post_markers_verified,
     )
 
 
@@ -200,11 +215,11 @@ def classify_page(url: str, body_text: str) -> str:
     title_text = body_text.casefold()
     if any(marker in path for marker in ("/checkpoint", "/challenge", "/security")):
         return "challenge_required"
-    if "security check" in title_text or "ยืนยันตัวตน" in title_text:
+    if any(marker in title_text for marker in CHALLENGE_TEXT_MARKERS):
         return "challenge_required"
     if "login" in path or parsed.hostname == "login.facebook.com":
         return "session_required"
-    if "log in to facebook" in title_text or "เข้าสู่ระบบ facebook" in title_text:
+    if any(marker in title_text for marker in LOGIN_TEXT_MARKERS):
         return "session_required"
     return "ok"
 
@@ -320,6 +335,7 @@ def feed_from_visible_posts(
     feed_end: bool,
     scroll_step_seconds: int,
     forced_stop_reason: str | None = None,
+    overlap_safe: bool = True,
 ) -> FeedDocument:
     if access not in {
         "ok",
@@ -407,6 +423,7 @@ def feed_from_visible_posts(
         image_bytes=images,
         forced_stop_reason=forced_stop_reason,
         allow_local_image_files=False,
+        overlap_safe=overlap_safe,
     )
 
 
@@ -442,7 +459,12 @@ def capture_browser_feed(
     overlap_streak = 0
     scroll_steps = 0
     initial_sort_label = current.sort_label
-    sort_label = initial_sort_label
+    overlap_safe = bool(
+        config.post_markers_verified
+        and config.selectors.get("pinned")
+        and config.selectors.get("suggested")
+    )
+    sort_label = initial_sort_label if overlap_safe else ""
 
     while True:
         _raise_for_rate_limit(current, now=now)
@@ -485,9 +507,9 @@ def capture_browser_feed(
             if post_key is None or post_key in observed_keys:
                 continue
             observed_keys.add(post_key)
-            if post.pinned or post.suggested:
-                overlap_streak = 0
-            elif post_key in previously_published:
+            if not overlap_safe or post.pinned or post.suggested:
+                continue
+            if post_key in previously_published:
                 overlap_streak += 1
             else:
                 overlap_streak = 0
@@ -499,6 +521,7 @@ def capture_browser_feed(
                     session_result="ok",
                     feed_end=False,
                     scroll_step_seconds=1,
+                    overlap_safe=overlap_safe,
                 )
 
         if current.feed_end:
@@ -509,6 +532,7 @@ def capture_browser_feed(
                 session_result="ok",
                 feed_end=True,
                 scroll_step_seconds=1,
+                overlap_safe=overlap_safe,
             )
         if monotonic() - started >= config.time_budget_seconds:
             return feed_from_visible_posts(
@@ -519,6 +543,7 @@ def capture_browser_feed(
                 feed_end=False,
                 scroll_step_seconds=1,
                 forced_stop_reason="time_budget_exhausted",
+                overlap_safe=overlap_safe,
             )
         if scroll_steps >= config.scroll_budget:
             return feed_from_visible_posts(
@@ -529,6 +554,7 @@ def capture_browser_feed(
                 feed_end=False,
                 scroll_step_seconds=1,
                 forced_stop_reason="scroll_budget_exhausted",
+                overlap_safe=overlap_safe,
             )
 
         page.scroll_one_step()
