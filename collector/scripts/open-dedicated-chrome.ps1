@@ -1,5 +1,6 @@
 param(
-    [string]$ProfileDir = 'F:\paiya-collector-data\browser-profiles\owner-group-01'
+    [string]$ProfileDir = 'F:\paiya-collector-data\browser-profiles\owner-group-01',
+    [string]$InitialUrl = 'about:blank'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,6 +9,20 @@ $GroupKey = 'owner-group-01'
 $ProfileDir = [System.IO.Path]::GetFullPath($ProfileDir)
 $DataRoot = 'F:\paiya-collector-data'
 $TempRoot = Join-Path $DataRoot 'browser-temp'
+
+# The desktop button may open the locally configured group for owner sign-in.
+# Never accept an arbitrary website, query, fragment or credential-bearing URL.
+if ($InitialUrl -ne 'about:blank') {
+    $Target = $null
+    if (-not [Uri]::TryCreate($InitialUrl, [UriKind]::Absolute, [ref]$Target) -or
+        $Target.Scheme -ne 'https' -or
+        $Target.Host -notin @('facebook.com', 'www.facebook.com', 'm.facebook.com') -or
+        -not $Target.IsDefaultPort -or $Target.UserInfo -or $Target.Query -or $Target.Fragment -or
+        $Target.AbsolutePath -notmatch '^/groups/[A-Za-z0-9._-]+/?$' -or
+        $InitialUrl -notmatch '^https://(www\.|m\.)?facebook\.com/groups/[A-Za-z0-9._-]+/?$') {
+        throw 'The initial URL must be a plain HTTPS Facebook group URL.'
+    }
+}
 
 if ([System.IO.Path]::GetPathRoot($ProfileDir) -ne [System.IO.Path]::GetPathRoot($ProjectRoot)) {
     throw 'The dedicated Chrome profile must be on the Collector volume.'
@@ -70,7 +85,7 @@ $Arguments = @(
     '--remote-debugging-port=0',
     '--no-first-run',
     '--no-default-browser-check',
-    'about:blank'
+    $InitialUrl
 )
 $PreviousTemp = $env:TEMP
 $PreviousTmp = $env:TMP

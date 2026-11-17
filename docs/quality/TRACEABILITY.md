@@ -26,6 +26,8 @@
 
 [Issue #91](https://github.com/Freshair129/paiya/issues/91) เชื่อม FR-02/03 กับการรับผลรอบและหลักฐานตาม AT-02 และ FR-07/13 กับการปฏิเสธสิทธิ์และการลบตาม AT-09 ชุด [test_i2_inbox_ingest.py](../../tests/test_i2_inbox_ingest.py) ใช้ข้อมูลจำลองบน PostgreSQL 17 ผลจากกลุ่มจริงต้องตรวจใน pilot แยกต่างหาก
 
+หน้าต่างควบคุมรอบเดียวของ Issue #91 อ้าง FR-02/03, AT-02 และ AT-09; [test_desktop_controller.py](../../collector/tests/test_desktop_controller.py) ตรวจลำดับการตรวจและนำเข้า ส่วน [test_desktop_inspect.py](../../collector/tests/test_desktop_inspect.py) ตรวจ security gate จาก DOM สังเคราะห์ ผลเหล่านี้ไม่ใช่ผลจาก Facebook จริง
+
 ## B1 และ B1a
 
 - **B1** · FR-01/02/13 · AT-01/09 · [เทสต์สอง origin](../../collector/tests/b1_browser_origin_integration.py) และ [เทสต์ก่อนอ่าน DOM](../../collector/tests/test_browser_runtime.py) ใช้หน้าและ credential สังเคราะห์บน loopback
