@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from paiya_collector.browser_adapter import (
     VisibleComment,
     VisiblePost,
 )
-from paiya_collector.live import discover_browser, group_run_lock
+from paiya_collector.live import _check_rate_limit_pause, discover_browser, group_run_lock
 
 GROUP_KEY = "owner-group-01"
 GRANT_ID = "44444444-5555-4666-8777-888888888888"
@@ -279,6 +280,58 @@ def test_live_429_persists_retry_after_and_leaves_checkpoint_and_inbox_unchanged
     assert sorted(path.name for path in (tmp_path / "inbox" / "incoming").iterdir()) == runs_before
     assert "stop_reason" not in pause
     assert "error_code" not in pause
+
+
+def test_live_429_waits_from_response_time_and_rounds_up(tmp_path: Path) -> None:
+    response_time = datetime(2026, 11, 13, 5, 0, 40, 250000, tzinfo=UTC)
+    limited = FakePage(
+        [
+            replace(
+                page_snapshot((), http_status=429, retry_after="120"),
+                response_received_at=response_time,
+            )
+        ]
+    )
+    with pytest.raises(RateLimitPause) as exc_info:
+        invoke_live(tmp_path, page=limited, run_id="77777777-8888-4999-8000-222222222222")
+    assert exc_info.value.retry_after_until == datetime(2026, 11, 13, 5, 2, 41, tzinfo=UTC)
+    pause = json.loads((tmp_path / "state" / f"{GROUP_KEY}.rate-limit.json").read_text())
+    assert pause["retry_after_until"] == "2026-11-13T05:02:41Z"
+    assert not (tmp_path / "inbox" / "incoming").exists()
+    with pytest.raises(RateLimitPause):
+        _check_rate_limit_pause(
+            tmp_path / "state",
+            GROUP_KEY,
+            now=datetime(2026, 11, 13, 5, 2, 40, tzinfo=UTC),
+            clear_manual_pause=False,
+        )
+    _check_rate_limit_pause(
+        tmp_path / "state",
+        GROUP_KEY,
+        now=datetime(2026, 11, 13, 5, 2, 41, tzinfo=UTC),
+        clear_manual_pause=False,
+    )
+
+
+@pytest.mark.parametrize("outcome", ["navigation_error", "challenge"])
+def test_observed_429_is_persisted_even_if_navigation_fails_or_page_is_challenge(
+    tmp_path: Path, outcome: str
+) -> None:
+    class RateLimitedPage(FakePage):
+        def navigate(self, url: str) -> None:
+            if outcome == "navigation_error":
+                raise RuntimeError("synthetic navigation failure after response")
+            super().navigate(url)
+
+        def raise_if_rate_limited(self) -> None:
+            raise RateLimitPause(datetime(2026, 11, 13, 5, 3, tzinfo=UTC))
+
+    page = RateLimitedPage([page_snapshot((), access_url="https://www.facebook.com/checkpoint/")])
+    with pytest.raises(RateLimitPause):
+        invoke_live(tmp_path, page=page, run_id="77777777-8888-4999-8000-333333333333")
+    pause = json.loads((tmp_path / "state" / f"{GROUP_KEY}.rate-limit.json").read_text())
+    assert pause["retry_after_until"] == "2026-11-13T05:03:00Z"
+    assert not (tmp_path / "inbox" / "incoming").exists()
 
 
 def test_live_429_without_retry_after_requires_explicit_manual_wait_and_resume(

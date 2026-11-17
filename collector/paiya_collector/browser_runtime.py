@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -11,7 +12,9 @@ from paiya_collector.browser_adapter import (
     VisibleComment,
     VisiblePost,
     _matches_group_path,
+    _raise_for_rate_limit,
     classify_page,
+    parse_retry_after,
 )
 
 # Scope and text extraction share one synchronous evaluation, so a history
@@ -132,6 +135,7 @@ class PlaywrightVisiblePage:
         self._document_revision = 0
         self._http_status: int | None = None
         self._retry_after: str | None = None
+        self._response_received_at: datetime | None = None
         page.on("response", self._on_response)
 
     def _guard_navigation(self) -> None:
@@ -201,6 +205,22 @@ class PlaywrightVisiblePage:
                 self._session.detach()
                 self._session = None
 
+    def raise_if_rate_limited(self) -> None:
+        if self._http_status == 429:
+            _raise_for_rate_limit(
+                PageSnapshot(
+                    self._group_url,
+                    "",
+                    "",
+                    True,
+                    (),
+                    self._retry_after,
+                    self._http_status,
+                    self._response_received_at,
+                ),
+                now=datetime.now(UTC),
+            )
+
     def navigate(self, url: str) -> None:
         try:
             self._check_origin(url)
@@ -235,7 +255,14 @@ class PlaywrightVisiblePage:
             revision = self._document_revision
             if self._http_status == 429 and not self._blocked_reason:
                 return PageSnapshot(
-                    self._group_url, "", "", True, (), self._retry_after, self._http_status
+                    self._group_url,
+                    "",
+                    "",
+                    True,
+                    (),
+                    self._retry_after,
+                    self._http_status,
+                    self._response_received_at,
                 )
             self._check_origin(url)
             if classify_page(url, "") != "ok":
@@ -268,6 +295,7 @@ class PlaywrightVisiblePage:
                 posts=tuple(posts),
                 retry_after=self._retry_after,
                 http_status=self._http_status,
+                response_received_at=self._response_received_at,
             )
         except BrowserAdapterError:
             raise
@@ -372,12 +400,22 @@ class PlaywrightVisiblePage:
     def _on_response(self, response: object) -> None:
         if getattr(response, "status", None) != 429:
             return
-        self._http_status = 429
+        received_at = datetime.now(UTC)
         try:
             headers = response.headers
-            self._retry_after = headers.get("retry-after") or headers.get("Retry-After")
+            retry_after = headers.get("retry-after") or headers.get("Retry-After")
         except Exception:
-            self._retry_after = None
+            retry_after = None
+        new_deadline = parse_retry_after(retry_after, now=received_at)
+        if self._http_status == 429 and self._response_received_at is not None:
+            previous_deadline = parse_retry_after(self._retry_after, now=self._response_received_at)
+            if previous_deadline is None or (
+                new_deadline is not None and previous_deadline >= new_deadline
+            ):
+                return
+        self._http_status = 429
+        self._response_received_at = received_at
+        self._retry_after = retry_after
 
 
 @contextmanager

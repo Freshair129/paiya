@@ -57,6 +57,7 @@ class PageSnapshot:
     posts: tuple[VisiblePost, ...]
     retry_after: str | None = None
     http_status: int | None = None
+    response_received_at: datetime | None = None
 
 
 class BrowserPage(Protocol):
@@ -259,13 +260,22 @@ def parse_retry_after(value: str | None, *, now: datetime) -> datetime | None:
             deadline = parsedate_to_datetime(text)
         except (TypeError, ValueError, OverflowError):
             return None
-        if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=UTC)
-        return deadline.astimezone(UTC)
+        try:
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=UTC)
+            return deadline.astimezone(UTC)
+        except (ValueError, OverflowError):
+            return None
     if seconds < 0:
         return None
     current = now if now.tzinfo else now.replace(tzinfo=UTC)
-    return (current.astimezone(UTC) + timedelta(seconds=seconds)).replace(microsecond=0)
+    try:
+        deadline = current.astimezone(UTC) + timedelta(seconds=seconds)
+        if deadline.microsecond:
+            deadline = deadline.replace(microsecond=0) + timedelta(seconds=1)
+    except OverflowError:
+        return None
+    return deadline
 
 
 def source_post_key_from_permalink(permalink: str) -> str | None:
@@ -528,7 +538,8 @@ def capture_browser_feed(
 
 def _raise_for_rate_limit(snapshot: PageSnapshot, *, now: datetime) -> None:
     if snapshot.http_status == 429:
-        raise RateLimitPause(parse_retry_after(snapshot.retry_after, now=now))
+        received_at = snapshot.response_received_at or now
+        raise RateLimitPause(parse_retry_after(snapshot.retry_after, now=received_at))
 
 
 def _visible_post_signature(post: VisiblePost) -> str:

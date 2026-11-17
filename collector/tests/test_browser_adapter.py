@@ -178,6 +178,8 @@ def test_retry_after_accepts_delta_seconds_and_http_date_without_guessing() -> N
     ) == now + timedelta(minutes=5)
     assert parse_retry_after(None, now=now) is None
     assert parse_retry_after("not-a-date", now=now) is None
+    assert parse_retry_after("999999999999999999999999999", now=now) is None
+    assert parse_retry_after("Fri, 31 Dec 9999 23:59:59 -1200", now=now) is None
 
 
 def test_visible_post_conversion_preserves_evidence_without_saving_actor_names(

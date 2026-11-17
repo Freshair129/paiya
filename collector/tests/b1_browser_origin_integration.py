@@ -4,6 +4,7 @@ import os
 from base64 import b64encode
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
@@ -213,11 +214,15 @@ def test_preserved_sort_navigation_observes_rate_limit(browser) -> None:
             page.goto(selected_url)
             guarded = PlaywrightVisiblePage(page, f"{owner}/groups/b1")
             try:
+                before_429 = datetime.now(UTC)
                 guarded.navigate(f"{owner}/groups/b1")
                 snapshot = guarded.snapshot({})
+                after_429 = datetime.now(UTC)
                 assert len(calls) == 2
                 assert snapshot.http_status == 429
                 assert snapshot.retry_after == "120"
+                assert snapshot.response_received_at is not None
+                assert before_429 <= snapshot.response_received_at <= after_429
                 assert snapshot.posts == ()
             finally:
                 guarded.close()
