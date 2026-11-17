@@ -11,6 +11,7 @@
   },
   "page_size": 5,
   "overlap": 3,
+  "post_markers_verified": false,
   "scroll_budget": 30,
   "time_budget_seconds": 120,
   "selectors": {

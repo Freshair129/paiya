@@ -12,6 +12,7 @@ from sqlalchemy import Connection
 
 from paiya.read.context import (
     ReadAccess,
+    ReadContext,
     dev_fixture_group_key_from_env,
     dev_fixture_mode_enabled,
     resolve_read_context,
@@ -114,7 +115,9 @@ def get_posts(
 
 @router.get("/groups")
 def get_groups(scope: Scope, conn: Db) -> dict[str, object]:
-    return read_groups(conn, scope)
+    result = read_groups(conn, scope)
+    result["read_context"] = "fixture" if isinstance(scope, ReadContext) else "owner"
+    return result
 
 
 @router.get("/posts/{post_id}")

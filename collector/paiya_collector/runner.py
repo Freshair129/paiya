@@ -131,7 +131,7 @@ def run_discovery(
 
             parsed_by_key[card.source_post_key] = card
             parsed_order.append(card)
-            if not card.pinned and not card.suggested:
+            if feed.overlap_safe and not card.pinned and not card.suggested:
                 if len(checkpoint_candidates) < 20:
                     checkpoint_candidates.append(card.source_post_key)
                 if card.source_post_key in previously_published:

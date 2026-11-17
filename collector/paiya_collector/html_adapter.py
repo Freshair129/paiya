@@ -105,6 +105,7 @@ class FeedDocument:
     image_bytes: dict[str, bytes] = field(default_factory=dict)
     forced_stop_reason: str | None = None
     allow_local_image_files: bool = True
+    overlap_safe: bool = True
 
 
 @dataclass(frozen=True)
