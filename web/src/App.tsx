@@ -44,6 +44,7 @@ import {
   type PostCurrentItem,
   type PostDetail,
   type PostFilters,
+  type ReadContextMode,
   type SaleStatus,
   type SellerDetail,
   type TimelineEvent,
@@ -81,6 +82,7 @@ interface RouterValue {
 }
 
 const RouterContext = createContext<RouterValue | null>(null)
+const ReadModeContext = createContext<ReadContextMode>('unknown')
 
 function parseRoute(path: string): Route {
   if (path === '/') return { name: 'feed' }
@@ -428,6 +430,7 @@ function filterSummary(filters: PostFilters): string[] {
 }
 
 function FeedPage() {
+  const readMode = useContext(ReadModeContext)
   const [filters, setFilters] = useState<PostFilters>(DEFAULT_FILTERS)
   const [draft, setDraft] = useState<PostFilters>(DEFAULT_FILTERS)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -581,7 +584,7 @@ function FeedPage() {
     <section className="page-section" aria-labelledby="feed-title">
       <div className="page-heading-row">
         <div>
-          <p className="eyebrow">PAIYA · ข้อมูลสังเคราะห์</p>
+          <p className="eyebrow">{readMode === 'fixture' ? 'PAIYA · ข้อมูลสังเคราะห์' : 'PAIYA'}</p>
           <h1 id="feed-title">สินค้า</h1>
         </div>
         <button ref={filterTriggerRef} className="button button-secondary filter-button" onClick={openFilters} type="button">
@@ -605,7 +608,7 @@ function FeedPage() {
         <div className="empty-state">
           <span className="empty-icon" aria-hidden="true">⌕</span>
           <h2>ยังไม่พบสินค้า</h2>
-          <p>{activeFilters.length ? 'ลองเปลี่ยนตัวกรองเพื่อดูรายการอื่น' : 'กลุ่มสังเคราะห์ยังไม่มีรายการที่อ่านได้'}</p>
+          <p>{activeFilters.length ? 'ลองเปลี่ยนตัวกรองเพื่อดูรายการอื่น' : readMode === 'fixture' ? 'กลุ่มสังเคราะห์ยังไม่มีรายการที่อ่านได้' : 'ยังไม่มีรายการที่อ่านได้'}</p>
           {activeFilters.length ? (
             <div className="empty-filter-summary">
               <p>ตัวกรองที่ใช้: {activeFilters.join(' · ')}</p>
@@ -1030,7 +1033,7 @@ function WatchesPage() {
       <section className="page-section" aria-labelledby="watches-title">
         <p className="eyebrow">อ่านอย่างเดียว</p>
         <h1 id="watches-title">ติดตาม</h1>
-        <div className="empty-state"><h2>ยังไม่มีรายการติดตาม</h2><p>รายการติดตามจากกลุ่มสังเคราะห์จะแสดงที่นี่</p></div>
+        <div className="empty-state"><h2>ยังไม่มีรายการติดตาม</h2><p>รายการติดตามจะแสดงที่นี่</p></div>
       </section>
     )
   }
@@ -1853,6 +1856,7 @@ function MainNavigation({ route }: { route: Route }) {
 export default function App() {
   const [path, setPath] = useState(() => (typeof window === 'undefined' ? '/' : window.location.pathname))
   const [needsUnlock, setNeedsUnlock] = useState(false)
+  const [readMode, setReadMode] = useState<ReadContextMode>('unknown')
   const route = useMemo(() => parseRoute(path), [path])
 
   useEffect(() => {
@@ -1865,14 +1869,21 @@ export default function App() {
 
   useEffect(() => {
     function requireUnlock() {
+      setReadMode('unknown')
       setNeedsUnlock(true)
     }
     function sessionUnlocked() {
       setNeedsUnlock(false)
     }
+    function readContextChanged(event: Event) {
+      const mode: unknown = (event as CustomEvent<unknown>).detail
+      setReadMode(mode === 'fixture' || mode === 'owner' ? mode : 'unknown')
+    }
+    window.addEventListener('paiya:read-context', readContextChanged)
     window.addEventListener('paiya:session-required', requireUnlock)
     window.addEventListener('paiya:session-unlocked', sessionUnlocked)
     return () => {
+      window.removeEventListener('paiya:read-context', readContextChanged)
       window.removeEventListener('paiya:session-required', requireUnlock)
       window.removeEventListener('paiya:session-unlocked', sessionUnlocked)
     }
@@ -1902,6 +1913,7 @@ export default function App() {
 
   return (
     <RouterContext.Provider value={{ navigate }}>
+      <ReadModeContext.Provider value={readMode}>
       <a className="skip-link" href="#main-content">ข้ามไปยังเนื้อหา</a>
       <div className="app-shell">
         <header className="app-header">
@@ -1909,11 +1921,12 @@ export default function App() {
             <span className="brand-mark" aria-hidden="true">ป</span>
             <span><strong>ป้ายยา</strong><small>ข้อมูลที่มีหลักฐาน</small></span>
           </RouteLink>
-          <span className="demo-indicator"><span aria-hidden="true" />ข้อมูลสังเคราะห์</span>
+          <span className="demo-indicator"><span aria-hidden="true" />{readMode === 'fixture' ? 'ข้อมูลสังเคราะห์' : readMode === 'owner' ? 'บัญชีเจ้าของ' : 'โหมดข้อมูลยังไม่ระบุ'}</span>
         </header>
         <main id="main-content" className="main-content" tabIndex={-1}>{page}</main>
         <MainNavigation route={route} />
       </div>
+      </ReadModeContext.Provider>
     </RouterContext.Provider>
   )
 }

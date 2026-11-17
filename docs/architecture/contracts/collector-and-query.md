@@ -115,6 +115,8 @@ Worker ห่อ payload ด้วย envelope ที่มี run_id, capture_i
 | Watch และราคา | PUT หรือ DELETE /v1/watches/{post_id} เป็น idempotent (เลื่อนไปงาน session ตาม E5 ระยะ A ใช้ CLI ดู [สัญญาเส้นทางมือถือ](mobile-read-path.md)), GET /v1/prices/trends คืน sample count, window, ตัวกรอง, percentiles ที่รองรับ และสถานะข้อมูลไม่พอ |
 | MCP local stdio | search_posts, get_post, get_seller, get_evidence, get_price_trend ใช้ backend service เดียวกับ API get_evidence ส่ง MCP image content หลังตรวจสิทธิ์ ห้ามรับ arbitrary SQL, URL หรือ path รายละเอียดใน [สัญญา MCP](mcp-read.md) |
 
+`GET /v1/groups` includes `read_context`, either `fixture` for the configured synthetic fixture scope or `owner` for an authenticated owner's grant-scoped read. The value describes the authorization context, not the provenance of every record: owner grants can include both synthetic and live sources. Clients must treat a missing or unrecognized value as unknown.
+
 ผลการค้นใช้ cursor และ limit แบบมีเพดาน client ต้องโหลดเพิ่มได้ API แยก unauthenticated, invalid input และ not-found ตามมาตรฐาน HTTP ส่วนการพยายามอ่าน ID นอก scope ให้ผลเหมือนหาไม่พบเพื่อไม่เปิดเผยตัวตนของระเบียน โพสต์และ OCR เป็นข้อมูลภายนอกเสมอ ห้ามป้อนคำสั่งจากแหล่งข้อมูลเข้าระบบเครื่องมือของ Agent
 
 สำหรับ AT-03 ตัวตรวจ v1 เช็กว่า quote อ้างคอมเมนต์ที่มีอยู่ แต่ยังไม่ตรวจความสอดคล้องระหว่าง role ของหลักฐานกับ role ของผู้เขียน ก่อนนำคอมเมนต์มายืนยันสถานะต้องเพิ่มการตรวจตัวผู้ขาย ความสัมพันธ์กับโพสต์/ชิ้น และกรณีทดสอบที่ป้ายผู้ขายชี้ข้อความของผู้ซื้อ [ข้อกำหนดก่อนสร้างสถานะ](buyer-workflows.md)

@@ -89,8 +89,11 @@ export interface Group {
   last_run: GroupRun | null
 }
 
+export type ReadContextMode = 'fixture' | 'owner' | 'unknown'
+
 export interface GroupsResponse {
   groups: Group[]
+  read_context?: 'fixture' | 'owner'
 }
 
 export interface ManualImportInput {
@@ -542,8 +545,22 @@ export function getPosts(
 export const getModels = (signal?: AbortSignal): Promise<ModelsResponse> =>
   getJson('/v1/models', signal)
 
-export const getGroups = (signal?: AbortSignal): Promise<GroupsResponse> =>
-  getJson('/v1/groups', signal)
+export async function getGroups(signal?: AbortSignal): Promise<GroupsResponse> {
+  try {
+    const result = await getJson<GroupsResponse>('/v1/groups', signal)
+    if (!signal?.aborted && typeof window !== 'undefined') {
+      const mode = result.read_context === 'fixture' || result.read_context === 'owner'
+        ? result.read_context : 'unknown'
+      window.dispatchEvent(new CustomEvent('paiya:read-context', { detail: mode }))
+    }
+    return result
+  } catch (error) {
+    if (!signal?.aborted && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('paiya:read-context', { detail: 'unknown' }))
+    }
+    throw error
+  }
+}
 
 export const getPost = (id: string, signal?: AbortSignal): Promise<PostDetail> =>
   getJson(`/v1/posts/${encodeURIComponent(id)}`, signal)
