@@ -100,6 +100,12 @@ def test_owner_session_reads_only_the_readable_grants(
 
     assert response.status_code == 200
     assert {UUID(post["post_id"]) for post in response.json()["posts"]} == {allowed_post}
+    groups_response = client.get("/v1/groups", headers={"Host": "127.0.0.1:8137"})
+    assert groups_response.status_code == 200
+    assert groups_response.json()["read_context"] == "owner"
+    assert {UUID(group["group_id"]) for group in groups_response.json()["groups"]} == {
+        allowed_scope.group_id
+    }
     trend_response = client.get(
         "/v1/prices/trends",
         params={"model_key": "Synthetic item"},
