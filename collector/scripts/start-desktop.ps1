@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$CollectorPython,
     [Parameter(Mandatory = $true)][string]$PaiyaSitePackages,
     [Parameter(Mandatory = $true)][Guid]$PilotRunId,
-    [string]$DataRoot = 'F:\paiya-collector-data'
+    [string]$DataRoot = 'F:\paiya-collector-data',
+    [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,4 +26,8 @@ $env:PYTHONNOUSERSITE = '1'
 $env:PYTHONDONTWRITEBYTECODE = '1'
 $env:PYTHONPATH = (Join-Path $RepositoryRoot 'collector') + [IO.Path]::PathSeparator +
     (Join-Path $RepositoryRoot 'src') + [IO.Path]::PathSeparator + $PaiyaSitePackages
+if ($ValidateOnly) {
+    Write-Output 'Desktop environment is configured; no application or browser was started.'
+    return
+}
 Start-Process -FilePath $PythonWindowed -ArgumentList @('-B', '-m', 'paiya_collector.desktop_gui') -WindowStyle Normal
