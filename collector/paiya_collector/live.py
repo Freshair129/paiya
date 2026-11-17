@@ -97,13 +97,18 @@ def discover_browser(
                 config=config,
                 repository_root=repo_root,
             ) as page:
-                page.navigate(config.group_url)
-                feed = capture_browser_feed(
-                    page,
-                    config=config,
-                    previously_published=previous_keys,
-                    now=current,
-                )
+                try:
+                    page.navigate(config.group_url)
+                    feed = capture_browser_feed(
+                        page,
+                        config=config,
+                        previously_published=previous_keys,
+                        now=current,
+                    )
+                finally:
+                    check_rate_limit = getattr(page, "raise_if_rate_limited", None)
+                    if callable(check_rate_limit):
+                        check_rate_limit()
         except RateLimitPause as pause:
             _write_rate_limit_pause(state_dir, config.group_key, pause, run_id, current)
             raise
