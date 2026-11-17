@@ -36,7 +36,8 @@ test('loads the owner context when opening a detail page directly', async () => 
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(
     url.startsWith('/v1/groups') ? { groups: [], read_context: 'owner' }
-      : { id: 'synthetic', source_post_key: 'synthetic', current_items: [], observations: [] },
+      : url.includes('/timeline') ? { events: [], next_cursor: null }
+        : { id: 'synthetic', source_post_key: 'synthetic', current_items: [], observations: [] },
   ), { status: 200, headers: { 'Content-Type': 'application/json' } })))
   const container = document.createElement('div')
   document.body.append(container)
