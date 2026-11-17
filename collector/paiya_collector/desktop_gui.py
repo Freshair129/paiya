@@ -171,7 +171,7 @@ class CollectorWindow:
                     self.ready = False
                     self.status.set(str(value))
                 elif name == "opened":
-                    self.status.set("เข้าสู่ระบบใน Chrome แล้วกลับมากดตรวจความพร้อม")
+                    self.status.set("เข้าสู่ระบบและเปิดกลุ่มที่กำหนดใน Chrome แล้วกลับมากดตรวจความพร้อม")
                 elif name == "inspected" and isinstance(value, dict):
                     self.ready = bool(value.get("ready"))
                     preview = value.get("preview")
@@ -194,7 +194,9 @@ class CollectorWindow:
                             str(value.get("coverage")), "ไม่ทราบ"
                         )
                         self.status.set(
-                            f"บันทึกแล้ว {value.get('cards_parsed', 0)} โพสต์ · "
+                            f"ตรวจพบ {value.get('cards_parsed', 0)} โพสต์ · "
+                            f"นำเข้า {value.get('ingested', 0)} รายการ · "
+                            f"มีปัญหา {value.get('conflicts', 0)} รายการ · "
                             f"ความครอบคลุม {coverage} เปิดแดชบอร์ดเพื่อดูผล"
                         )
                     elif state == "not_ready":

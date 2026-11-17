@@ -65,8 +65,13 @@ class DesktopController:
             return {"state": "validation_failed"}
         self.operations.verify_grant()
         receipt = self.operations.ingest(UUID(str(report["run_id"])))
+        entries = receipt.get("envelopes")
+        if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+            return {"state": "receipt_unverified"}
         return {
             "state": receipt.get("state", "failed"),
             "cards_parsed": int(report.get("cards_parsed", 0)),
+            "ingested": sum(entry.get("state") == "ingested" for entry in entries),
+            "conflicts": sum(entry.get("state") != "ingested" for entry in entries),
             "coverage": report.get("coverage"),
         }

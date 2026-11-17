@@ -53,7 +53,7 @@ class FakeOps:
 
     def ingest(self, _run_id):
         self.events.append("ingest")
-        return {"state": "done"}
+        return {"state": "done", "envelopes": [{"state": "ingested"}]}
 
 
 def test_one_manual_run_checks_readiness_then_validates_and_ingests():
@@ -116,3 +116,14 @@ def test_changed_preview_stops_before_collection():
     result = DesktopController(ops).run_once(("old post", "synthetic seller"))
     assert result == {"state": "not_ready", "reason": "page_changed"}
     assert ops.events == ["grant", "inspect"]
+
+
+def test_import_result_reports_conflicts_separately_from_successful_envelopes():
+    ops = FakeOps()
+    ops.ingest = lambda _run_id: {
+        "state": "done",
+        "envelopes": [{"state": "ingested"}, {"state": "capture_conflict"}],
+    }
+    result = DesktopController(ops).run_once(("synthetic post", "synthetic seller"))
+    assert result["ingested"] == 1
+    assert result["conflicts"] == 1

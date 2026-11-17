@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -50,7 +52,7 @@ class LocalDesktopOperations:
 
     def __init__(self, *, repository_root: Path, data_root: Path, run_id: UUID) -> None:
         self.repository_root = repository_root.resolve()
-        self.data_root = data_root.resolve()
+        self.data_root = data_root.absolute()
         self.group_config = self.data_root / "owner-group-01.json"
         self.profile = self.data_root / "browser-profiles" / "owner-group-01"
         self.inbox = self.data_root / "live-inbox"
@@ -61,11 +63,88 @@ class LocalDesktopOperations:
     def _config(self):
         return load_group_config(self.group_config, repository_root=self.repository_root)
 
+    def _verify_inbox(self) -> None:
+        from paiya_collector.state import ensure_no_reparse_components
+
+        configured = os.environ.get("PAIYA_COLLECTOR_INBOX")
+        ensure_no_reparse_components(self.inbox, label="desktop inbox")
+        if configured:
+            ensure_no_reparse_components(Path(configured).absolute(), label="configured inbox")
+        if not configured or Path(configured).resolve() != self.inbox.resolve():
+            raise RuntimeError("inbox_mismatch")
+
+    def _retention_matches(self, task: object) -> bool:
+        from paiya_collector.retention_binding import database_identity
+        from paiya_collector.state import ensure_no_reparse_components
+
+        try:
+            binding_path = self.data_root / "b2-ops" / "retention-binding.json"
+            ensure_no_reparse_components(binding_path, label="retention binding")
+            binding = json.loads(binding_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(task, dict)
+                or not isinstance(binding, dict)
+                or binding.get("version") != 1
+            ):
+                return False
+            if not all(
+                task.get(key) is True for key in ("enabled", "last_ok", "owner_matches", "daily")
+            ):
+                return False
+            if task.get("action_count") != 1:
+                return False
+            now = datetime.now(UTC)
+            last = datetime.fromisoformat(str(task["last_run"]).replace("Z", "+00:00"))
+            next_run = datetime.fromisoformat(str(task["next_run"]).replace("Z", "+00:00"))
+            if last.tzinfo is None or next_run.tzinfo is None:
+                return False
+            if not (
+                now - timedelta(hours=48) <= last <= now < next_run <= now + timedelta(hours=48)
+            ):
+                return False
+            if Path(str(task.get("exe", ""))).name.lower() not in ("powershell.exe", "pwsh.exe"):
+                return False
+            args = re.fullmatch(
+                r'-NoProfile -NonInteractive -File "([^"]+)" -Prune',
+                str(task.get("args", "")),
+                re.IGNORECASE,
+            )
+            if args is None:
+                return False
+            runner = Path(binding["runner"]).absolute()
+            task_runner = Path(args.group(1)).absolute()
+            ensure_no_reparse_components(runner, label="retention runner")
+            ensure_no_reparse_components(task_runner, label="scheduled retention runner")
+            if task_runner != runner:
+                return False
+            if hashlib.sha256(runner.read_bytes()).hexdigest() != binding.get("sha256"):
+                return False
+            if database_identity(os.environ["PAIYA_DATABASE_URL"]) != binding.get("database"):
+                return False
+            media = os.environ.get("PAIYA_FIXTURE_MEDIA_ROOT")
+            if not media:
+                return False
+            for key, target in (
+                ("inbox", self.inbox),
+                ("state", self.state),
+                ("media", Path(media)),
+            ):
+                reviewed = Path(binding[key]).absolute()
+                current = target.absolute()
+                ensure_no_reparse_components(reviewed, label="reviewed retention path")
+                ensure_no_reparse_components(current, label="current retention path")
+                if reviewed != current:
+                    return False
+            return True
+        except (OSError, ValueError, TypeError, KeyError):
+            return False
+
     def verify_grant(self) -> None:
         from sqlalchemy import create_engine
 
         from paiya.grants.collector import verify_collector_grant
 
+        self._verify_inbox()
         config = self._config()
         if os.name != "nt":
             raise RuntimeError("retention_task_unavailable")
@@ -77,7 +156,18 @@ class LocalDesktopOperations:
                 "-Command",
                 "$t=Get-ScheduledTask -TaskName 'PaiyaCollectorRetention-owner-group-01' "
                 "-ErrorAction Stop; $i=$t | Get-ScheduledTaskInfo; "
-                "if (-not $t.Settings.Enabled -or $i.LastTaskResult -ne 0) { exit 1 }",
+                "$sid=([Security.Principal.NTAccount]$t.Principal.UserId).Translate("
+                "[Security.Principal.SecurityIdentifier]).Value; "
+                "$daily=@($t.Triggers | Where-Object { $_.Enabled -and "
+                "$_.DaysInterval -eq 1 -and -not $_.EndBoundary }).Count -gt 0; "
+                "@{enabled=[bool]$t.Settings.Enabled; last_ok=($i.LastTaskResult -eq 0); "
+                "owner_matches=($sid -eq "
+                "[Security.Principal.WindowsIdentity]::GetCurrent().User.Value); "
+                "daily=$daily; action_count=@($t.Actions).Count; "
+                "last_run=$i.LastRunTime.ToUniversalTime().ToString('o'); "
+                "next_run=$i.NextRunTime.ToUniversalTime().ToString('o'); "
+                "exe=[string]$t.Actions[0].Execute; "
+                "args=[string]$t.Actions[0].Arguments} | ConvertTo-Json -Compress",
             ],
             capture_output=True,
             timeout=10,
@@ -85,7 +175,11 @@ class LocalDesktopOperations:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             env=collector_environment(self.repository_root),
         )
-        if task_check.returncode:
+        try:
+            task = json.loads(task_check.stdout)
+        except (TypeError, ValueError):
+            task = None
+        if task_check.returncode or not self._retention_matches(task):
             raise RuntimeError("retention_task_unavailable")
         engine = create_engine(os.environ["PAIYA_DATABASE_URL"])
         try:
@@ -166,7 +260,6 @@ class LocalDesktopOperations:
         }
 
     def open_browser(self) -> None:
-        config = self._config()
         script = self.repository_root / "collector" / "scripts" / "open-dedicated-chrome.ps1"
         result = subprocess.run(
             [
@@ -178,8 +271,6 @@ class LocalDesktopOperations:
                 str(script),
                 "-ProfileDir",
                 str(self.profile),
-                "-InitialUrl",
-                config.group_url,
             ],
             capture_output=True,
             text=True,
@@ -194,6 +285,7 @@ class LocalDesktopOperations:
     def collect(self) -> dict[str, object]:
         from paiya_collector.state import ensure_no_reparse_components
 
+        self._verify_inbox()
         receipt = self.inbox / "done" / str(self.run_id) / "result.json"
         claim = self.data_root / "b2-ops" / f"desktop-pilot-{self.run_id}.json"
         ensure_no_reparse_components(claim, label="desktop pilot claim")
@@ -269,6 +361,7 @@ class LocalDesktopOperations:
 
         from paiya.inbox.service import ingest_inbox_run
 
+        self._verify_inbox()
         engine = create_engine(os.environ["PAIYA_DATABASE_URL"])
         try:
             return ingest_inbox_run(engine, run_id)

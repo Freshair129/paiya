@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from paiya_collector.browser_adapter import (
     CHALLENGE_TEXT_MARKERS,
@@ -17,7 +19,7 @@ from paiya_collector.browser_adapter import (
     load_group_config,
 )
 from paiya_collector.browser_runtime import _READ_BODY, attach_dedicated_browser
-from paiya_collector.live import _check_rate_limit_pause
+from paiya_collector.live import _check_rate_limit_pause, _write_rate_limit_pause, group_run_lock
 
 # Read security text first; a bounded local preview lets the owner verify matches.
 _INSPECT = f"""(args) => {{
@@ -60,11 +62,35 @@ _INSPECT = f"""(args) => {{
 def inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object]:
     config = load_group_config(data_root / "owner-group-01.json", repository_root=repository_root)
     state = data_root / "live-state"
+    run_id = str(uuid4())
+    with group_run_lock(state, config.group_key, run_id):
+        _check_rate_limit_pause(
+            state, config.group_key, now=datetime.now(UTC), clear_manual_pause=False
+        )
+        try:
+            return _inspect_page(repository_root=repository_root, data_root=data_root)
+        except RateLimitPause as pause:
+            _write_rate_limit_pause(state, config.group_key, pause, run_id, datetime.now(UTC))
+            raise
+
+
+@contextmanager
+def _checked_page(profile, *, config, repository_root):
+    with attach_dedicated_browser(profile, config=config, repository_root=repository_root) as page:
+        try:
+            yield page
+        finally:
+            page.raise_if_rate_limited()
+
+
+def _inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object]:
+    config = load_group_config(data_root / "owner-group-01.json", repository_root=repository_root)
+    state = data_root / "live-state"
     _check_rate_limit_pause(
         state, config.group_key, now=datetime.now(UTC), clear_manual_pause=False
     )
     profile = data_root / "browser-profiles" / "owner-group-01"
-    with attach_dedicated_browser(profile, config=config, repository_root=repository_root) as page:
+    with _checked_page(profile, config=config, repository_root=repository_root) as page:
         page._guard_navigation()
         url = str(page._page.url)
         page._check_origin(url)
@@ -80,7 +106,6 @@ def inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object]
         revision = page._document_revision
         result = page._page.evaluate(_INSPECT, {"url": url, "selectors": config.selectors})
         page._check_snapshot(url, revision)
-        page.raise_if_rate_limited()
         if not isinstance(result, dict) or not isinstance(result.get("ready"), bool):
             return {"ready": False, "reason": "security_scan_incomplete"}
         if not result["ready"]:
@@ -110,8 +135,17 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = inspect_page(repository_root=args.repository_root, data_root=args.data_root)
-    except RateLimitPause:
-        result = {"ready": False, "reason": "rate_limited"}
+    except RateLimitPause as pause:
+        deadline = pause.retry_after_until
+        print(
+            json.dumps(
+                {
+                    "reason": "http_429",
+                    "retry_after_until": None if deadline is None else deadline.isoformat(),
+                }
+            )
+        )
+        return 2
     except Exception:
         # Do not put source URLs, browser state, credentials or exception details on stdout.
         result = {"ready": False, "reason": "inspection_unavailable"}
