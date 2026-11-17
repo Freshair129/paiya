@@ -191,26 +191,7 @@ class LocalDesktopOperations:
             # A consumed permit may only resume import of its already-published
             # bundle. It can never open the source a second time, even after
             # the Collector's ordinary seven-day state retention expires.
-            bundle = self.inbox / "incoming" / str(self.run_id)
-            ensure_no_reparse_components(bundle, label="desktop pilot bundle")
-            ensure_no_reparse_components(bundle / "READY", label="desktop pilot marker")
-            ensure_no_reparse_components(bundle / "run.json", label="desktop pilot record")
-            if not (bundle / "READY").is_file():
-                return {"already_ingested": True}
-            try:
-                run = json.loads((bundle / "run.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                return {"already_ingested": True}
-            if not isinstance(run, dict) or run.get("run_id") != str(self.run_id):
-                return {"already_ingested": True}
-            return {
-                "replayed": True,
-                "run_id": str(self.run_id),
-                "bundle_path": str(bundle),
-                "coverage": run.get("coverage"),
-                "error_code": run.get("error_code"),
-                "cards_parsed": run.get("cards_parsed", 0),
-            }
+            return self._claimed_report()
         return self._run_collector(
             "paiya_collector.cli",
             [
@@ -229,6 +210,37 @@ class LocalDesktopOperations:
             ],
             timeout=240,
         )
+
+    def pending(self) -> dict[str, object] | None:
+        from paiya_collector.state import ensure_no_reparse_components
+
+        claim = self.data_root / "b2-ops" / f"desktop-pilot-{self.run_id}.json"
+        ensure_no_reparse_components(claim, label="desktop pilot claim")
+        return self._claimed_report() if claim.is_file() else None
+
+    def _claimed_report(self) -> dict[str, object]:
+        from paiya_collector.state import ensure_no_reparse_components
+
+        bundle = self.inbox / "incoming" / str(self.run_id)
+        ensure_no_reparse_components(bundle, label="desktop pilot bundle")
+        ensure_no_reparse_components(bundle / "READY", label="desktop pilot marker")
+        ensure_no_reparse_components(bundle / "run.json", label="desktop pilot record")
+        if not (bundle / "READY").is_file():
+            return {"already_ingested": True}
+        try:
+            run = json.loads((bundle / "run.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"already_ingested": True}
+        if not isinstance(run, dict) or run.get("run_id") != str(self.run_id):
+            return {"already_ingested": True}
+        return {
+            "replayed": True,
+            "run_id": str(self.run_id),
+            "bundle_path": str(bundle),
+            "coverage": run.get("coverage"),
+            "error_code": run.get("error_code"),
+            "cards_parsed": run.get("cards_parsed", 0),
+        }
 
     def validate(self, path: str) -> bool:
         from paiya.inbox.validation import validate_inbox

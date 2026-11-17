@@ -7,14 +7,13 @@ import queue
 import subprocess
 import threading
 import tkinter as tk
-import webbrowser
 from pathlib import Path
 from tkinter import messagebox, ttk
 from uuid import UUID
 
 from paiya_collector.browser_adapter import RateLimitPause
 from paiya_collector.desktop_controller import DesktopController
-from paiya_collector.desktop_live import LocalDesktopOperations
+from paiya_collector.desktop_live import LocalDesktopOperations, collector_environment
 
 REASONS = {
     "challenge_required": "Facebook ขอให้ยืนยันตัวตน กรุณาจัดการด้วยตัวเองใน Chrome",
@@ -40,7 +39,7 @@ class CollectorWindow:
         self.confirmed = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="เปิด Facebook แล้วเข้าสู่ระบบด้วยตัวคุณเอง")
         root.title("ป้ายยา — ควบคุมการเก็บข้อมูล")
-        root.geometry("660x510")
+        root.geometry("660x550")
         root.minsize(560, 450)
         root.protocol("WM_DELETE_WINDOW", self.close)
         frame = ttk.Frame(root, padding=22)
@@ -70,6 +69,8 @@ class CollectorWindow:
         ttk.Label(frame, text="3. เก็บและดูผล", font=("Segoe UI", 11, "bold")).pack(anchor="w")
         self.run_button = ttk.Button(frame, text="เก็บโพสต์หนึ่งรอบ", command=self.run)
         self.run_button.pack(fill="x", pady=(5, 5))
+        self.resume_button = ttk.Button(frame, text="นำเข้ารอบที่เก็บแล้ว", command=self.resume_pending)
+        self.resume_button.pack(fill="x", pady=(0, 5))
         actions = ttk.Frame(frame)
         actions.pack(fill="x", pady=(0, 8))
         ttk.Button(actions, text="เปิดแดชบอร์ด", command=self.open_dashboard).pack(side="left")
@@ -84,6 +85,7 @@ class CollectorWindow:
     def refresh_buttons(self) -> None:
         self.open_button.configure(state="disabled" if self.busy else "normal")
         self.check_button.configure(state="disabled" if self.busy else "normal")
+        self.resume_button.configure(state="disabled" if self.busy else "normal")
         self.run_button.configure(
             state="normal" if not self.busy and self.ready and self.confirmed.get() else "disabled"
         )
@@ -142,6 +144,10 @@ class CollectorWindow:
         self.status.set("กำลังตรวจซ้ำและเก็บข้อมูลหนึ่งรอบ…")
         self.work("completed", self.controller.run_once)
 
+    def resume_pending(self) -> None:
+        self.status.set("กำลังตรวจและนำเข้ารอบที่เก็บไว้ โดยไม่เปิด Facebook…")
+        self.work("completed", self.controller.resume_pending)
+
     def poll(self) -> None:
         try:
             while True:
@@ -173,6 +179,8 @@ class CollectorWindow:
                         self.status.set(REASONS.get(str(value.get("reason")), "ยังตรวจหน้าไม่ครบ"))
                     elif state == "already_run":
                         self.status.set("รอบทดลองที่อนุมัตินี้เคยเริ่มแล้ว จึงไม่เริ่มซ้ำ")
+                    elif state == "no_pending":
+                        self.status.set("ยังไม่มีรอบที่เก็บไว้รอนำเข้า")
                     else:
                         self.status.set("รอบตรวจหยุดหรือข้อมูลไม่ผ่านการตรวจ จึงไม่บันทึกเข้าฐาน")
                     self.confirmed.set(False)
@@ -182,7 +190,11 @@ class CollectorWindow:
         self.root.after(150, self.poll)
 
     def open_dashboard(self) -> None:
-        webbrowser.open("http://127.0.0.1:8766/")
+        subprocess.Popen(
+            ["rundll32.exe", "url.dll,FileProtocolHandler", "http://127.0.0.1:8766/"],
+            env=collector_environment(self.operations.repository_root),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
 
     def show_password(self) -> None:
         helper = self.operations.data_root / "b2-ops" / "Show-PaiyaB2OwnerPassword.ps1"
@@ -200,6 +212,7 @@ class CollectorWindow:
                 text=True,
                 timeout=10,
                 check=True,
+                env=collector_environment(self.operations.repository_root),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]

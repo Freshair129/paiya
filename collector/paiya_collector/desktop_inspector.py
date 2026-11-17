@@ -32,16 +32,21 @@ _INSPECT = f"""(args) => {{
         return {{ready: false, reason: 'challenge_required'}};
     if (logins.some(marker => folded.includes(marker)))
         return {{ready: false, reason: 'session_required'}};
-    const cards = Array.from(document.querySelectorAll(args.selectors.post_card));
+    if (document.querySelector('iframe,frame,object,embed,fencedframe'))
+        return {{ready: false, reason: 'embedded_frame_unverified'}};
+    const visible = node => Boolean(node && node.getClientRects().length &&
+        getComputedStyle(node).visibility === 'visible');
+    const cards = Array.from(document.querySelectorAll(args.selectors.post_card)).filter(visible);
     if (!cards.length) return {{ready: false, reason: 'no_visible_posts'}};
     const oneCard = cards.some(card => ['post_text', 'permalink', 'seller_name'].every(
-        name => card.querySelector(args.selectors[name])));
-    const comments = Array.from(document.querySelectorAll(args.selectors.comment));
+        name => visible(card.querySelector(args.selectors[name]))));
+    const comments = cards.flatMap(card =>
+        Array.from(card.querySelectorAll(args.selectors.comment))).filter(visible);
     const commentFields = comments.some(comment => ['comment_text', 'comment_author'].every(
-        name => comment.querySelector(args.selectors[name])));
-    const sort = Boolean(document.querySelector(args.selectors.sort_indicator));
+        name => visible(comment.querySelector(args.selectors[name]))));
+    const sort = visible(document.querySelector(args.selectors.sort_indicator));
     const image = !args.selectors.image ||
-        cards.some(card => card.querySelector(args.selectors.image));
+        cards.some(card => visible(card.querySelector(args.selectors.image)));
     return {{ready: Boolean(oneCard && commentFields && sort && image),
         reason: oneCard && commentFields && sort && image ? 'ok' : 'selectors_unverified'}};
 }}"""

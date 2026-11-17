@@ -37,6 +37,16 @@ class FakeOps:
         self.events.append("validate")
         return self.valid
 
+    def pending(self):
+        self.events.append("pending")
+        return {
+            "coverage": self.coverage,
+            "error_code": None,
+            "cards_parsed": 1,
+            "run_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "bundle_path": str(Path("synthetic") / "bundle"),
+        }
+
     def ingest(self, _run_id):
         self.events.append("ingest")
         return {"state": "done"}
@@ -88,3 +98,10 @@ def test_replayed_ready_bundle_can_resume_import_without_a_new_round():
     result = DesktopController(ops).run_once()
     assert result["state"] == "done"
     assert ops.events == ["grant", "inspect", "collect", "validate", "grant", "ingest"]
+
+
+def test_pending_import_does_not_open_or_inspect_the_source():
+    ops = FakeOps()
+    result = DesktopController(ops).resume_pending()
+    assert result["state"] == "done"
+    assert ops.events == ["grant", "pending", "validate", "grant", "ingest"]

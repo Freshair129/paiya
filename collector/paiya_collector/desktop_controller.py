@@ -12,6 +12,8 @@ class DesktopOperations(Protocol):
 
     def collect(self) -> dict[str, Any]: ...
 
+    def pending(self) -> dict[str, Any] | None: ...
+
     def validate(self, path: str) -> bool: ...
 
     def ingest(self, run_id: UUID) -> dict[str, Any]: ...
@@ -33,18 +35,32 @@ class DesktopController:
             if not readiness.get("ready"):
                 return {"state": "not_ready", "reason": readiness.get("reason")}
             report = self.operations.collect()
-            if report.get("already_ingested"):
-                return {"state": "already_run"}
-            if report.get("coverage") == "none" or report.get("error_code"):
-                return {"state": "stopped", "reason": report.get("error_code")}
-            if not self.operations.validate(str(report["bundle_path"])):
-                return {"state": "validation_failed"}
-            self.operations.verify_grant()
-            receipt = self.operations.ingest(UUID(str(report["run_id"])))
-            return {
-                "state": receipt.get("state", "failed"),
-                "cards_parsed": int(report.get("cards_parsed", 0)),
-                "coverage": report.get("coverage"),
-            }
+            return self._import_report(report)
         finally:
             self._lock.release()
+
+    def resume_pending(self) -> dict[str, Any]:
+        """Import an existing approved bundle without opening the source."""
+        if not self._lock.acquire(blocking=False):
+            return {"state": "busy"}
+        try:
+            self.operations.verify_grant()
+            report = self.operations.pending()
+            return {"state": "no_pending"} if report is None else self._import_report(report)
+        finally:
+            self._lock.release()
+
+    def _import_report(self, report: dict[str, Any]) -> dict[str, Any]:
+        if report.get("already_ingested"):
+            return {"state": "already_run"}
+        if report.get("coverage") == "none" or report.get("error_code"):
+            return {"state": "stopped", "reason": report.get("error_code")}
+        if not self.operations.validate(str(report["bundle_path"])):
+            return {"state": "validation_failed"}
+        self.operations.verify_grant()
+        receipt = self.operations.ingest(UUID(str(report["run_id"])))
+        return {
+            "state": receipt.get("state", "failed"),
+            "cards_parsed": int(report.get("cards_parsed", 0)),
+            "coverage": report.get("coverage"),
+        }
