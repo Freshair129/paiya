@@ -32,7 +32,26 @@ Push-Location $ProjectRoot
 try {
     $UvRunArgs = @('--project', $ProjectRoot, '--python', '3.12', '--managed-python', '--locked', '--no-dev')
     if ($CollectorArgs.Count -gt 0 -and $CollectorArgs[0] -eq 'discover-browser') {
-        $UvRunArgs += @('--extra', 'browser')
+        $Transport = 'playwright'
+        for ($Index = 1; $Index -lt $CollectorArgs.Count; $Index++) {
+            if ($CollectorArgs[$Index] -ceq '--transport' -and $Index + 1 -lt $CollectorArgs.Count) {
+                $Index++
+                $Transport = $CollectorArgs[$Index]
+            }
+            elseif ($CollectorArgs[$Index].StartsWith('--transport=', [StringComparison]::Ordinal)) {
+                $Transport = $CollectorArgs[$Index].Substring(12)
+            }
+        }
+        # Match argparse's last explicit transport; never pass user text as an extra.
+        if ($Transport -ceq 'mcp') {
+            $UvRunArgs += @('--extra', 'mcp')
+        }
+        else {
+            $UvRunArgs += @('--extra', 'browser')
+        }
+    }
+    elseif ($CollectorArgs.Count -gt 0 -and $CollectorArgs[0] -eq 'discover-mcp-synthetic') {
+        $UvRunArgs += @('--extra', 'mcp')
     }
     & uv run @UvRunArgs python -m paiya_collector.cli @CollectorArgs
     $ExitCode = $LASTEXITCODE

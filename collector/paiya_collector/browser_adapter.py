@@ -57,6 +57,8 @@ class LiveGroupConfig:
     time_budget_seconds: int
     selectors: dict[str, str]
     post_markers_verified: bool
+    synthetic: bool = False
+    asset_origins: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -115,7 +117,9 @@ class VisiblePost:
     reported_comment_count: int | None = None
 
 
-def load_group_config(path: Path, *, repository_root: Path) -> LiveGroupConfig:
+def load_group_config(
+    path: Path, *, repository_root: Path, synthetic: bool = False
+) -> LiveGroupConfig:
     config_path = path.resolve()
     repo_root = repository_root.resolve()
     if config_path.is_relative_to(repo_root):
@@ -142,17 +146,32 @@ def load_group_config(path: Path, *, repository_root: Path) -> LiveGroupConfig:
 
     group_url = _required_text(raw, "group_url")
     parsed_url = urlsplit(group_url)
+    origin_valid = (
+        (
+            parsed_url.scheme == "http"
+            and parsed_url.hostname == "localhost"
+            and parsed_url.port is not None
+            and raw.get("synthetic") is True
+        )
+        if synthetic
+        else (
+            parsed_url.scheme == "https"
+            and parsed_url.hostname in {"facebook.com", "www.facebook.com", "m.facebook.com"}
+            and parsed_url.port is None
+            and raw.get("synthetic") is not True
+        )
+    )
     if (
-        parsed_url.scheme != "https"
-        or parsed_url.hostname not in {"facebook.com", "www.facebook.com", "m.facebook.com"}
+        not origin_valid
         or parsed_url.username is not None
         or parsed_url.password is not None
-        or parsed_url.port is not None
         or not re.fullmatch(r"/groups/[^/]+/?", parsed_url.path)
         or parsed_url.query
         or parsed_url.fragment
     ):
-        raise ValueError("group_url must be a plain HTTPS Facebook group URL")
+        raise ValueError(
+            "group_url must be a plain HTTPS Facebook group URL (or explicit synthetic localhost)"
+        )
 
     grant = raw.get("grant")
     if not isinstance(grant, dict) or grant.get("active") is not True:
@@ -191,6 +210,10 @@ def load_group_config(path: Path, *, repository_root: Path) -> LiveGroupConfig:
     time_budget_seconds = _bounded_int(
         raw, "time_budget_seconds", default=120, minimum=0, maximum=120
     )
+    asset_origins = raw.get("asset_origins", [])
+    from paiya_collector.mcp_policy import RequestPolicy
+
+    RequestPolicy(group_url, synthetic=synthetic, asset_origins=asset_origins)
 
     return LiveGroupConfig(
         group_key=group_key,
@@ -206,6 +229,8 @@ def load_group_config(path: Path, *, repository_root: Path) -> LiveGroupConfig:
         time_budget_seconds=time_budget_seconds,
         selectors=normalized_selectors,
         post_markers_verified=post_markers_verified,
+        synthetic=synthetic,
+        asset_origins=tuple(asset_origins),
     )
 
 
@@ -224,11 +249,23 @@ def classify_page(url: str, body_text: str) -> str:
     return "ok"
 
 
-def _is_configured_group_url(current_url: str, configured_url: str) -> bool:
+def _is_configured_group_url(
+    current_url: str, configured_url: str, *, synthetic: bool = False
+) -> bool:
     allowed_hosts = {"facebook.com", "www.facebook.com", "m.facebook.com"}
     try:
         current = urlsplit(current_url)
         configured = urlsplit(configured_url)
+        if synthetic:
+            return (
+                current.scheme == configured.scheme == "http"
+                and current.hostname == configured.hostname == "localhost"
+                and current.port == configured.port
+                and configured.port is not None
+                and current.username is None
+                and current.password is None
+                and _matches_group_path(current_url, configured_url)
+            )
         if (
             current.scheme != "https"
             or current.hostname not in allowed_hosts
@@ -450,7 +487,7 @@ def capture_browser_feed(
             scroll_step_seconds=0,
         )
 
-    if not _is_configured_group_url(current.url, config.group_url):
+    if not _is_configured_group_url(current.url, config.group_url, synthetic=config.synthetic):
         raise ValueError("visible browser left the configured group")
 
     collected: list[VisiblePost] = []
@@ -479,7 +516,7 @@ def capture_browser_feed(
                 feed_end=True,
                 scroll_step_seconds=0,
             )
-        if not _is_configured_group_url(current.url, config.group_url):
+        if not _is_configured_group_url(current.url, config.group_url, synthetic=config.synthetic):
             raise ValueError("visible browser left the configured group")
 
         if current.sort_label != initial_sort_label:

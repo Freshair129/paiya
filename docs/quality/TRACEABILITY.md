@@ -39,3 +39,13 @@
 4. รีโปนี้เปิดสาธารณะ ใช้ข้อมูลสังเคราะห์สำหรับตัวอย่างและภาพในรีโป บันทึกผล pilot ที่เผยแพร่ได้เป็นตัวเลขรวม พร้อมรหัสอ้างอิงไปยังหลักฐานที่ควบคุมสิทธิ์
 
 [แผนส่งมอบ](../delivery/ROADMAP.md) · [สารบัญเอกสาร](../README.md)
+
+## Collector restricted MCP candidate
+
+Issue #91 approval [6937280955](https://github.com/Freshair129/paiya/issues/91#issuecomment-6937280955) covers implementation and synthetic verification. [ADR 0007](../architecture/decisions/0007-restricted-collector-mcp.md) maps FR-01/02/03/07/13 to synthetic subsets of AT-01/02/04/09. [Policy tests](../../collector/tests/test_mcp_policy.py), [asset relay tests](../../collector/tests/test_mcp_assets.py) and the [native MCP/CLI harness](../../collector/scripts/test-mcp-browser.py) cover exact-origin redirect rejection, receipt-based 429, challenge-before-cards, profile ownership, evidence node identity, credential-free asset hops and READY publication. Run receipts belong to the immutable reviewed candidate/PR. No Facebook pilot or live-profile acceptance is claimed by this row.
+
+MCP startup containment also maps FR-01/13 to AT-01/09 through the [gate test](../../collector/tests/test_mcp_gate.py) and native harness cases for pre-arm navigation, service EOF/forced kill, suspended-child assignment failure and profile reopening. These are Windows synthetic containment checks, not live pilot evidence.
+
+The [compatibility harness](../../collector/scripts/test-mcp-compat.py) extends the same FR-01/02/03/07/13 and AT-01/02/04/09 subsets to existing service-worker profiles, active startup, persistent restart guards, loader/worker-produced 429, same-origin child challenge scanning, gzip/deflate and CORS/CORP delivery. Credential-dependent CDN refusal remains explicit; live profile/CDN/source behavior remains unqualified. Use the latest immutable candidate manifest and receipts rather than superseded r6 results.
+
+AT-04/09 includes open/closed shadow-frame insertion and child navigation races with zero internal card reads and zero image captures, source-JavaScript suspension and rejection of confirmed pending child responses, and pause timeout, unexpected resume and transport-loss refusal. Post-read discard alone does not satisfy challenge-before-cards; debugger pause alone does not freeze parser transitions.

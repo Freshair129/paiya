@@ -55,3 +55,5 @@
 4. เมื่อเพิ่ม ย้าย หรือเปลี่ยนชื่อไฟล์ Markdown ใต้ `docs/` ให้อัปเดตลิงก์ในสารบัญนี้ รัน `python scripts/check_docs.py` จากรากรีโป เมื่อแก้ schema หรือ fixture ใน `fixtures/contract/` ให้รัน `python scripts/check_contracts.py` ด้วย CI ตรวจความครบของสารบัญ ลิงก์ภายใน และรหัสอ้างอิง ส่วนความตรงกันระหว่างคำอธิบายกับพฤติกรรมแอปให้ reviewer ตรวจจากผลทดสอบ
 
 ดูขั้นตอนเปิด Issue, branch และ PR ที่ [คู่มือผู้ร่วมพัฒนา](../CONTRIBUTING.md)
+
+- [ADR 0007: Restricted Collector MCP transport](architecture/decisions/0007-restricted-collector-mcp.md) — implementation candidate, synthetic acceptance and profile/credential boundaries.

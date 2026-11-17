@@ -64,6 +64,12 @@ def _parser() -> argparse.ArgumentParser:
     browser.add_argument("--state-dir", type=Path, required=True)
     browser.add_argument("--run-id", help="UUID idempotency key; reuse it to replay the same run")
     browser.add_argument(
+        "--transport",
+        choices=("playwright", "mcp"),
+        default="playwright",
+        help="browser transport; MCP starts and owns a closed dedicated profile",
+    )
+    browser.add_argument(
         "--confirm-live",
         action="store_true",
         required=True,
@@ -81,6 +87,14 @@ def _parser() -> argparse.ArgumentParser:
             "(default tag: mellum:latest)"
         ),
     )
+
+    synthetic_mcp = commands.add_parser(
+        "discover-mcp-synthetic",
+        help="exercise the guarded MCP pipeline against localhost fixtures",
+    )
+    for option in ("group-config", "profile-dir", "inbox", "state-dir"):
+        synthetic_mcp.add_argument("--" + option, type=Path, required=True)
+    synthetic_mcp.add_argument("--run-id")
 
     prune = commands.add_parser(
         "prune-expired",
@@ -123,7 +137,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "removed_runs": list(removed),
                 "expired_state": expired_state,
             }
-        elif args.command == "discover-browser":
+        elif args.command in {"discover-browser", "discover-mcp-synthetic"}:
+            synthetic = args.command == "discover-mcp-synthetic"
+            attacher = None
+            if synthetic or args.transport == "mcp":
+                from paiya_collector.mcp_client import attach_mcp_browser
+
+                attacher = attach_mcp_browser
             report = discover_browser(
                 args.group_config,
                 profile_dir=args.profile_dir,
@@ -131,7 +151,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 state_dir=args.state_dir,
                 run_id_arg=args.run_id,
                 evidence_agent=evidence_agent,
-                clear_manual_rate_limit_pause=args.clear_manual_rate_limit_pause,
+                clear_manual_rate_limit_pause=getattr(args, "clear_manual_rate_limit_pause", False),
+                browser_attacher=attacher,
+                synthetic=synthetic,
             )
         else:
             report = discover(

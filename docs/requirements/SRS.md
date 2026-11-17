@@ -163,3 +163,20 @@ Phase ถัดไปสร้าง graph เมื่อมีคำถาม�
 ระยะ M ให้ทดสอบ AT-03, AT-05, AT-09 และ AT-11 ถึง AT-14 ตามฟีเจอร์ที่เปิดก่อนทดลองกับข้อมูลผู้ใช้จริง เก็บตัวอย่างจริงเฉพาะในขอบเขตที่ได้รับสิทธิ์ ประเมินเวลาตัดสินใจและการกลับมาใช้ซ้ำตาม [PRD](../product/PRD.md)
 
 ลำดับเปิด Collector ในระยะ B คือ fixture acceptance → ตรวจสิทธิ์และ session isolation ของ adapter/เวอร์ชันที่ตรึง → ทดสอบ browser ด้วยข้อมูลที่มีสิทธิ์ในวงจำกัด → pilot 5 กลุ่มเมื่อครบเงื่อนไข ทดสอบกับ dummy credential ทั้ง Authorization, explicit cookie และ HTTP auth บน origin ที่สองทั้งการเปิดลิงก์และ redirect ต้องตรวจพบค่าหลุดออกไป 0 รายการ ข้อกำหนดนี้ครอบคลุมกรณีที่รายงานใน Scrapling #558 โดยไม่ถือว่ารายงานนั้นได้รับการพิสูจน์กับสแต็กนี้แล้ว วัดการแยกโพสต์ ผู้ขาย ภาพและสถานะเทียบกับการตรวจด้วยมือ บันทึกผลแยกต่อกลุ่ม หาก credentials รั่วข้าม origin หรือผูกผู้ขาย/ขายแล้วผิด ให้ปิด adapter จริงจนแก้และทดสอบ regression ผ่าน
+
+### Collector MCP acceptance subsets
+
+The optional transport in [ADR 0007](../architecture/decisions/0007-restricted-collector-mcp.md) preserves FR-01/02/03/07/13. The following synthetic checks are required for the MCP candidate; they do not complete the corresponding live-pilot acceptance:
+
+- AT-01/09: reject an unmarked, active, aliased or concurrently leased profile without changing its files or terminating an unrelated process; close only the owned process on normal exit and transport loss.
+- AT-02/04: follow the configured group only; 302/307 and child document redirects must not contact another origin; login/challenge must produce no post cards; HTTP 429 must persist a receipt-based deadline or manual pause across restart without a READY publication or checkpoint advance.
+- AT-09: explicit static asset origins must receive no browser credential/referrer canary across each redirect, must not modify the synthetic source cookie, and must not authorize a document/XHR request. An unlisted redirect hop must remain uncontacted; unknown Retry-After, size/time/redirect and MIME limits fail closed.
+- AT-04/09: a same-box image replacement, same-card replacement, same-URL reload or lost transport must never attach a stale image to text. An unrelated text timer outside the card/security/style boundary must not invalidate an otherwise stable snapshot.
+
+Run the [MCP native harness](../../collector/scripts/test-mcp-browser.py) with a new owned runtime directory and the locked MCP extra. Keep synthetic results, native Chrome results and any later live pilot separate.
+
+MCP AT-01/09 additionally requires a canary startup request from a reused synthetic profile to remain uncontacted before guard arming, and requires forced service termination to close only the owned Chrome job tree. Gate shutdown with idle connections must be bounded. The [gate unit test](../../collector/tests/test_mcp_gate.py) and native harness distinguish pre-arm denial, post-arm success, failure cleanup and normal profile reopening.
+
+The restricted MCP candidate must scan same-origin child documents before main-page cards and bind their identities/mutations to capture. Opaque, foreign or unenumerable frames fail closed; child post cards are out of scope. Existing source service-worker registrations may be preserved/reused only behind browser-level loader interception and per-worker guards, reinstalled before persistent-worker restart. Synthetic acceptance includes fresh/persisted/active profiles, delayed re-arm canaries, worker script and worker-generated 429, redirect denial and idle guard loss. Static assets may use bounded gzip/deflate and authentic CORS/CORP headers, but never browser credentials or Set-Cookie state. These subsets do not establish real-source Collector acceptance.
+
+AT-04/09 also requires racing open/closed shadow challenge frames to be rejected before internal card reads or image capture. Discarding a snapshot after such a read is insufficient. The bounded renderer pause, authoritative frame-tree comparison and frame epoch must preserve that order; pause/transport uncertainty must stop the owned session.

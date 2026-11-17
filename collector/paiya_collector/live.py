@@ -43,9 +43,22 @@ def discover_browser(
     repository_root: Path | None = None,
     now: datetime | None = None,
     clear_manual_rate_limit_pause: bool = False,
+    synthetic: bool = False,
 ) -> dict[str, object]:
-    repo_root = repository_root or Path(__file__).resolve().parents[1]
-    config = load_group_config(group_config_path, repository_root=repo_root)
+    repo_root = repository_root or Path(__file__).resolve().parents[2]
+    config = load_group_config(group_config_path, repository_root=repo_root, synthetic=synthetic)
+    if synthetic:
+        # Synthetic mode cannot prune or open an unrelated live data/profile path.
+        root = group_config_path.resolve().parent
+        for path in (profile_dir, inbox_root, state_dir):
+            ensure_no_reparse_components(path, label="synthetic runtime path")
+            if path.resolve() == root or not path.resolve().is_relative_to(root):
+                raise ValueError(
+                    "synthetic runtime paths must be below the synthetic config directory"
+                )
+        marker = profile_dir / "PAIYA_SYNTHETIC_PROFILE"
+        if not marker.is_file() or marker.read_text(encoding="utf-8").strip() != "synthetic-only":
+            raise ValueError("synthetic profile marker is required")
     run_id = str(uuid.UUID(run_id_arg)) if run_id_arg else str(uuid.uuid4())
     current = now or datetime.now(UTC)
     if current.tzinfo is None:
