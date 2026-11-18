@@ -18,7 +18,7 @@ from paiya_collector.browser_adapter import (
     classify_page,
     load_group_config,
 )
-from paiya_collector.browser_runtime import _READ_BODY, attach_dedicated_browser
+from paiya_collector.browser_runtime import _READ_BODY, _http_origin, attach_dedicated_browser
 from paiya_collector.live import _check_rate_limit_pause, _write_rate_limit_pause, group_run_lock
 
 # Read security text first; a bounded local preview lets the owner verify matches.
@@ -83,6 +83,20 @@ def _checked_page(profile, *, config, repository_root):
             page.raise_if_rate_limited()
 
 
+def _embedded_frame_reason(child_urls: list[str], group_url: str) -> str:
+    """Classify stop reasons using URL metadata only."""
+    origin = _http_origin(group_url)
+    # Generic browser errors and foreign URLs cannot establish a Facebook challenge.
+    access = {classify_page(url, "") for url in child_urls if _http_origin(url) == origin}
+    if "challenge_required" in access:
+        return "challenge_required"
+    if "session_required" in access:
+        return "session_required"
+    if any(url.rstrip("/") == "chrome-error://chromewebdata" for url in child_urls):
+        return "embedded_frame_load_error"
+    return "embedded_frame_unverified"
+
+
 def _inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object]:
     config = load_group_config(data_root / "owner-group-01.json", repository_root=repository_root)
     state = data_root / "live-state"
@@ -99,10 +113,11 @@ def _inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object
             return {"ready": False, "reason": access}
         if not _matches_group_path(url, config.group_url):
             return {"ready": False, "reason": "wrong_group"}
-        # The original Collector scans the main document only. A child frame
-        # could contain a challenge that this preflight cannot safely classify.
-        if len(page._page.frames) != 1:
-            return {"ready": False, "reason": "embedded_frame_unverified"}
+        # No child document is inspected, even when Chrome reports a failed load.
+        frames = page._page.frames
+        if len(frames) != 1:
+            child_urls = [frame.url for frame in frames if frame != page._page.main_frame]
+            return {"ready": False, "reason": _embedded_frame_reason(child_urls, config.group_url)}
         revision = page._document_revision
         result = page._page.evaluate(_INSPECT, {"url": url, "selectors": config.selectors})
         page._check_snapshot(url, revision)

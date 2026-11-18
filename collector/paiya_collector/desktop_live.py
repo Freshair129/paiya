@@ -232,6 +232,7 @@ class LocalDesktopOperations:
             "inspection_unavailable",
             "rate_limited",
             "embedded_frame_unverified",
+            "embedded_frame_load_error",
         }
         reason = result.get("reason")
         if (
