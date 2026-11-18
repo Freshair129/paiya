@@ -248,7 +248,7 @@ def test_preserved_sort_navigation_observes_rate_limit(browser) -> None:
         ),
     ],
 )
-def test_challenge_checks_exclude_only_post_and_comment_text(
+def test_challenge_checks_exclude_post_and_comment_text(
     browser, post_text, comment, dialog, outside, expected
 ) -> None:
     from paiya_collector.browser_adapter import classify_page
@@ -259,6 +259,64 @@ def test_challenge_checks_exclude_only_post_and_comment_text(
             f'<div class="comment"><span class="text">{comment}</span></div>{dialog}'
             '<a href="/groups/b1/posts/99">post</a><span class="seller">Synthetic</span>'
             f'</article></form><div id="outside">{outside}</div></body>'
+        )
+        return 200, {"Content-Type": "text/html; charset=utf-8"}, body.encode("utf-8")
+
+    with serve(source) as owner:
+        context = browser.new_context()
+        try:
+            guarded = PlaywrightVisiblePage(context.new_page(), f"{owner}/groups/b1")
+            try:
+                guarded.navigate(f"{owner}/groups/b1")
+                snap = guarded.snapshot(
+                    {
+                        "post_card": "article",
+                        "post_text": ".message",
+                        "comment": ".comment",
+                        "comment_text": ".text",
+                        "comment_author": ".author",
+                        "permalink": "a",
+                        "seller_name": ".seller",
+                    }
+                )
+                assert classify_page(snap.url, snap.body_text) == expected
+                assert len(snap.posts) == (1 if expected == "ok" else 0)
+            finally:
+                guarded.close()
+        finally:
+            context.close()
+
+
+@pytest.mark.parametrize(
+    ("inside_card", "outside", "expected"),
+    [
+        # Feed content in a card, even outside the post-text and comment fields.
+        ("<div>ยืนยันตัวตน</div>", "", "ok"),
+        ("<div><span>Security check</span></div>", "", "ok"),
+        ("<span>ยืน<b>ยันตัวตน</b></span>", "", "ok"),
+        # Security UI is still seen: inside a card, or anywhere outside every card.
+        ('<div role="dialog">ยืนยันตัวตน</div>', "", "challenge_required"),
+        ('<div role="alertdialog">Security check</div>', "", "challenge_required"),
+        ('<div aria-modal="true">ยืนยันตัวตน</div>', "", "challenge_required"),
+        ('<div role="alert">ยืนยันตัวตน</div>', "", "challenge_required"),
+        ('<div aria-live="assertive">Security check</div>', "", "challenge_required"),
+        ("<form>ยืนยันตัวตน</form>", "", "challenge_required"),
+        ("<div>ok</div>", "ยืนยันตัวตน", "challenge_required"),
+        ("<div>ยืนยันตัวตน</div>", "Security check", "challenge_required"),
+        ("<div>ok</div>", '<section role="dialog">ยืนยันตัวตน</section>', "challenge_required"),
+    ],
+)
+def test_challenge_checks_treat_card_text_as_feed_content_but_keep_security_ui(
+    browser, inside_card, outside, expected
+) -> None:
+    from paiya_collector.browser_adapter import classify_page
+
+    def source(path, headers):
+        body = (
+            '<body><article><div class="message">Synthetic</div>'
+            f'<div class="comment"><span class="text">Hi</span></div>{inside_card}'
+            '<a href="/groups/b1/posts/99">post</a><span class="seller">Synthetic</span>'
+            f'</article><div id="outside">{outside}</div></body>'
         )
         return 200, {"Content-Type": "text/html; charset=utf-8"}, body.encode("utf-8")
 

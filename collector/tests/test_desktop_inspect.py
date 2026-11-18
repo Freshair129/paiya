@@ -49,6 +49,30 @@ def test_challenge_stops_before_querying_card_fields():
     assert result == {"ready": False, "reason": "challenge_required"}
 
 
+def _card_with(extra):
+    return (
+        '<div class="sort">Newest</div><article><div class="post-text">Synthetic post</div>'
+        '<a class="permalink" href="/post">Link</a><div class="seller">Synthetic seller</div>'
+        f'{extra}<img style="width: 20px; height: 20px"><div class="comment">'
+        '<span class="comment-text">Hi</span><span class="comment-author">Buyer</span>'
+        "</div></article>"
+    )
+
+
+def test_card_text_outside_post_and_comment_fields_does_not_stop_readiness():
+    result = evaluate(_card_with('<div class="meta">ยืนยันตัวตน</div>'), SELECTORS)
+    assert result == {
+        "ready": True,
+        "reason": "ok",
+        "preview": {"post": "Synthetic post", "seller": "Synthetic seller"},
+    }
+
+
+def test_security_ui_inside_a_card_still_stops_readiness():
+    result = evaluate(_card_with('<div role="dialog">ยืนยันตัวตน</div>'), SELECTORS)
+    assert result == {"ready": False, "reason": "challenge_required"}
+
+
 def test_missing_comment_fields_prevent_readiness():
     result = evaluate(
         '<div class="sort">Newest</div><article><div class="post-text">Item</div>'
