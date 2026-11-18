@@ -138,6 +138,118 @@ def test_frame_readiness_reports_the_stop_reason_without_reading_dom(
     assert "evaluate" not in page.events
 
 
+SANDBOX = "https://www.fbsbx.com/synthetic"
+READY_RESULT = {
+    "ready": True,
+    "reason": "ok",
+    "preview": {"post": "Synthetic post", "seller": "Synthetic seller"},
+}
+
+
+class FakeOwner:
+    def __init__(self, hidden):
+        self.hidden = hidden
+        self.scripts = []
+
+    def evaluate(self, script):
+        self.scripts.append(script)
+        return self.hidden
+
+
+def child(page, url, *, hidden=True, parent="main"):
+    owner = FakeOwner(hidden)
+    frame = SimpleNamespace(
+        url=url,
+        parent_frame=page if parent == "main" else parent,
+        frame_element=lambda: owner,
+    )
+    page.frames.append(frame)
+    return frame, owner
+
+
+def inspect(tmp_path, monkeypatch, page):
+    ops = operations(tmp_path, monkeypatch, page)
+    return inspector.inspect_page(repository_root=ops.repository_root, data_root=ops.data_root)
+
+
+def test_hidden_sandbox_frame_does_not_stop_readiness(tmp_path, monkeypatch):
+    page = FakePage(GROUP, READY_RESULT)
+    _frame, owner = child(page, SANDBOX)
+    result = inspect(tmp_path, monkeypatch, page)
+    assert result["ready"] is True
+    assert page.events.count("evaluate") == 1
+    # Only the owner element in the main document is evaluated, never the child document.
+    assert len(owner.scripts) == 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://www.fbsbx.com/synthetic",
+        "https://fbsbx.com/synthetic",
+        "https://www.fbsbx.com:8443/synthetic",
+        "https://www.fbsbx.com.example.invalid/synthetic",
+        "https://www.fbsbx.com@example.invalid/synthetic",
+        "https://example.invalid/synthetic",
+        "about:blank",
+        "chrome-error://chromewebdata/",
+    ],
+)
+def test_other_child_frames_are_still_stopped_before_dom_read(tmp_path, monkeypatch, url):
+    page = FakePage(GROUP, READY_RESULT)
+    child(page, SANDBOX)
+    child(page, url)
+    result = inspect(tmp_path, monkeypatch, page)
+    assert result["ready"] is False
+    assert result["reason"].startswith("embedded_frame_")
+    assert "evaluate" not in page.events
+
+
+def test_visible_sandbox_frame_is_stopped_before_dom_read(tmp_path, monkeypatch):
+    page = FakePage(GROUP, READY_RESULT)
+    child(page, SANDBOX, hidden=False)
+    assert inspect(tmp_path, monkeypatch, page) == {
+        "ready": False,
+        "reason": "embedded_frame_unverified",
+    }
+    assert "evaluate" not in page.events
+
+
+def test_nested_sandbox_frame_is_stopped_before_dom_read(tmp_path, monkeypatch):
+    page = FakePage(GROUP, READY_RESULT)
+    outer, _owner = child(page, SANDBOX)
+    child(page, SANDBOX, parent=outer)
+    assert inspect(tmp_path, monkeypatch, page)["reason"] == "embedded_frame_unverified"
+    assert "evaluate" not in page.events
+
+
+def test_owner_lookup_failure_is_stopped_before_dom_read(tmp_path, monkeypatch):
+    page = FakePage(GROUP, READY_RESULT)
+
+    def fail():
+        raise RuntimeError("synthetic detached frame")
+
+    page.frames.append(SimpleNamespace(url=SANDBOX, parent_frame=page, frame_element=fail))
+    assert inspect(tmp_path, monkeypatch, page)["reason"] == "embedded_frame_unverified"
+    assert "evaluate" not in page.events
+
+
+@pytest.mark.parametrize(
+    ("url", "reason"),
+    [
+        ("https://www.facebook.com/checkpoint/", "challenge_required"),
+        ("https://www.facebook.com/login/", "session_required"),
+        ("chrome-error://chromewebdata/", "embedded_frame_load_error"),
+    ],
+)
+def test_sandbox_frame_does_not_hide_a_challenge_or_load_error(tmp_path, monkeypatch, url, reason):
+    page = FakePage(GROUP, READY_RESULT)
+    child(page, SANDBOX)
+    child(page, url)
+    assert inspect(tmp_path, monkeypatch, page) == {"ready": False, "reason": reason}
+    assert "evaluate" not in page.events
+
+
 def test_desktop_preserves_frame_load_error_for_the_gui(tmp_path, monkeypatch):
     ops = operations(tmp_path, monkeypatch, FakePage(GROUP, {}))
     monkeypatch.setattr(
