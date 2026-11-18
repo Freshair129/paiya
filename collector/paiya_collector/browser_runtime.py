@@ -39,10 +39,9 @@ _READ_BODY = """({url, selectors}) => {
         const dialog = parent.closest('[role="dialog"],[role="alertdialog"],[aria-modal="true"]');
         const alert = parent.closest('[role="alert"],[aria-live="assertive"],form');
         const securityUi = dialog || (alert && card && card.contains(alert));
-        const content = [selectors.post_text, selectors.comment]
-            .filter(Boolean).map(selector => parent.closest(selector))
-            .some(element => element && card && element !== card && card.contains(element));
-        if (content && !securityUi) continue;
+        // Text inside a recognized post card is feed content. Only a dialog, an alert or a
+        // form inside the card, or anything outside every card, can be security UI.
+        if (card && !securityUi) continue;
         const range = document.createRange();
         range.selectNodeContents(node);
         if (!range.getClientRects().length ||
