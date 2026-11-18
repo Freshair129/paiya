@@ -36,6 +36,20 @@ For a local operator setting up this window: the Collector-only task installed b
 
 For an installed local setup, `scripts/start-desktop.ps1` accepts the existing windowed Python runtime, Collector Python runtime, Paiya site-packages directory and locally assigned pilot run ID. Database and inbox settings are supplied by the owner's local launcher, never as command-line credentials. The desktop window includes a separate action to import an already-published authorized bundle without reopening Facebook.
 
+### B2 entry points from one checkout
+
+The repository-level `scripts/b2/` launchers are that local launcher. They resolve all maintained source (`collector/`, `src/`, `web/`) relative to their own checkout and keep local B2 data outside it. Install the three environments in the checkout once: `uv sync --locked` at the repository root, `.\collector\scripts\setup-browser.ps1`, and the web build (`corepack pnpm install --frozen-lockfile` then `corepack pnpm build`, both run inside `web/`).
+
+| Script | Purpose |
+|---|---|
+| `scripts/b2/Paiya-B2.ps1` | Dot-source it to load the B2 environment. With `-Prune` it runs the Collector and Paiya expiry commands; this is the combined cleanup runner for the scheduled task. |
+| `scripts/b2/Start-B2Dashboard.ps1` | Serves the API and the built web app on loopback (default port 8766). |
+| `scripts/b2/Start-B2Collector.ps1 -PilotRunId <uuid>` | Opens the desktop control window through `collector/scripts/start-desktop.ps1` for one owner-approved run ID. |
+
+The data root is `-DataRoot`, else `PAIYA_B2_DATA_ROOT`, else `F:\paiya-collector-data`. It must exist and be outside the repository. It holds `live-inbox`, `live-state`, `b2-media` and `b2-ops`; `b2-ops\database-credential.xml` is the current Windows user's encrypted PostgreSQL credential. The database is on `127.0.0.1` with role and database name `paiya_b2` on port `55434` unless `PAIYA_B2_DATABASE_NAME` or `PAIYA_B2_DATABASE_PORT` say otherwise. Every script accepts `-ValidateOnly`, which checks the setup and starts nothing; `Paiya-B2.ps1 -ValidateOnly` prints the resolved paths without reading the credential. `open-dedicated-chrome.ps1` still keeps Chrome's temporary files under the default data root.
+
+To move an existing scheduled cleanup to this checkout, first export the current task with `Export-ScheduledTask` and keep a copy of the current `retention-binding.json`; restoring both is the rollback. Then point the task action at `scripts\b2\Paiya-B2.ps1` in the form required above, review the runner, record a new binding with `--confirm-reviewed`, and start the task once so its last result is current. The scheduled action cannot carry an `-ExecutionPolicy` argument, so the PowerShell executable it names must already be allowed to run local scripts.
+
 Set up the optional Python Playwright client once from the repository root:
 
 ```powershell
