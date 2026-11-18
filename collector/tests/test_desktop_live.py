@@ -20,6 +20,7 @@ GROUP = "https://www.facebook.com/groups/synthetic-group"
 class FakePage:
     def __init__(self, url, result):
         self._page = self
+        self.main_frame = self
         self.frames = [self]
         self.url = url
         self.result = result
@@ -105,11 +106,49 @@ def test_another_group_is_stopped_before_dom_read(tmp_path, monkeypatch):
 
 def test_child_frame_is_stopped_before_dom_read(tmp_path, monkeypatch):
     page = FakePage(GROUP, {})
-    page.frames.append(object())
+    page.frames.append(SimpleNamespace(url="about:blank"))
     ops = operations(tmp_path, monkeypatch, page)
     result = inspector.inspect_page(repository_root=ops.repository_root, data_root=ops.data_root)
     assert result == {"ready": False, "reason": "embedded_frame_unverified"}
     assert "evaluate" not in page.events
+
+
+@pytest.mark.parametrize(
+    ("urls", "reason"),
+    [
+        (["chrome-error://chromewebdata/"], "embedded_frame_load_error"),
+        (["https://www.facebook.com/checkpoint/"], "challenge_required"),
+        (
+            ["chrome-error://chromewebdata/", "https://www.facebook.com/security/check"],
+            "challenge_required",
+        ),
+        (["https://www.facebook.com/login/"], "session_required"),
+        (["https://example.invalid/checkpoint/"], "embedded_frame_unverified"),
+        (["about:blank"], "embedded_frame_unverified"),
+    ],
+)
+def test_frame_readiness_reports_the_stop_reason_without_reading_dom(
+    tmp_path, monkeypatch, urls, reason
+):
+    page = FakePage(GROUP, {})
+    page.frames.extend(SimpleNamespace(url=url) for url in urls)
+    ops = operations(tmp_path, monkeypatch, page)
+    result = inspector.inspect_page(repository_root=ops.repository_root, data_root=ops.data_root)
+    assert result == {"ready": False, "reason": reason}
+    assert "evaluate" not in page.events
+
+
+def test_desktop_preserves_frame_load_error_for_the_gui(tmp_path, monkeypatch):
+    ops = operations(tmp_path, monkeypatch, FakePage(GROUP, {}))
+    monkeypatch.setattr(
+        ops,
+        "_run_collector",
+        lambda *_args, **_kwargs: {
+            "ready": False,
+            "reason": "embedded_frame_load_error",
+        },
+    )
+    assert ops.inspect_page() == {"ready": False, "reason": "embedded_frame_load_error"}
 
 
 def test_open_profile_uses_no_shell_or_source_url(tmp_path, monkeypatch):
