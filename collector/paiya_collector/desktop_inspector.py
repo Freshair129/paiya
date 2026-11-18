@@ -21,6 +21,14 @@ from paiya_collector.browser_adapter import (
 from paiya_collector.browser_runtime import _READ_BODY, _http_origin, attach_dedicated_browser
 from paiya_collector.live import _check_rate_limit_pause, _write_rate_limit_pause, group_run_lock
 
+# The only embedded contexts accepted on a group page. Anything else stops the round.
+# Facebook's own sandbox origin, in a non-rendered <iframe> directly under the main document.
+SANDBOX_FRAME_ORIGIN = "https://www.fbsbx.com"
+_SANDBOX_FRAME_ORIGIN = ("https", "www.fbsbx.com", 443)
+# A resource-less <object> of this Facebook-specific type; it creates no child frame.
+INERT_OBJECT_TYPE = "nested/pressable"
+_HIDDEN_IFRAME = "node => node.tagName === 'IFRAME' && node.getClientRects().length === 0"
+
 # Read security text first; a bounded local preview lets the owner verify matches.
 _INSPECT = f"""(args) => {{
     const body = ({_READ_BODY})(args);
@@ -34,7 +42,20 @@ _INSPECT = f"""(args) => {{
         return {{ready: false, reason: 'challenge_required'}};
     if (logins.some(marker => folded.includes(marker)))
         return {{ready: false, reason: 'session_required'}};
-    if (document.querySelector('iframe,frame,object,embed,fencedframe'))
+    const sandbox = {json.dumps(SANDBOX_FRAME_ORIGIN)};
+    const allowedEmbed = node => {{
+        const tag = node.tagName.toLowerCase();
+        // Without data or src, an <object> loads nothing and opens no browsing context.
+        if (tag === 'object') return node.getAttribute('type') === {json.dumps(INERT_OBJECT_TYPE)}
+            && !node.hasAttribute('data') && !node.hasAttribute('src');
+        if (tag !== 'iframe' || node.getClientRects().length) return false;
+        try {{
+            const src = node.getAttribute('src') || '';
+            return new URL(src, document.baseURI).origin === sandbox;
+        }} catch (error) {{ return false; }}
+    }};
+    const embedded = Array.from(document.querySelectorAll('iframe,frame,object,embed,fencedframe'));
+    if (!embedded.every(allowedEmbed))
         return {{ready: false, reason: 'embedded_frame_unverified'}};
     const visible = node => Boolean(node && node.getClientRects().length &&
         getComputedStyle(node).visibility === 'visible');
@@ -97,6 +118,26 @@ def _embedded_frame_reason(child_urls: list[str], group_url: str) -> str:
     return "embedded_frame_unverified"
 
 
+def _only_hidden_sandbox_frames(page) -> bool:
+    """Accept child frames only if each is the hidden Facebook sandbox iframe.
+
+    Uses frame URLs and the owner element in the main document. Child documents are never
+    read. Any doubt or browser error fails closed.
+    """
+    main = page._page.main_frame
+    try:
+        for frame in page._page.frames:
+            if frame == main:
+                continue
+            if frame.parent_frame != main or _http_origin(frame.url) != _SANDBOX_FRAME_ORIGIN:
+                return False
+            if frame.frame_element().evaluate(_HIDDEN_IFRAME) is not True:
+                return False
+    except Exception:
+        return False
+    return True
+
+
 def _inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object]:
     config = load_group_config(data_root / "owner-group-01.json", repository_root=repository_root)
     state = data_root / "live-state"
@@ -115,7 +156,7 @@ def _inspect_page(*, repository_root: Path, data_root: Path) -> dict[str, object
             return {"ready": False, "reason": "wrong_group"}
         # No child document is inspected, even when Chrome reports a failed load.
         frames = page._page.frames
-        if len(frames) != 1:
+        if len(frames) != 1 and not _only_hidden_sandbox_frames(page):
             child_urls = [frame.url for frame in frames if frame != page._page.main_frame]
             return {"ready": False, "reason": _embedded_frame_reason(child_urls, config.group_url)}
         revision = page._document_revision
