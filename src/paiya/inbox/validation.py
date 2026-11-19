@@ -84,6 +84,10 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("bearer_token", re.compile(r"\bbearer\s+[^\s,;\"']+", re.IGNORECASE)),
     ("password", re.compile(r"\bpassword\b", re.IGNORECASE)),
 )
+_BINARY_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = tuple(
+    (name, re.compile(pattern.pattern.encode("ascii"), pattern.flags & ~re.UNICODE))
+    for name, pattern in _SECRET_PATTERNS
+)
 _EXPECTED_TOP_LEVEL = {"run.json", "envelopes", "assets", "READY"}
 _REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 _SECRET_VALUE_PATTERNS = (
@@ -194,7 +198,12 @@ def read_inbox(run_dir: Path) -> tuple[dict[str, object], ValidatedRun | None]:
                 parsed_json[file_path] = document
                 _scan_json(document, _relative_path(root, file_path), add_problem)
         else:
-            _scan_raw_secrets(data, _relative_path(root, file_path), add_problem)
+            _scan_raw_secrets(
+                data,
+                _relative_path(root, file_path),
+                add_problem,
+                binary=file_path.is_relative_to(assets_dir),
+            )
 
     run_id: str | None = None
     run_document: dict[str, Any] | None = None
@@ -705,7 +714,17 @@ def _scan_json(document: Any, file_path: str, add_problem: Any) -> None:
     visit(document, [])
 
 
-def _scan_raw_secrets(data: bytes, path: str, add_problem: Any) -> None:
+def _scan_raw_secrets(data: bytes, path: str, add_problem: Any, *, binary: bool = False) -> None:
+    if binary:
+        # Image bytes are not text. Decoding them with errors="ignore" drops the invalid bytes
+        # and joins their neighbours, which can fabricate a match such as "xs=..." that is not in
+        # the file. Match the ASCII byte patterns against the bytes as they are instead.
+        for pattern_name, pattern in _BINARY_SECRET_PATTERNS:
+            if pattern.search(data):
+                add_problem(
+                    path, "secret_detected", f"Potential secret matched pattern {pattern_name}"
+                )
+        return
     text = data.decode("utf-8", errors="ignore").replace("\x00", "")
     for pattern_name, pattern in _SECRET_PATTERNS:
         if pattern.search(text):
