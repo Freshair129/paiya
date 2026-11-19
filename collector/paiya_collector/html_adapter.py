@@ -413,16 +413,19 @@ def parse_card(
                 "source_time": source_time,
             }
         )
-        evidence.append(
-            _evidence(
-                f"e-comment-{comment_key or len(comments)}",
-                role,
-                "comment_text",
-                comment_text,
-                comment_text,
-                comment_key=comment_key,
+        # The v1 contract ties a comment_text span to a comment by its key. A comment the
+        # source gave no key is kept, but cannot be cited, and no key is invented for it.
+        if comment_key is not None:
+            evidence.append(
+                _evidence(
+                    f"e-comment-{comment_key}",
+                    role,
+                    "comment_text",
+                    comment_text,
+                    comment_text,
+                    comment_key=comment_key,
+                )
             )
-        )
 
     reported_count = _optional_count(node.attrs.get("data-comment-count"))
     if reported_count is None:

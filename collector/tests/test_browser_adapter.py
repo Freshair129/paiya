@@ -239,6 +239,50 @@ def test_visible_post_conversion_preserves_evidence_without_saving_actor_names(
     assert parsed.source_post_key == "fb-post-987654321"
 
 
+def test_comment_without_a_source_key_is_kept_without_comment_evidence(tmp_path: Path) -> None:
+    post = VisiblePost(
+        permalink="https://www.facebook.com/groups/owner-selected/posts/987654322/",
+        post_text="ขาย RTX 3060 12GB ราคา 5,500 บาท",
+        seller_name="ร้านการ์ดจอสมมติ",
+        comments=(
+            VisibleComment(text="จองครับ", author_name="ผู้ซื้อสมมติ", comment_key=None),
+            VisibleComment(text="สนใจครับ", author_name="ผู้ซื้อสมมติ", comment_key="comment-02"),
+        ),
+        pinned=False,
+        suggested=False,
+        scroll_step=0,
+    )
+    feed = feed_from_visible_posts(
+        [post],
+        sort_label="Newest posts",
+        access="ok",
+        session_result="ok",
+        feed_end=True,
+        scroll_step_seconds=0,
+    )
+
+    parsed = parse_card(
+        feed.cards[0],
+        fixture_path=tmp_path,
+        group_key="owner-group-01",
+        identity_scope="owner-group-01",
+        observed_at="2026-11-13T05:00:00Z",
+        image_bytes=feed.image_bytes,
+        allow_local_image_files=feed.allow_local_image_files,
+    )
+
+    comments = parsed.payload["comments"]
+    assert [c["source_comment_key"] for c in comments] == [None, "comment-02"]
+    assert parsed.payload["activity"]["distinct_comments_seen"] == 2
+    comment_evidence = [
+        e for e in parsed.payload["evidence"] if e["source_span"]["field"] == "comment_text"
+    ]
+    assert [e["source_span"]["comment_key"] for e in comment_evidence] == ["comment-02"]
+    # Contract rule: a comment_text span must point at a comment that carries that key.
+    stored_keys = {c["source_comment_key"] for c in comments if c["source_comment_key"]}
+    assert {e["source_span"]["comment_key"] for e in comment_evidence} <= stored_keys
+
+
 def test_failed_browser_image_capture_is_recorded_without_reading_config_directory(
     tmp_path: Path,
 ) -> None:
