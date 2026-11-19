@@ -145,6 +145,17 @@ def run_discovery(
         if stop_reason is not None:
             break
         if feed.forced_stop_reason is not None:
+            # The browser already stopped scrolling, so every card it captured at an
+            # earlier step is still part of this run. Replay those steps before stopping.
+            later_steps = [
+                _scroll_step(card_node.attrs.get("data-scroll-step"), index, page_size)
+                for index, card_node in enumerate(feed.cards)
+                if index not in processed_indices
+            ]
+            reachable = [step for step in later_steps if scroll_steps < step <= scroll_budget]
+            if reachable:
+                scroll_steps = min(reachable)
+                continue
             stop_reason = feed.forced_stop_reason
             break
         if len(processed_indices) == len(feed.cards) and feed.feed_end:

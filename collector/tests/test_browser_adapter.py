@@ -20,6 +20,7 @@ from paiya_collector.browser_adapter import (
     source_post_key_from_permalink,
 )
 from paiya_collector.html_adapter import parse_card
+from paiya_collector.runner import run_discovery
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SYNTHETIC_GRANT_ID = "44444444-5555-4666-8777-888888888888"
@@ -602,6 +603,91 @@ def test_browser_capture_observes_scroll_and_marks_budget_stop_without_sort_clai
     assert feed.forced_stop_reason == "scroll_budget_exhausted"
     assert feed.feed_end is False
     assert page.scroll_calls == 0
+
+
+def _discover_late_cards(tmp_path: Path, *, first_card_step: int, scroll_budget: int):
+    config_dict = valid_config(tmp_path)
+    config_dict.update({"page_size": 5, "scroll_budget": scroll_budget})
+    config_path = write_config(tmp_path / "local" / "owner-group-01.json", config_dict)
+    config = load_group_config(config_path, repository_root=tmp_path / "repo")
+    empty = snapshot((), feed_end=False)
+    # The feed renders only after the page has been scrolled, as after a document reload.
+    rendered = snapshot((post("123456789"), post("123456790")), feed_end=False)
+    page = FakeBrowserPage([empty] * first_card_step + [rendered])
+    feed = capture_browser_feed(
+        page,
+        config=config,
+        previously_published=set(),
+        now=datetime(2026, 11, 13, 5, 0, tzinfo=UTC),
+        monotonic=lambda: 0.0,
+    )
+    result = run_discovery(
+        feed,
+        fixture_path=tmp_path / "synthetic.json",
+        group_key=config.group_key,
+        identity_scope=config.identity_scope,
+        observed_at="2026-11-13T05:00:00Z",
+        page_size=config.page_size,
+        scroll_budget=config.scroll_budget,
+        time_budget_seconds=config.time_budget_seconds,
+        overlap=config.overlap,
+        previously_published=set(),
+        evidence_agent=None,
+    )
+    return page, feed, result
+
+
+@pytest.mark.parametrize("first_card_step", [1, 3])
+def test_posts_rendered_after_scrolling_survive_a_forced_budget_stop(
+    tmp_path: Path, first_card_step: int
+) -> None:
+    page, feed, result = _discover_late_cards(
+        tmp_path, first_card_step=first_card_step, scroll_budget=first_card_step
+    )
+
+    assert page.scroll_calls == first_card_step
+    assert feed.forced_stop_reason == "scroll_budget_exhausted"
+    assert {card.attrs["data-scroll-step"] for card in feed.cards} == {str(first_card_step)}
+    assert result.cards_seen == 2
+    assert result.cards_parsed == 2
+    assert result.error_code is None
+    assert result.stop_reason == "scroll_budget_exhausted"
+    assert result.scroll_steps == first_card_step
+    assert result.coverage == "partial"
+    assert "budget_before_overlap" in result.partial_reasons
+
+
+def test_forced_budget_stop_with_no_posts_still_reports_adapter_error(tmp_path: Path) -> None:
+    config_dict = valid_config(tmp_path)
+    config_dict.update({"scroll_budget": 2})
+    config_path = write_config(tmp_path / "local" / "owner-group-01.json", config_dict)
+    config = load_group_config(config_path, repository_root=tmp_path / "repo")
+    page = FakeBrowserPage([snapshot((), feed_end=False)])
+    feed = capture_browser_feed(
+        page,
+        config=config,
+        previously_published=set(),
+        now=datetime(2026, 11, 13, 5, 0, tzinfo=UTC),
+        monotonic=lambda: 0.0,
+    )
+    result = run_discovery(
+        feed,
+        fixture_path=tmp_path / "synthetic.json",
+        group_key=config.group_key,
+        identity_scope=config.identity_scope,
+        observed_at="2026-11-13T05:00:00Z",
+        page_size=config.page_size,
+        scroll_budget=config.scroll_budget,
+        time_budget_seconds=config.time_budget_seconds,
+        overlap=config.overlap,
+        previously_published=set(),
+        evidence_agent=None,
+    )
+
+    assert result.cards_seen == 0
+    assert result.coverage == "none"
+    assert result.error_code == "adapter_error"
+    assert result.stop_reason == "scroll_budget_exhausted"
 
 
 @pytest.mark.parametrize(
