@@ -1,5 +1,6 @@
 """Offline validation tests for Collector inbox run directories."""
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -198,3 +199,51 @@ def test_untrusted_run_id_is_never_echoed_as_secret(
 
     if SECRET_CANARY in output:
         raise AssertionError("validator output leaked a secret from run.json")
+
+
+def _run_dir_with_asset_bytes(tmp_path: Path, payload: bytes) -> Path:
+    run_dir = tmp_path / VALID_RUN_ID
+    shutil.copytree(fixture_run_dir("valid-complete"), run_dir)
+    data = b"RIFF\x00\x00\x00\x00WEBP" + payload
+    (run_dir / "assets" / "image-001.webp").write_bytes(data)
+    envelope = next((run_dir / "envelopes").glob("*.json"))
+    document = json.loads(envelope.read_text(encoding="utf-8"))
+    asset = next(iter(document["assets"].values()))
+    asset["sha256"] = hashlib.sha256(data).hexdigest()
+    asset["bytes"] = len(data)
+    envelope.write_text(json.dumps(document), encoding="utf-8")
+    return run_dir
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # Invalid UTF-8 or NUL bytes between the words. A lossy text decode would drop them and
+        # join the neighbours into "xs=abcdef", which is not in the file.
+        b"\x01xs\x80=abcdef\x02",
+        b"\x01xs\x00=abcdef\x02",
+        b"\x01 pass\x80word \x02",
+    ],
+)
+def test_binary_asset_is_not_flagged_for_text_that_only_exists_after_lossy_decoding(
+    payload: bytes, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_dir = _run_dir_with_asset_bytes(tmp_path, payload)
+    exit_code, report, _ = run_validator(run_dir, capsys)
+
+    assert report["problems"] == []
+    assert exit_code == 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"\x01 xs=abcdef \x02", b"\x01 Bearer abcdef \x02", b"\x01 password=abc \x02"],
+)
+def test_binary_asset_still_reports_secret_text_that_is_present_in_its_bytes(
+    payload: bytes, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_dir = _run_dir_with_asset_bytes(tmp_path, payload)
+    exit_code, report, _ = run_validator(run_dir, capsys)
+
+    assert exit_code == 1
+    assert {problem["code"] for problem in report["problems"]} == {"secret_detected"}
